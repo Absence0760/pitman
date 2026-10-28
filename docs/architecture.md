@@ -21,7 +21,7 @@ URL (`PUBLIC_API_URL`).
 ## Repo layout
 
 ```
-my-project/
+pitman/
 ├── package.json              Workspace root scripts (dev/build/check)
 ├── pnpm-workspace.yaml       Lists frontend, backend as packages
 ├── docs/                     Architecture, deployment, run-locally, security

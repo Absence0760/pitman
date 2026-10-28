@@ -1,16 +1,16 @@
 {
 	"$schema": "https://json.schemastore.org/package.json",
-	"name": "my-project",
+	"name": "pitman",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "pnpm --filter @my-project/frontend --filter @my-project/backend --parallel run dev",
+		"dev": "pnpm --filter @pitman/frontend --filter @pitman/backend --parallel run dev",
 		"build": "pnpm -r run build",
 		"check": "pnpm -r run check",
 		"test": "pnpm -r run test",
-		"frontend": "pnpm --filter @my-project/frontend",
-		"backend": "pnpm --filter @my-project/backend"
+		"frontend": "pnpm --filter @pitman/frontend",
+		"backend": "pnpm --filter @pitman/backend"
 	},
 	"engines": {
 		"node": ">=22"

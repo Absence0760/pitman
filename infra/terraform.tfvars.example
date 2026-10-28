@@ -16,12 +16,12 @@ route53_zone_id = "Z0000000000000000000"
 
 # GitHub repo in 'owner/name' form. Surfaced via tags; reserved for
 # future use (e.g. cross-account log enrichment).
-github_repo = "your-org/my-project"
+github_repo = "your-org/pitman"
 
 # Project slug used by the cross-project bootstrap when creating the
 # OIDC deploy role. MUST match the slug new-project-account.sh was run
 # with — the deploy role is named `<bootstrap_slug>-deploy`.
-bootstrap_slug = "my-project"
+bootstrap_slug = "pitman"
 
 # Optional: override the base URL used in links. Defaults to https://<domain_name>.
 site_url = ""

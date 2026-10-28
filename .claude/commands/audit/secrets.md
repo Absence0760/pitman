@@ -6,13 +6,13 @@ Audit for secrets / env vars / API keys that should be server-only but are reach
 
 ## Goal
 
-Production secrets live SOPS-encrypted in the **sibling `infra-secrets` repo** (`infra-secrets/my-project/prod.sops.yaml`), NOT in this repo. The trust boundary is clear: anything in `frontend/.env` is `PUBLIC_*` and ships to the client; everything else stays server-only. Find any key that's on the wrong side, confirm no secret (encrypted or not) is committed to this repo, and confirm the infra-secrets file is actually encrypted (no committed plaintext, no leaked history).
+Production secrets live SOPS-encrypted in the **sibling `infra-secrets` repo** (`infra-secrets/pitman/prod.sops.yaml`), NOT in this repo. The trust boundary is clear: anything in `frontend/.env` is `PUBLIC_*` and ships to the client; everything else stays server-only. Find any key that's on the wrong side, confirm no secret (encrypted or not) is committed to this repo, and confirm the infra-secrets file is actually encrypted (no committed plaintext, no leaked history).
 
 ## What to check
 
 1. **No secret files in THIS repo, and the infra-secrets file is encrypted.**
    - This repo must contain NO `*.sops` / `*.sops.yaml` and no committed secret. `git ls-files | grep -E '\.sops(\.yaml)?$'` should return nothing; the `.gitignore` guard (`*.sops`, `*.sops.yaml`) backs this up. Any such file here is a finding — secrets belong in `../infra-secrets/`.
-   - `../infra-secrets/my-project/prod.sops.yaml` (if it exists): confirm it's flat-YAML SOPS — each value is individually `ENC[AES256_GCM,...]` with a `sops:` metadata block (`kms` recipient ARNs, `mac`, `version`). Reject any value that's plaintext at the top level.
+   - `../infra-secrets/pitman/prod.sops.yaml` (if it exists): confirm it's flat-YAML SOPS — each value is individually `ENC[AES256_GCM,...]` with a `sops:` metadata block (`kms` recipient ARNs, `mac`, `version`). Reject any value that's plaintext at the top level.
    - A SOPS file edited without `sops <file>` (e.g. `vim` on the blob) loses encryption integrity — the `mac` won't validate. Flag a confirmed direct edit.
 
 2. **Plaintext SOPS siblings absent from git.**
@@ -34,7 +34,7 @@ Production secrets live SOPS-encrypted in the **sibling `infra-secrets` repo** (
 6. **Backend env hygiene.**
    - `backend/src/` references `process.env.X` directly (per `backend/CLAUDE.md`, no `dotenv` imports reachable from `lambda.ts`).
    - Grep `backend/src/lambda.ts` and everything it transitively imports for `import 'dotenv'` or `dotenv/config`. Any hit is a finding — dotenv must only live in `server.ts`.
-   - `backend/.env.example` lists the env-var names. Compare against `../infra-secrets/my-project/prod.sops.yaml` (run `sops -d ../infra-secrets/my-project/prod.sops.yaml` if you have `kms:Decrypt` and report by name, never by value) — any required key missing from the encrypted file is a Medium; any extra key with no documented purpose is a Low.
+   - `backend/.env.example` lists the env-var names. Compare against `../infra-secrets/pitman/prod.sops.yaml` (run `sops -d ../infra-secrets/pitman/prod.sops.yaml` if you have `kms:Decrypt` and report by name, never by value) — any required key missing from the encrypted file is a Medium; any extra key with no documented purpose is a Low.
 
 7. **GitHub Actions workflow secrets.**
    - `.github/workflows/*.yml`: every `env:` block should reference `${{ secrets.X }}` or `${{ vars.X }}`, never a literal value.

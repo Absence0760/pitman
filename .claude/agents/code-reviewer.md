@@ -50,7 +50,7 @@ Walk these in order. Stop when you have ~5 findings — quality over quantity.
 - **Don't replace pnpm with npm/yarn** — workspace filters assume pnpm.
 - **Don't add a test framework other than vitest.**
 - **Don't introduce AWS access keys** — CI uses GitHub OIDC.
-- **Don't `git add -f` a plaintext secrets file, and don't commit any secret (encrypted or not) to this repo.** Production secrets live SOPS-encrypted in the sibling `infra-secrets` repo (`infra-secrets/my-project/prod.sops.yaml`); local plaintext (`backend/.env`, `infra/terraform.tfvars`, `*.env.development.local`) is transient and gitignored.
+- **Don't `git add -f` a plaintext secrets file, and don't commit any secret (encrypted or not) to this repo.** Production secrets live SOPS-encrypted in the sibling `infra-secrets` repo (`infra-secrets/pitman/prod.sops.yaml`); local plaintext (`backend/.env`, `infra/terraform.tfvars`, `*.env.development.local`) is transient and gitignored.
 - **Every code change updates tests + docs in the same change.** If genuinely untestable (config, infra, pure styling), the diff should say so explicitly.
 
 ### House style (root + global `CLAUDE.md`)

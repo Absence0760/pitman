@@ -22,15 +22,15 @@ All ten `.tf` files plus the encrypted tfvars + template:
 - `security_headers.tf` — CloudFront response-headers policy (CSP, HSTS, frame-options, etc.)
 - `github_oidc.tf` — GitHub OIDC federation + deploy role
 - `budget.tf` — AWS Budgets monthly cap + notifications
-- `../infra-secrets/my-project/prod.sops.yaml` — encrypted variable values (in the sibling infra-secrets repo; consumed via the carlpett/sops Terraform provider)
+- `../infra-secrets/pitman/prod.sops.yaml` — encrypted variable values (in the sibling infra-secrets repo; consumed via the carlpett/sops Terraform provider)
 - `terraform.tfvars.example` — committed template
 
 ## What to check
 
 1. **State backend.** `infra/main.tf` declares `backend "s3"` with:
-   - `bucket = "my-project-tfstate"`, `key = "prod/terraform.tfstate"`, `region = "<aws-region>"`
+   - `bucket = "pitman-tfstate"`, `key = "prod/terraform.tfstate"`, `region = "<aws-region>"`
    - `encrypt = true`
-   - Locking via `dynamodb_table = "my-project-tfstate-lock"` (the legacy DynamoDB pattern — `bin/setup.sh` bootstraps both bucket and lock table together).
+   - Locking via `dynamodb_table = "pitman-tfstate-lock"` (the legacy DynamoDB pattern — `bin/setup.sh` bootstraps both bucket and lock table together).
 
    **Audit calls:**
    - Bucket exists + has versioning + has Public Access Block — confirm via the bootstrap script (not via TF since the bucket pre-exists the state). Flag if `bin/setup.sh` is missing any of these.
@@ -83,10 +83,10 @@ All ten `.tf` files plus the encrypted tfvars + template:
    - CORS: `allow_origins` matches `frontend/.env.example`'s `PUBLIC_API_URL` host (the production frontend domain). No `*` wildcard. No localhost in prod.
    - No `route_settings` with unbounded throttling — at least set `throttling_burst_limit` and `throttling_rate_limit` on `$default` to a sane value (per-second 100ish; per-IP rate limits already exist in `backend/src/rate-limit.ts`, but API Gateway is the global cap).
 
-8. **KMS keys.** The SOPS key (`alias/my-project-sops` in `<aws-region>`) is provisioned out-of-band by `infra-secrets/bin/sops-init.sh` (in the sibling infra-secrets repo), not by this Terraform module. Confirm no `.tf` file tries to manage it (would conflict). DynamoDB SSE-KMS, if added, uses the AWS-managed `aws/dynamodb` key, not the SOPS CMK.
+8. **KMS keys.** The SOPS key (`alias/pitman-sops` in `<aws-region>`) is provisioned out-of-band by `infra-secrets/bin/sops-init.sh` (in the sibling infra-secrets repo), not by this Terraform module. Confirm no `.tf` file tries to manage it (would conflict). DynamoDB SSE-KMS, if added, uses the AWS-managed `aws/dynamodb` key, not the SOPS CMK.
 
 9. **Secrets handling.**
-   - `../infra-secrets/my-project/prod.sops.yaml`: encrypted (verify a `sops:` block + ENC[...] values). No `*.sops` file in THIS repo (secrets belong in infra-secrets); plaintext `infra/terraform.tfvars` is gitignored.
+   - `../infra-secrets/pitman/prod.sops.yaml`: encrypted (verify a `sops:` block + ENC[...] values). No `*.sops` file in THIS repo (secrets belong in infra-secrets); plaintext `infra/terraform.tfvars` is gitignored.
    - Variables holding secrets marked `sensitive = true`.
    - No `output` exposes a sensitive value without `sensitive = true`.
 
@@ -101,7 +101,7 @@ All ten `.tf` files plus the encrypted tfvars + template:
     - It's there because CI legitimately mutates the field.
     - The list is minimal. Anything else is silent-drift-enabling.
 
-13. **Tagging.** Every resource that supports `tags` has them, and the tag set includes at minimum `project = "my-project"`, `managed_by = "terraform"`. Tag-based cost attribution depends on this.
+13. **Tagging.** Every resource that supports `tags` has them, and the tag set includes at minimum `project = "pitman"`, `managed_by = "terraform"`. Tag-based cost attribution depends on this.
 
 14. **No CloudFront / WAF gaps.** The site is static; the realistic attack is volumetric (denial-of-wallet via CloudFront egress + Lambda invocations from a botnet hitting `POST /orders`). Backend already has per-IP rate limiting; API Gateway throttling is the global cap. If a WAF is provisioned anywhere, confirm it's attached to the distribution; if not, flag as a Low (the project is small enough that WAF is over-engineering, but worth surfacing).
 

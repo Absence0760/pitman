@@ -36,7 +36,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project     = "my-project"
+      Project     = "pitman"
       ManagedBy   = "terraform"
       Environment = "production"
     }
@@ -51,7 +51,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project     = "my-project"
+      Project     = "pitman"
       ManagedBy   = "terraform"
       Environment = "production"
     }
@@ -59,5 +59,5 @@ provider "aws" {
 }
 
 locals {
-  project = "my-project"
+  project = "pitman"
 }

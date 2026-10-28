@@ -17,7 +17,7 @@
 #
 # Pre-condition: the bootstrap must have been run for this project (see
 # infra/README.md "Bootstrap workflow"). A stale `var.bootstrap_slug`
-# (default `my-project`) makes the lookup fail at plan time with a clear
+# (default `pitman`) makes the lookup fail at plan time with a clear
 # "role not found" error.
 # ----------------------------------------------------------------------------
 

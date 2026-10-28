@@ -1,4 +1,4 @@
-# my-project
+# pitman
 
 Full-stack web template: static SvelteKit frontend + Hono serverless backend, deployed to AWS via Terraform and GitHub Actions with OIDC federation.
 
@@ -13,7 +13,7 @@ Full-stack web template: static SvelteKit frontend + Hono serverless backend, de
 ## Repo layout
 
 ```
-my-project/
+pitman/
 ├── frontend/       SvelteKit site (vitest)
 ├── backend/        Hono API (local Node server + AWS Lambda entry)
 ├── infra/          Terraform — all AWS resources
@@ -68,13 +68,13 @@ pnpm build                  # build all packages
 pnpm check                  # typecheck all packages
 pnpm test                   # test all packages
 
-pnpm frontend <script>      # shortcut: pnpm --filter @my-project/frontend
-pnpm backend <script>       # shortcut: pnpm --filter @my-project/backend
+pnpm frontend <script>      # shortcut: pnpm --filter @pitman/frontend
+pnpm backend <script>       # shortcut: pnpm --filter @pitman/backend
 ```
 
 ## Customizing this template
 
-1. Find-and-replace `my-project` with your project name across all files
+1. Find-and-replace `pitman` with your project name across all files
 2. Bootstrap the project's secrets slot in the private `infra-secrets` repo:
    `cd ../infra-secrets && ./bin/sops-init.sh --project <your-slug> --region <region>`
    (secrets live there, not in this repo — see `docs/deployment.md`)

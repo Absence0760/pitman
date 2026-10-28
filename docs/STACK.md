@@ -8,7 +8,7 @@ Full-stack web template. Static frontend + serverless backend, deployed to AWS v
 - **backend/** — Hono on AWS Lambda (Function URL). TypeScript, esbuild, tsx for local dev, vitest. Dev port `3001` (`PORT` env override).
 - **infra/** — Terraform: S3 + CloudFront + Lambda + Route 53 + ACM + GitHub OIDC. No package.json.
 
-pnpm monorepo, two workspaces: `@my-project/{frontend,backend}`. Node `>=22`.
+pnpm monorepo, two workspaces: `@pitman/{frontend,backend}`. Node `>=22`.
 
 ## Commands (run from repo root)
 
@@ -29,7 +29,7 @@ Tests live in `frontend/` and `backend/` (vitest).
 Local dev needs **no env setup** — both workspaces ship a committed
 `.env.development` with non-sensitive local defaults, loaded automatically:
 
-1. Find-and-replace `my-project` with your project name across all files (package.json, infra/, scripts/, README.md). See `README.md § Customise the template` for the exact list.
+1. Find-and-replace `pitman` with your project name across all files (package.json, infra/, scripts/, README.md). See `README.md § Customise the template` for the exact list.
 2. `pnpm install`
 3. `pnpm dev`
 

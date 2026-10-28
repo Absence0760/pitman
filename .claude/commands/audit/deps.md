@@ -25,9 +25,9 @@ There's already a scheduled `audit.yml` workflow that runs `pnpm audit` weekly a
 
 1. **`pnpm audit` per workspace.** Run from the repo root:
    ```
-   pnpm -r --filter @my-project/frontend audit --audit-level=moderate
-   pnpm -r --filter @my-project/backend  audit --audit-level=moderate
-   pnpm -r --filter @my-project/studio   audit --audit-level=moderate
+   pnpm -r --filter @pitman/frontend audit --audit-level=moderate
+   pnpm -r --filter @pitman/backend  audit --audit-level=moderate
+   pnpm -r --filter @pitman/studio   audit --audit-level=moderate
    ```
    Collect moderate+ findings. For each: package, version, CVE, fix version, manifest path. The canonical resolution shape in this repo is the cookie override added in commit `79befae` — a transitive that upstream hasn't fixed gets pinned via the root `package.json`'s `pnpm.overrides` block.
 
