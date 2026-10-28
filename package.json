@@ -1,0 +1,18 @@
+{
+	"$schema": "https://json.schemastore.org/package.json",
+	"name": "my-project",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "pnpm --filter @my-project/frontend --filter @my-project/backend --parallel run dev",
+		"build": "pnpm -r run build",
+		"check": "pnpm -r run check",
+		"test": "pnpm -r run test",
+		"frontend": "pnpm --filter @my-project/frontend",
+		"backend": "pnpm --filter @my-project/backend"
+	},
+	"engines": {
+		"node": ">=22"
+	}
+}

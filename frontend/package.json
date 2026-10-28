@@ -1,0 +1,26 @@
+{
+	"$schema": "https://json.schemastore.org/package.json",
+	"name": "@my-project/frontend",
+	"version": "0.0.1",
+	"private": true,
+	"scripts": {
+		"dev": "vite dev --port 7777",
+		"build": "vite build",
+		"preview": "vite preview --port 8888",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test": "vitest run",
+		"test:watch": "vitest"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-static": "3.0.10",
+		"@sveltejs/kit": "2.61.1",
+		"@sveltejs/vite-plugin-svelte": "4.0.4",
+		"svelte": "5.56.0",
+		"svelte-check": "4.4.8",
+		"typescript": "5.5.4",
+		"vite": "5.4.0",
+		"vitest": "^2.1.9"
+	},
+	"type": "module"
+}
