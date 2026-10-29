@@ -5,7 +5,7 @@ import { readNetwork } from '../io/network.js';
 import { readRunoff } from '../io/runoff.js';
 import type { RunoffModule } from '../types.js';
 import { smoothedGushTargets } from './forest.js';
-import { runSfrGroup, type ChildTargetModel, type SfrSimulator } from './sfr.js';
+import { DEFAULT_SFR_OPTIONS, runSfrGroup, sfrConstants, sfrJacobian, sfrUpdate, type ChildTargetModel, type SfrParameters, type SfrSimulator } from './sfr.js';
 
 // Local-only checks against the SFR child blocks of the WRSM2000.ERR run logs
 // under WRSM_REFERENCE_DIR (docs/formats.md §14). Reports counts and
@@ -136,10 +136,11 @@ describe.skipIf(!dir)('SFR children in the WRSM2000.ERR logs under WRSM_REFERENC
 	});
 
 	it('Virgin MAR ≈ the parent’s net runoff depth × the child’s active area', () => {
-		// The replay simulator returns the parent's ncr.MTS depth for any module: the classic and
-		// Sami runoff depths don't depend on area, so this checks the VMAR definition and the
-		// area bookkeeping of runSfrGroup, not the runoff model. The .MTS and the .ERR may come
-		// from different runs (docs/formats.md §14), so this is a report with a loose floor.
+		// The replay simulator returns the parent's ncr.MTS depth (its own runoff over its full
+		// L.002 area, afforestation.md §4.2) for any module, so this checks the VMAR definition
+		// and the area bookkeeping of runSfrGroup, not the runoff model. Sami depths do depend on
+		// the area (OUT ∝ 1/√AREA, R6-F16), which this replay ignores. The .MTS and the .ERR may
+		// come from different runs (docs/formats.md §14), so this is a report with a loose floor.
 		const noTargets: ChildTargetModel = () => ({ targets: null, label: 'none', messages: [] });
 		const errors: number[] = [];
 		let zeroBoth = 0;
@@ -188,5 +189,52 @@ describe.skipIf(!dir)('SFR children in the WRSM2000.ERR logs under WRSM_REFERENC
 		);
 		expect(n).toBeGreaterThan(0);
 		expect(within(10)).toBeGreaterThanOrEqual(n / 2);
+	});
+
+	it('the logged constants and parameter updates replay (R6-F10, R6-F7, R6-F8, R6-F19)', () => {
+		// No runoff model: each logged ERRM/ERRL goes in, the next logged PIA … HGSLA must come out.
+		let constants = 0;
+		let constantsMatched = 0;
+		let steps = 0;
+		let matched = 0;
+		for (const f of all) {
+			const text = readFileSync(join(f.path, readdirSync(f.path).find((n) => n.toUpperCase() === 'WRSM2000.ERR')!), 'latin1').replace(/\r/g, ''); // bare CRs split an ITERATION line; drop them
+			for (const b of text.split('==== CHILD').slice(1)) {
+				const v = (re: RegExp) => Number(re.exec(b)?.[1] ?? Number.NaN);
+				const pmean = v(/^PMean = ([\d.]+)/m);
+				if (!(pmean > 0)) continue;
+				let p: SfrParameters = { PI: v(/^Original PI = ([\d.]+)/m), FF: v(/^Original FF = ([\d.]+)/m), SL: v(/^Original SL = ([\d.]+)/m), ST: v(/^Original ST = ([\d.]+)/m), HGSL: v(/^Original HGSL = ([\d.]+)/m) };
+				const c = sfrConstants(pmean, p.ST);
+				const logged = ['A', 'B', 'C', 'X', 'Y', 'Z'] as const;
+				if (!/^Constant A = /m.test(b)) continue; // a zero-target child prints no constants
+				constants++;
+				if (logged.every((k) => Math.abs(c[k] - v(new RegExp(`^Constant ${k} = (-?[\\d.]+)`, 'm'))) <= 1e-4 + 1e-9)) constantsMatched++; // one unit in the printed 4th decimal
+				const J = sfrJacobian(c, DEFAULT_SFR_OPTIONS.piPerFf);
+				const lines = b.split('\n');
+				let errM = v(/^TPRM = ([\d.]+)/m);
+				let errL = v(/^TPRL = ([\d.]+)/m);
+				let update = 0;
+				for (let i = 0; i < lines.length; i++) {
+					if (!lines[i]!.startsWith('PIA = ')) continue;
+					const g = (name: string) => Number(lines.slice(i, i + 6).find((l) => l.startsWith(`${name} = `))!.split('=')[1]);
+					const next: SfrParameters = { PI: g('PIA'), FF: g('FFA'), SL: g('SLA'), ST: g('STA'), HGSL: g('HGSLA') };
+					const ours = sfrUpdate(p, errM, errL, update, J, DEFAULT_SFR_OPTIONS);
+					steps++;
+					if ((['PI', 'FF', 'SL', 'ST', 'HGSL'] as const).every((k) => Math.abs(ours[k] - next[k]) <= 5e-3)) matched++;
+					p = next;
+					update++;
+					const it = lines.slice(i).find((l) => l.startsWith('ITERATION :'));
+					const em = it && /ERRM: (-?[\d.]+)/.exec(it);
+					const el = it && /ERRL: (-?[\d.]+)/.exec(it);
+					if (!em || !el) break;
+					errM = Number(em[1]);
+					errL = Number(el[1]);
+				}
+			}
+		}
+		console.log(`SFR constants: ${constantsMatched} of ${constants} logged sets within 0.0001 (${pct(constantsMatched, constants)}); updates: ${matched} of ${steps} replayed within 0.005 (${pct(matched, steps)})`);
+		expect(constants).toBeGreaterThan(0);
+		expect(constantsMatched).toBe(constants);
+		expect(matched).toBeGreaterThanOrEqual(0.9 * steps);
 	});
 });

@@ -182,7 +182,7 @@ export interface SfrConstants {
  * inferred from the 19 distinct constant sets the public WR2012
  * `WRSM2000.ERR` logs print (MAP 373–930 mm, ST 90–250 mm): A, B, X, Y
  * depend on MAP alone and C, Z on ST alone, and every printed value is
- * reproduced to its 4 decimals. Observed program output, not code (rule 1).
+ * reproduced within one unit of its 4th decimal. Observed program output, not code (rule 1).
  */
 export function sfrConstants(mapMm: number, stMm: number): SfrConstants {
 	return {
