@@ -539,11 +539,7 @@ export interface RunRunoffOptions {
 	readonly sami?: SamiOptionsInput;
 	/** The Sami parts; default `SAMI_PARTS` (`runoff/wiring.ts`). */
 	readonly samiParts?: SamiRunParts;
-	/**
-	 * Streamflow reductions (afforestation, alien vegetation); default
-	 * `STREAMFLOW_REDUCTIONS` (`runoff/wiring.ts`). `undefined` = not
-	 * modelled: land-use data is ignored with a warning.
-	 */
+	/** Streamflow reductions on a free module (afforestation, alien vegetation); default `STREAMFLOW_REDUCTIONS` (`runoff/wiring.ts`). */
 	readonly reductions?: readonly StreamflowReduction[];
 	/** The SFR parent when this module is a child (R3-N11, OQ-S18), else `null`. Passed to the reductions. */
 	readonly parent?: RunoffModule | null;
@@ -694,9 +690,10 @@ export function simulateModuleRunoff(
  *
  * Rain in mm is `%MAP / 100 × MAP` (TT 690 p.2), month 0 = October
  * (OQ-27). Paved area enters as the impervious fraction AI of each
- * hydrological year (OQ-17 … OQ-19). Streamflow reductions (afforestation,
- * alien vegetation, the SFR mechanism) are the injected `reductions`;
- * without them land-use data is ignored with a warning. Invalid
+ * hydrological year (OQ-17 … OQ-19). Streamflow reductions on a free module
+ * (afforestation, alien vegetation) are `reductions` (default
+ * `STREAMFLOW_REDUCTIONS`, `runoff/wiring.ts`). SFR children are not run
+ * here: `runNetwork` runs a parent with its children (`landuse/sfr.ts`). Invalid
  * parameters, a Sami part's invalid-parameter error, or Sami parts not
  * wired throw a `PitmanRunError` carrying the error messages (R2-2).
  */
@@ -719,14 +716,8 @@ export function runRunoffModule(module: RunoffModule, rainfall: RainfallSeries, 
 	if (messages.some((m) => m.level === 'error')) throw new PitmanRunError(messages);
 
 	const reductions = options.reductions ?? STREAMFLOW_REDUCTIONS;
-	if (!reductions) {
-		const ignored: string[] = [];
-		if (module.afforestation.areaKm2.length > 0) ignored.push('afforestation');
-		if (module.alienVegetation && module.alienVegetation.areaKm2.length > 0) ignored.push('alien vegetation');
-		if (module.sfrChildren && module.sfrChildren.length > 0) ignored.push('SFR children');
-		if (ignored.length > 0) {
-			messages.push({ level: 'warning', module: ref, text: `RU ${module.number}: ${ignored.join(', ')} not modelled yet (land-use round); ignored` });
-		}
+	if (module.sfrChildren && module.sfrChildren.length > 0) {
+		messages.push({ level: 'warning', module: ref, text: `RU ${module.number}: SFR children are run with their parent by the network runner (runNetwork, landuse/sfr.ts); ignored here` });
 	}
 
 	const { startYear, endYear } = options;
@@ -759,7 +750,7 @@ export function runRunoffModule(module: RunoffModule, rainfall: RainfallSeries, 
 
 	const toMm3 = (depthMm: number) => (depthMm * module.areaKm2) / 1000; // TT 690 p.6
 	const unreduced: MonthlySeries = { startYear, values: result.runoffMm.map(toMm3), unit: 'Mm3' };
-	if (!reductions || reductions.length === 0) {
+	if (reductions.length === 0) {
 		return { outflow: unreduced, diagnostics: result.diagnostics, messages, ...(result.sami ? { sami: result.sami } : {}) };
 	}
 

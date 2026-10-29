@@ -4,7 +4,8 @@ import { samiInterflow, samiSoilPass } from '../groundwater/sami/soil.js';
 import type { ReductionInput, StreamflowReduction } from '../landuse/contract.js';
 import type { Monthly12, PitmanParameters, RainfallSeries, RunoffModule, SamiParameters } from '../types.js';
 import { PitmanRunError, runRunoffModule, simulateModuleRunoff, runoffModuleRainfall } from './pitman.js';
-import { SAMI_PARTS, SAMI_PARTS_NOT_WIRED, STREAMFLOW_REDUCTIONS } from './wiring.js';
+import { forestReduction } from '../landuse/forest.js';
+import { ALIEN_REDUCTION_NOT_WIRED, SAMI_PARTS, SAMI_PARTS_NOT_WIRED, SFR_TARGETS, STREAMFLOW_REDUCTIONS } from './wiring.js';
 
 // runRunoffModule with Sami (groundwater model 2) and streamflow reductions.
 // Synthetic fixtures only (issue #3 rule 2).
@@ -68,9 +69,10 @@ const ran: RainfallSeries = {
 const period = { startYear: 2001, endYear: 2003 };
 
 describe('wiring (src/runoff/wiring.ts)', () => {
-	it('ships with Sami not wired and reductions not modelled until integration', () => {
+	it('ships with Sami not wired, afforestation wired and alien vegetation a placeholder until integration', () => {
 		expect(SAMI_PARTS).toBe(SAMI_PARTS_NOT_WIRED);
-		expect(STREAMFLOW_REDUCTIONS).toBeUndefined();
+		expect(STREAMFLOW_REDUCTIONS).toEqual([forestReduction, ALIEN_REDUCTION_NOT_WIRED]);
+		expect(SFR_TARGETS).toEqual({});
 		expect(() => SAMI_PARTS_NOT_WIRED.aquiferInit({} as never)).toThrow(/not wired/);
 	});
 
@@ -157,19 +159,18 @@ describe('runRunoffModule with Sami', () => {
 describe('runRunoffModule with streamflow reductions', () => {
 	const afforested = module({
 		groundwaterModel: 0,
-		afforestation: { algorithm: 1, algorithmInFile: true, areaKm2: [{ year: 2000, value: 5 }] },
-		sfrChildren: [9]
+		afforestation: { algorithm: 1, algorithmInFile: true, areaKm2: [{ year: 2000, value: 5 }] }
 	});
 
-	it('subtracts each reduction from the unreduced runoff and drops the "not modelled" warning', () => {
+	it('subtracts each injected reduction from the unreduced runoff, replacing the wired ones', () => {
 		const seen: ReductionInput[] = [];
 		const tenth: StreamflowReduction = (inp) => (seen.push(inp), { reductionMm3: { ...inp.unreducedRunoffMm3, values: inp.unreducedRunoffMm3.values.map((v) => 0.1 * Math.max(0, v)) }, messages: [] });
 		const fixed: StreamflowReduction = (inp) => ({ reductionMm3: { ...inp.unreducedRunoffMm3, values: inp.unreducedRunoffMm3.values.map(() => 0.001) }, virginMarMm3: 1.25, messages: [{ level: 'info', text: 'fixed' }] });
 		const parent = module({ number: 1 });
 		const base = runRunoffModule(afforested, ran, period);
 		const result = runRunoffModule(afforested, ran, { ...period, reductions: [tenth, fixed], parent, mode: { kind: 'presentDay', year: 2002 } });
-		expect(base.messages.some((m) => /not modelled yet/.test(m.text))).toBe(true);
-		expect(result.messages.some((m) => /not modelled yet/.test(m.text))).toBe(false);
+		expect(base.messages.some((m) => /R6-F3/.test(m.text))).toBe(true); // the wired forestReduction
+		expect(result.messages.some((m) => /R6-F3/.test(m.text))).toBe(false);
 		expect(result.messages.find((m) => m.text === 'fixed')).toMatchObject({ module: { type: 'RU', number: 4 } });
 		expect(seen[0]).toMatchObject({ module: afforested, parent, mode: { kind: 'presentDay', year: 2002 }, startYear: 2001, endYear: 2003 });
 		expect(seen[0]!.unreducedRunoffMm3.values).toEqual(base.outflow.values);
@@ -199,7 +200,7 @@ describe('runRunoffModule with streamflow reductions', () => {
 		expect(() => runRunoffModule(afforested, ran, { ...period, reductions: [negative] })).toThrow(/finite and ≥ 0/);
 	});
 
-	it('an empty list means modelled with nothing to reduce: outflow unchanged, no warning', () => {
+	it('an empty list applies nothing: outflow unchanged, no warning', () => {
 		const base = runRunoffModule(afforested, ran, period);
 		const none = runRunoffModule(afforested, ran, { ...period, reductions: [] });
 		expect(none.outflow.values).toEqual(base.outflow.values);
@@ -218,3 +219,4 @@ describe('simulateModuleRunoff (the re-run hook for land-use models)', () => {
 		}
 	});
 });
+

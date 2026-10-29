@@ -9,6 +9,8 @@
 
 import type { SamiOptionsInput, SamiRunParts } from '../groundwater/sami/index.js';
 import type { StreamflowReduction } from '../landuse/contract.js';
+import type { ChildTargetModel, SfrOptions } from '../landuse/sfr.js';
+import { SFR_TARGETS } from '../runoff/wiring.js';
 import { PitmanRunError, runRunoffModule, type PitmanOptions } from '../runoff/pitman.js';
 import type {
 	MonthlySeries,
@@ -22,6 +24,7 @@ import type {
 import { definedFlowSeries, monthCount, zeroSeries, type ModuleRunContext, type ModuleRunResult, type ModuleSimulators, type RouteFlows } from './contract.js';
 import { applyRunMode } from './modes.js';
 import { definedFileOn, lookupFile, moduleLabel, placedLabel, placeModules, type PlacedModule } from './modules.js';
+import { runGroup, sfrParents, type PlacedGroup } from './sfr-groups.js';
 import { NetworkError, validateNetwork } from './validate.js';
 
 /** What `runNetwork` needs besides the bundle and the mode. */
@@ -33,8 +36,14 @@ export interface RunNetworkOptions {
 	readonly samiParts?: SamiRunParts;
 	/** The Sami composition's switches for every Sami module (OQ-S2 … S11, R6-R3). */
 	readonly sami?: SamiOptionsInput;
-	/** Streamflow reductions for every runoff module; default `STREAMFLOW_REDUCTIONS` (`runoff/wiring.ts`). */
+	/** Streamflow reductions for every **free** runoff module (not in an SFR group); default `STREAMFLOW_REDUCTIONS` (`runoff/wiring.ts`). */
 	readonly reductions?: readonly StreamflowReduction[];
+	/**
+	 * The SFR parent/child mechanism (`landuse/sfr.ts`): calibration options
+	 * and the child target models. Targets default to `SFR_TARGETS`
+	 * (`runoff/wiring.ts`; afforestation is `runSfrGroup`'s own default).
+	 */
+	readonly sfr?: { readonly options?: Partial<SfrOptions>; readonly targets?: { readonly forest?: ChildTargetModel; readonly alien?: ChildTargetModel } };
 }
 
 /**
@@ -65,6 +74,24 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 	const runoff: Record<number, RunoffDiagnostics> = {};
 	const virginMarMm3: Record<number, number> = {};
 	const parents = sfrParents(bundle);
+	const groups = new Map<number, PlacedGroup>();
+	const runoffOptions = {
+		...(options.pitman ? { pitman: options.pitman } : {}),
+		...(options.sami ? { sami: options.sami } : {}),
+		...(options.samiParts ? { samiParts: options.samiParts } : {})
+	};
+	/** A parent's group, run the first time the parent or any child is met (TT 689 p.135), then cached. */
+	const groupOf = (p: PlacedModule, parent: RunoffModule): PlacedGroup => {
+		let g = groups.get(parent.number);
+		if (!g) {
+			const targets = { ...SFR_TARGETS, ...options.sfr?.targets };
+			g = guard(p, () => runGroup(bundle, parent, mode, startYear, endYear, runoffOptions, { ...options.sfr, targets }));
+			groups.set(parent.number, g);
+			messages.push(...g.result.messages);
+			Object.assign(virginMarMm3, g.result.virginMarMm3);
+		}
+		return g;
+	};
 	const ctx: ModuleRunContext = {
 		mode,
 		startYear,
@@ -95,10 +122,18 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 		}
 		switch (module.kind) {
 			case 'RU': {
-				const result = runRunoff(p, module, bundle, mode, options, parents.get(module.number) ?? null);
-				messages.push(...result.messages);
+				// An SFR parent or child runs with its group (R6-F…, docs/theory/afforestation.md); a free module on its own, with the reductions.
+				const parent = (module.sfrChildren?.length ?? 0) > 0 ? module : parents.get(module.number);
+				let result: { outflow: MonthlySeries; diagnostics: RunoffDiagnostics };
+				if (parent) {
+					result = groupOf(p, parent).members.get(module.number)!;
+				} else {
+					const free = runRunoff(p, module, bundle, mode, options);
+					messages.push(...free.messages);
+					if (free.virginMarMm3 !== undefined) virginMarMm3[module.number] = free.virginMarMm3;
+					result = free;
+				}
 				runoff[module.number] = result.diagnostics;
-				if (result.virginMarMm3 !== undefined) virginMarMm3[module.number] = result.virginMarMm3;
 				const inflow = module.inflowRoute ? flows.get(module.inflowRoute)!.values : undefined;
 				const total = result.outflow.values.map((v, i) => v + (inflow ? inflow[i]! : 0));
 				for (const o of module.outflows) {
@@ -159,21 +194,7 @@ function series(startYear: number, values: number[]): MonthlySeries {
 	return { startYear, values, unit: 'Mm3' };
 }
 
-/**
- * Each SFR child's parent (L.038–L.039 on the parent; a child doesn't name
- * it, TT 691 §7.4.2). The first parent in module order wins when two claim
- * one child (validation warns).
- */
-function sfrParents(bundle: NetworkBundle): Map<number, RunoffModule> {
-	const parents = new Map<number, RunoffModule>();
-	for (const m of bundle.modules) {
-		if (m.kind !== 'RU') continue;
-		for (const child of m.sfrChildren ?? []) if (!parents.has(child)) parents.set(child, m);
-	}
-	return parents;
-}
-
-function runRunoff(p: PlacedModule, module: RunoffModule, bundle: NetworkBundle, mode: RunMode, options: RunNetworkOptions, parent: RunoffModule | null) {
+function runRunoff(p: PlacedModule, module: RunoffModule, bundle: NetworkBundle, mode: RunMode, options: RunNetworkOptions) {
 	const { startYear, endYear } = bundle.network;
 	const messages: RunMessage[] = [];
 	const applied = applyRunMode(module, mode);
@@ -187,7 +208,7 @@ function runRunoff(p: PlacedModule, module: RunoffModule, bundle: NetworkBundle,
 		startYear,
 		endYear,
 		mode,
-		parent: parent ? applyRunMode(parent, mode) : null,
+		parent: null,
 		...(options.pitman ? { pitman: options.pitman } : {}),
 		...(options.sami ? { sami: options.sami } : {}),
 		...(options.samiParts ? { samiParts: options.samiParts } : {}),

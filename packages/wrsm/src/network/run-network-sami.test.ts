@@ -37,32 +37,6 @@ describe('runNetwork with Sami modules', () => {
 });
 
 describe('runNetwork with streamflow reductions', () => {
-	const MODES: readonly RunMode[] = [{ kind: 'historical' }, { kind: 'presentDay', year: 1994 }, { kind: 'natural' }];
-
-	it.each(MODES.map((m) => [m.kind, m] as const))('gives each child its parent, in the run mode, and collects virgin MAR (%s)', (_kind, mode) => {
-		const bundle = syntheticBundle();
-		// RU3 is the SFR parent of RU1 (validation only warns that RU1 doesn't drain to the zero sink).
-		const parent = { ...ru(bundle, 3), sfrChildren: [1], paved: { fraction: [{ year: 1990, value: 0.1 }] } };
-		const withSfr = replace(bundle, parent);
-		const seen: ReductionInput[] = [];
-		const record: StreamflowReduction = (inp) => {
-			seen.push(inp);
-			return {
-				reductionMm3: { ...inp.unreducedRunoffMm3, values: inp.unreducedRunoffMm3.values.map(() => 0) },
-				...(inp.parent ? { virginMarMm3: 2.5 } : {}),
-				messages: []
-			};
-		};
-		const result = runNetwork(withSfr, mode, { ...fakeSimulators(), reductions: [record] });
-		const child = seen.find((s) => s.module.number === 1)!;
-		expect(child.parent?.number).toBe(3);
-		expect(child.parent?.paved?.fraction).toEqual(mode.kind === 'natural' ? [] : mode.kind === 'presentDay' ? [{ year: 1994, value: 0.1 }] : parent.paved.fraction);
-		expect(child.mode).toEqual(mode);
-		expect(seen.find((s) => s.module.number === 3)!.parent).toBeNull();
-		expect(result.virginMarMm3).toEqual({ 1: 2.5 });
-		expect(result.messages.some((m) => /not modelled yet/.test(m.text))).toBe(false);
-	});
-
 	it('reduces the routes the module feeds', () => {
 		const bundle = syntheticBundle();
 		const half: StreamflowReduction = (inp) => ({ reductionMm3: { ...inp.unreducedRunoffMm3, values: inp.unreducedRunoffMm3.values.map((v) => 0.5 * Math.max(0, v)) }, messages: [] });
@@ -73,5 +47,48 @@ describe('runNetwork with streamflow reductions', () => {
 			expect(v).toBeCloseTo(q - 0.5 * Math.max(0, q), 12);
 		});
 		expect(base.virginMarMm3).toBeUndefined();
+	});
+});
+
+describe('runNetwork with SFR groups (landuse/sfr.ts)', () => {
+	const MODES: readonly RunMode[] = [{ kind: 'historical' }, { kind: 'presentDay', year: 1994 }, { kind: 'natural' }];
+	const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
+
+	/** RU3 is the parent of RU1 (listed before it, at position 1), whose afforested area grows from 10 to 20 km². */
+	function sfrBundle(): NetworkBundle {
+		const bundle = syntheticBundle();
+		const parent: RunoffModule = { ...ru(bundle, 3), sfrChildren: [1] };
+		const child: RunoffModule = { ...ru(bundle, 1), afforestation: { algorithm: 4, algorithmInFile: true, areaKm2: [{ year: 1990, value: 10 }, { year: 1999, value: 20 }] } };
+		return replace(bundle, parent, child);
+	}
+
+	it.each(MODES.map((m) => [m.kind, m] as const))('runs the group once, puts child and parent flows on their routes, and collects virgin MAR (%s)', (_kind, mode) => {
+		const calls: number[] = [];
+		const virginOnly = ({ child }: { child: RunoffModule }) => (calls.push(child.number), { targets: null, label: 'test', messages: [] });
+		const result = runNetwork(sfrBundle(), mode, { ...fakeSimulators(), sfr: { targets: { forest: virginOnly } } });
+		const child = result.runoff![1]!;
+		const parent = result.runoff![3]!;
+		// RU1's route 1 (into RU2) carries the child's flow; RU3's route 3 its own plus the child's.
+		expect(result.routeFlows[1]!.values).toEqual(child.netRunoff!.values);
+		expect(result.routeFlows[3]!.values).toEqual(parent.netRunoff!.values);
+		if (mode.kind === 'natural') {
+			expect(calls).toEqual([]); // TT 689 p.13: children have no effect
+			expect(sum(child.netRunoff!.values)).toBe(0);
+			expect(result.virginMarMm3).toBeUndefined();
+		} else {
+			expect(calls).toEqual([1]);
+			expect(sum(child.netRunoff!.values)).toBeGreaterThan(0);
+			expect(result.virginMarMm3?.[1]).toBeGreaterThan(0);
+		}
+	});
+
+	it('takes the child area out of the parent and weights the parent depths by area (TT 689 p.140, pp.13–14)', () => {
+		const bundle = sfrBundle();
+		const free = runNetwork(syntheticBundle(), { kind: 'historical' }, fakeSimulators());
+		const result = runNetwork(bundle, { kind: 'historical' }, { ...fakeSimulators(), sfr: { targets: { forest: () => ({ targets: null, label: 'test', messages: [] }) } } });
+		// A virgin child inherits the parent's climate and parameters, so the group's total equals the parent run on its full area.
+		result.routeFlows[3]!.values.forEach((v, i) => expect(v).toBeCloseTo(free.routeFlows[3]!.values[i]!, 9));
+		const s = result.runoff![3]!.soilMoistureMm!.values;
+		s.forEach((v, i) => expect(v).toBeCloseTo(free.runoff![3]!.soilMoistureMm!.values[i]!, 9));
 	});
 });

@@ -470,7 +470,7 @@ describe('runRunoffModule guards', () => {
 		}
 	});
 
-	it('warns about and ignores afforestation, alien vegetation and SFR children', () => {
+	it('passes land use to the wired reductions and leaves SFR children to the network runner', () => {
 		const base = runRunoffModule(module(), ran, period);
 		const land = runRunoffModule(
 			module({
@@ -481,9 +481,13 @@ describe('runRunoffModule guards', () => {
 			ran,
 			period
 		);
-		expect(land.messages).toHaveLength(1);
-		expect(land.messages[0]).toMatchObject({ level: 'warning' });
-		expect(land.messages[0]!.text).toMatch(/afforestation, alien vegetation, SFR children/);
+		const texts = land.messages.map((m) => m.text);
+		expect(land.messages.every((m) => m.level === 'warning')).toBe(true);
+		expect(texts).toEqual([
+			expect.stringMatching(/SFR children are run with their parent by the network runner/),
+			expect.stringMatching(/CSIR afforestation in a free module is not modelled.*R6-F3/),
+			expect.stringMatching(/alien vegetation not modelled yet/)
+		]);
 		expect(land.outflow.values).toEqual(base.outflow.values);
 	});
 

@@ -3,20 +3,23 @@
  *
  * `runRunoffModule` (and through it `runNetwork` and `run`) uses these
  * defaults when its caller injects nothing. At integration the orchestrator
- * swaps the two marked lines below for the real parts:
+ * swaps the marked lines below for the real parts:
  *
  *   SAMI_PARTS           → { soilPass: samiSoilPass, interflow: samiInterflow,
  *                            aquiferInit: samiAquiferInit, aquiferStep: samiAquiferStep,
  *                            makeAquiferStep: makeSamiAquiferStep }
  *                          (`groundwater/sami/soil.ts`, agent 6.1; `aquifer.ts`, agent 6.2)
- *   STREAMFLOW_REDUCTIONS → [afforestation, alienVegetation]
+ *   STREAMFLOW_REDUCTIONS → [forestReduction (wired), alien free-module reduction]
  *                          (`landuse/forest.ts`, agent 6.3; `landuse/alien.ts`, agent 6.4)
+ *   SFR_TARGETS          → { alien: <alien ChildTargetModel> } (agent 6.4)
  *
  * Nothing else needs to change: tests that want fakes inject their own.
  */
 
 import type { SamiRunParts } from '../groundwater/sami/index.js';
 import type { StreamflowReduction } from '../landuse/contract.js';
+import { forestReduction } from '../landuse/forest.js';
+import type { ChildTargetModel } from '../landuse/sfr.js';
 
 function notWired(part: string): never {
 	throw new Error(`Sami ${part} is not wired yet (Round 6 integration: src/runoff/wiring.ts)`);
@@ -39,10 +42,23 @@ export const SAMI_PARTS_NOT_WIRED: SamiRunParts = Object.freeze({
 /** The Sami parts a run uses when none are injected. */
 export const SAMI_PARTS: SamiRunParts = SAMI_PARTS_NOT_WIRED;
 
-// WIRING POINT (reductions): replace `undefined` with [afforestation, alienVegetation].
 /**
- * The streamflow reductions a run applies when none are injected.
- * `undefined` means "not modelled yet": land-use data is ignored with a
- * warning, as before Round 6. An array (even empty) means they are modelled.
+ * Placeholder for the free-module alien-vegetation reduction (agent 6.4):
+ * no reduction, and a warning when the module has alien vegetation in a mode
+ * that keeps it.
  */
-export const STREAMFLOW_REDUCTIONS: readonly StreamflowReduction[] | undefined = undefined;
+export const ALIEN_REDUCTION_NOT_WIRED: StreamflowReduction = ({ module, mode, unreducedRunoffMm3 }) => ({
+	reductionMm3: { ...unreducedRunoffMm3, values: unreducedRunoffMm3.values.map(() => 0) },
+	messages:
+		mode.kind !== 'natural' && module.alienVegetation && module.alienVegetation.areaKm2.length > 0
+			? [{ level: 'warning', module: { type: 'RU', number: module.number }, text: `RU ${module.number}: alien vegetation not modelled yet (Round 6 integration); ignored` }]
+			: []
+});
+
+// WIRING POINT (reductions): replace ALIEN_REDUCTION_NOT_WIRED with agent 6.4's free-module reduction.
+/** The streamflow reductions a free module (not in an SFR group) gets when none are injected. */
+export const STREAMFLOW_REDUCTIONS: readonly StreamflowReduction[] = [forestReduction, ALIEN_REDUCTION_NOT_WIRED];
+
+// WIRING POINT (SFR alien children): add `alien: <6.4's ChildTargetModel>`.
+/** Child target models for the SFR mechanism (`runSfrGroup`); afforestation defaults inside `landuse/sfr.ts`. */
+export const SFR_TARGETS: { readonly forest?: ChildTargetModel; readonly alien?: ChildTargetModel } = {};
