@@ -19,6 +19,7 @@
 	import { saveFileName, saveZip } from '#lib/network/save.js';
 	import { readSources, sourceName, type SourceFile } from '#lib/network/sources.js';
 	import { browserIndexedDB, forgetWorkingCopy, loadWorkingCopy, storeWorkingCopy } from '#lib/network/storage.js';
+	import ExtendPanel from '#lib/extend/ExtendPanel.svelte';
 	import Results from '#lib/results/Results.svelte';
 
 	type Phase = 'empty' | 'reading' | 'choose' | 'invalid' | 'loaded';
@@ -127,6 +128,16 @@
 		}
 	}
 
+	/** A step changed the working copy (the CHIRPS extension): keep it, and drop results that no longer match it. */
+	function updateBundle(next: LoadedBundle, message: string) {
+		bundle = next;
+		outcomes = [];
+		runState = 'idle';
+		runError = undefined;
+		status = message;
+		void keepWorkingCopy();
+	}
+
 	async function forget() {
 		controller?.abort();
 		const factory = browserIndexedDB();
@@ -230,7 +241,10 @@
 			and 691). Load a WRSM2000 network, run it, and save it back as files WRSM2000 opens.
 		</p>
 		<ul class="promises">
-			<li><strong>Your files stay in your browser.</strong> Nothing is uploaded: the network is read, run and saved on this computer.</li>
+			<li>
+				<strong>Your files stay in your browser.</strong> No network file is uploaded: the network is read, run and saved on this computer. Extending rainfall
+				with CHIRPS sends only the boundary of the area you upload.
+			</li>
 			<li>
 				The browser keeps a <strong>working copy</strong> so a reload picks up where you were. Your own copy is the zip you save; you can forget the working
 				copy at any time.
@@ -311,6 +325,8 @@
 		{#if warnings.length > 0}
 			<IssueList issues={warnings} id="warnings-h" title={`Check ${plural(warnings.length, 'warning')}`} />
 		{/if}
+
+		<ExtendPanel {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
 
 		<section aria-labelledby="run-h">
 			<h2 id="run-h">Run</h2>
