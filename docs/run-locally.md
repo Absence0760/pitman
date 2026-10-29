@@ -76,6 +76,34 @@ run modes and run; **Save as WRSM2000 zip** downloads the network with its
   `@pitman/wrsm` is a stub, so each mode reports "run(): network routing is
   wired at Round 3 integration" as its error. The app's tests use a fake run.
 
+## Backend data (local-first)
+
+The data API (`POST /chirps/monthly`, `POST /map-grid/mean`) reads local
+synthetic copies in dev, set by the committed `backend/.env.development`
+(`CHIRPS_SOURCE=local`, `MAP_GRID_SOURCE=local`). Write them once:
+
+```bash
+pnpm dev:data:synthetic      # = pnpm -C backend exec tsx scripts/gen-synthetic-data.ts
+```
+
+It writes, under `backend/.local/` (gitignored, ~2.5 MB, a second or so):
+
+- `mirror/`: a CHIRPS copy in the real copy's Zarr layout and manifest,
+  1981-01 to the last complete month, over one invented 1° block (21–22° E,
+  34.5–33.5° S) with an invented coast along its south; seeded, so the same
+  arguments always write the same values (`--through YYYY-MM`, `--seed N`,
+  `--out DIR`).
+- `map-grid/synthetic.json`: an invented 0.01° MAP grid over the same block.
+
+Invented values only. Areas elsewhere answer 422 ("no data under the
+area"); IC-WBT's synthetic quaternaries (`backend/fixtures/geo/quaternaries.synthetic.geojson`,
+codes `Z01A`…) sit inside the block and make good test boundaries to upload.
+Without the files the routes answer 503 naming the command. With
+`CHIRPS_SOURCE` or `MAP_GRID_SOURCE` unset the routes answer 503 "not
+configured". The `s3` settings (`CHIRPS_BUCKET`, `CHIRPS_PREFIX`,
+`MAP_GRID_SOURCE=s3://…`, `DATA_REGION`) are for production and need the
+cross-account grant ([`data.md` § Cross-account access](./data.md#cross-account-access-round-41)).
+
 ## The engine CLI (`wrsm`)
 
 `pnpm wrsm-cli wrsm <command>` runs `packages/wrsm-cli` under tsx.
