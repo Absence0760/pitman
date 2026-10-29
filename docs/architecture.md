@@ -81,12 +81,15 @@ each with a vitest test beside it.
    sizes before it is inflated) stop a zip bomb exhausting the tab.
 2. **Decode** (`encoding.ts`). Every file is decoded as **Latin-1** (one
    character per byte, so a non-ASCII byte or a binary `.pdf` survives),
-   except `pitman.json`, which is UTF-8 (docs/formats.md §1.1).
+   except a `pitman.json` beside a `.NET`, which is strict UTF-8 (invalid
+   bytes are a load error; a byte-order mark is kept) (docs/formats.md
+   §1.1). A zip entry whose CRC-32 doesn't match is refused as damaged.
 3. **Validate** (`open.ts` → `readBundle` in `packages/wrsm/src/io/bundle.ts`).
    The engine finds the `.NET` (or asks which one when the folder holds
    several), reads every module file it lists and every rainfall, observed
    and defined-flow file they name, case-insensitively within the `.NET`'s
-   folder, plus the `pitman.json` sidecar. Every file's error is collected
+   folder (a name matched only by its base name gets a warning), plus the
+   `pitman.json` sidecar. Every file's error is collected
    and shown with its file, line, column and field (`IssueList.svelte`,
    focus moves to the list). Files no reader uses (`Out/`, diagrams, a second
    `.NET`) are kept.
