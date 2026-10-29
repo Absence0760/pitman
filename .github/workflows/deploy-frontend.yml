@@ -1,94 +1,57 @@
 name: Deploy frontend
 
-## TODO: Uncomment triggers when ready to deploy.
-# on:
-#   release:
-#     types: [published]
-#   workflow_dispatch:
-on: workflow_dispatch
+# Builds the static site, checks its CSP, syncs it to the site bucket and
+# invalidates CloudFront (docs/deployment.md).
+#
+# Inert until the operator wires CI (docs/deployment.md § First deploy, step
+# "export the outputs"): every job is skipped (grey, not red) while the repo
+# variables below are unset, so pushes before the AWS account exists stay
+# green. The deploy job is gated on `environment: production` (required
+# reviewer; the deploy role's trust policy pins that environment's OIDC
+# `sub`), and only that job may mint an OIDC token.
+#
+# Repo variables (set by templates/scripts/export-tf-vars.sh from the
+# Terraform outputs): AWS_DEPLOY_ROLE_ARN, AWS_REGION, FRONTEND_BUCKET,
+# CLOUDFRONT_DISTRIBUTION_ID, PUBLIC_API_URL, PUBLIC_SITE_URL.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'packages/wrsm/**'
+      - 'pnpm-lock.yaml'
+      - 'infra/csp.json'
+      - 'infra/scripts/check-csp.mjs'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
 
 concurrency:
   group: deploy-frontend
   cancel-in-progress: false
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
-  check:
+  build:
+    name: Build + CSP check
+    if: vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_REGION != '' && vars.FRONTEND_BUCKET != '' && vars.CLOUDFRONT_DISTRIBUTION_ID != ''
     runs-on: ubuntu-latest
-    outputs:
-      should_deploy: ${{ steps.check.outputs.should_deploy }}
-    steps:
-      - name: Checkout (full history + tags)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Decide whether to deploy frontend
-        id: check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" \
-             || "${GITHUB_EVENT_NAME}" == "repository_dispatch" ]]; then
-            echo "Triggered by ${GITHUB_EVENT_NAME} — deploying unconditionally."
-            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          CURRENT_TAG="${GITHUB_REF_NAME}"
-          echo "Current release tag: $CURRENT_TAG"
-
-          PREV_TAG=$(gh release list --exclude-drafts --limit 10 --json tagName \
-            --jq ".[] | select(.tagName != \"$CURRENT_TAG\") | .tagName" \
-            | head -n 1 || true)
-
-          if [[ -z "$PREV_TAG" ]]; then
-            echo "No previous release found — deploying (first release)."
-            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "Previous release tag: $PREV_TAG"
-          git fetch --tags --quiet
-
-          CHANGED=$(git diff --name-only "$PREV_TAG..$CURRENT_TAG" -- \
-            'frontend/' \
-            'pnpm-lock.yaml' \
-            '.github/workflows/deploy-frontend.yml' \
-            || true)
-
-          if [[ -n "$CHANGED" ]]; then
-            echo "Frontend files changed since $PREV_TAG:"
-            echo "$CHANGED" | sed 's/^/  /'
-            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No frontend files changed between $PREV_TAG and $CURRENT_TAG — skipping deploy."
-            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  deploy:
-    needs: check
-    if: needs.check.outputs.should_deploy == 'true'
-    runs-on: ubuntu-latest
-    environment: production
-
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10
 
       - name: Set up Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
@@ -103,33 +66,70 @@ jobs:
           PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
         run: pnpm build
 
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+      # Refuses a build the CloudFront CSP would weaken or break: no meta CSP
+      # hashing every inline script, or an inline style the header doesn't
+      # allow (infra/security_headers.tf).
+      - name: Check CSP
+        run: node infra/scripts/check-csp.mjs frontend/build
+
+      - name: Upload build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          name: frontend-build
+          path: frontend/build/
+          retention-days: 1
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy to S3 + CloudFront
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # OIDC, this job only
+    steps:
+      - name: Download build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: frontend-build
+          path: build
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: deploy-frontend-${{ github.run_id }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Sync build output to S3
+      # Hashed files first, cached for a year. Not --delete: a tab opened
+      # before this deploy still lazy-loads its own chunks (uPlot, the run
+      # worker), so old hashed files stay; they are small.
+      - name: Sync hashed assets (immutable)
+        env:
+          BUCKET: ${{ vars.FRONTEND_BUCKET }}
         run: |
-          aws s3 sync frontend/build/ "s3://${{ vars.FRONTEND_BUCKET }}/" \
-            --delete \
-            --cache-control "public, max-age=31536000, immutable" \
-            --exclude "*.html" \
-            --exclude "*.xml" \
-            --exclude "*.txt"
+          aws s3 sync build/_app/immutable/ "s3://${BUCKET}/_app/immutable/" \
+            --cache-control "public, max-age=31536000, immutable"
 
-      - name: Sync HTML with shorter cache
+      # Then everything else (index.html, _app/version.json, ...), short-lived,
+      # deleting what the build no longer has (never the hashed files above).
+      - name: Sync pages and unhashed files
+        env:
+          BUCKET: ${{ vars.FRONTEND_BUCKET }}
         run: |
-          aws s3 sync frontend/build/ "s3://${{ vars.FRONTEND_BUCKET }}/" \
+          aws s3 sync build/ "s3://${BUCKET}/" \
             --delete \
-            --cache-control "public, max-age=60, must-revalidate" \
-            --exclude "*" \
-            --include "*.html" \
-            --include "*.xml" \
-            --include "*.txt"
+            --exclude "_app/immutable/*" \
+            --cache-control "public, max-age=60, must-revalidate"
 
-      - name: Invalidate CloudFront cache
+      - name: Invalidate CloudFront
+        env:
+          DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
-          aws cloudfront create-invalidation \
-            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
-            --paths "/*"
+          id=$(aws cloudfront create-invalidation \
+            --distribution-id "$DISTRIBUTION_ID" \
+            --paths '/*' --query 'Invalidation.Id' --output text)
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "$DISTRIBUTION_ID" --id "$id"
