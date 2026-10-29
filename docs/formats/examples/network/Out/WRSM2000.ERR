@@ -1,0 +1,47 @@
+          Date of run: 2001/01/01          Time: 12:00:00
+
+          Network: SY
+
+==== CHILD 11
+Climate copied for a Child 11
+Parameters copied for a Child 11
+Virgin MAR: 0.512
+Virgin LQT: 0.950
+>====== Subroutine RU_GetSFReductionChild Module 11SFR is CSIR ALIEN Vegetation
+Naturalised MAR (VMAR) = 0.5120Required MAR (QMAR)    = 0.4300Naturalised Low Flows (VLQT) = 0.9500Required Low Flows    (QLQT) = 0.8100Reduction percentage in MAR (TPRM) = 16.0156Reduction percentage in Low (TPRL) = 14.7368<====== END Subroutine RU_GetSFReduction
+>==== Function SY_ChildDriver
+Reduce MAR with TPRM: 16.016 %
+Reduce Lows with TPRL: 14.737 %
+Naturalised flows off.
+Riparian vegetation deductions off.
+PMean = 650.0000
+Original PI = 1.5000
+Original FF = 1.0000
+Original SL = 0.0000
+Original ST = 250.0000
+Original HGSL = 0.0000
+PRE-ITERATION
+Constant A = 1.0000
+Constant B = 2.0000
+Constant C = 0.5000
+Constant X = 3.0000
+Constant Y = 4.0000
+Constant Z = 0.5000
+TPRM = 16.0156
+TPRL = 14.7368
+DSL = 5.0000
+DPI = 0.5000
+DFF = 0.0200
+PIA = 2.0000FFA = 1.0200SLA = 5.0000STA = 255.0000HGSLA = 5.0000ITERATION : 1ST = 255.00PI = 2.00SL = 5.00FF = 1.02HGSL = 5.00Iteration QMAR: 0.431Iteration QLQT: 0.805Iteration ERRM: 0.23256Iteration ERRL: -0.61728
+Number of Iterations: 1Final QMAR: 0.431Final QLQT: 0.805
+Riparian vegetation deductions off.
+
+Reservoir Module 3 SY farm dams
+Water balance error in .. of 1992
+There was not enough water to satisfy calculated demands.
+Calculated outflows were reduced.
+
+Reservoir Module SY Dam
+Module number: 4
+At least 1 minor failure(s) to supply defined demands.
+

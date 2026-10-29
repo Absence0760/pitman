@@ -1,0 +1,6 @@
+# These files reproduce WRSM2000 layouts byte for byte: CRLF line endings,
+# significant trailing blanks, and (legacy/SYRR22.DAT) no final newline.
+# Never normalise them. See docs/formats.md section 1.1.
+* -text
+.gitattributes text eol=lf
+.editorconfig text eol=lf
