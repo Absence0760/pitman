@@ -170,7 +170,7 @@ Assumptions (TT 690 p.2): each rain-day is one event, and interception storage
 dries out completely between rain-days.
 
 * `b_I < 0` for every `PI < 24.9`, so `I` rises towards the asymptote `a`.
-* Check against TT 690 Fig. 1.3 (p.7): PI = 4 → a = 63.6, I(100) = 35.6 (figure
+* Check against TT 690 Fig. 1.3 (p.7): PI = 4 → a = 63.53, I(100) = 35.55 (figure
   ≈ 36); PI = 8 → asymptote ≈ 140 (figure ≈ 128 at P = 400, still rising). ✓
 * PI = 1.5: a = 20.7659488200, b_I = −0.0096581510.
 
@@ -482,7 +482,7 @@ W = 108.7162426234, n = 2.9809407555, I = 18.7210295266, y(¼) = 0.0364424418.
 Totals: B = 13.2473848642, F = 110.9781084983; routed (from zero states):
 O_GL = 2.2078974774, O_TL = 73.9854056656, total 76.1933031429 mm =
 7.6193303143 million m³. Balance: 240 = 18.7210 (I) + 81.1581 (surf) + 140.1209
-(inf); ΔS = −19.7762 = 140.1209 − 8.9095 (Q) − 116.8297 (E) − 34.1580 (spill). ✓
+(inf); ΔS = −19.7762 = 140.1209 − 8.9095 (Q) − 116.8297 (E) − 34.1579 (spill). ✓
 
 ### 4.7 Routing edge case for tests
 

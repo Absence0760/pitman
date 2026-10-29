@@ -60,6 +60,16 @@ pnpm backend test         # backend only
 pnpm frontend test        # frontend only
 ```
 
+## The engine CLI (`wrsm`)
+
+`pnpm wrsm-cli wrsm <command>` runs `packages/wrsm-cli` under tsx.
+
+- `wrsm run <networkDir> [--net <file.NET>] [--out <dir>] [--mode historical|presentDay|natural] [--year yyyy]`: Round 2 runs each classic-groundwater runoff module on its own (no network routing yet; Sami and Hughes modules are skipped with a message) and writes `<net>RQ<route>.ANS` for each route a runoff module feeds. Output goes to `<networkDir>/Out.pitman` unless `--out` is given. `--net` picks one network when the folder has several `.NET` files. `--mode` other than historical is accepted with a warning until Round 3; `presentDay` needs `--year`.
+- `wrsm compare <networkDir> <outDir> [--reference <dir>]`: pairs simulated and reference `.ANS` files by name and prints, per route, MAR simulated/reference, % difference, NSE, max abs difference and the first diverging month. The reference defaults to `<networkDir>/Out`, else the folder itself. Exit 1 if a route listed as expected to match misses |MAR diff| ≤ 1 % or NSE ≥ 0.99 (`packages/wrsm/src/compare/expectations.ts`).
+- Exit codes: 0 ok, 1 a failed run or comparison, 2 a usage error.
+
+**Reference suite.** Point `WRSM_REFERENCE_DIR` at a folder of real WRSM2000 networks (never committed) and run `pnpm test:wrsm`: every reader then round-trips every real file. Without the variable those tests skip. Don't write `wrsm run` output into a reference folder you don't own: pass `--out`.
+
 ## Common issues
 
 **`PUBLIC_API_URL` is not defined at build time**

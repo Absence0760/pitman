@@ -408,7 +408,7 @@ Example: [`SYCR5.DAT`](formats/examples/network/SYCR5.DAT). TT 691 §12.2 (pp.15
 |---|---|---|---|---|
 | L.001 | always | module no.; `'name'`; file version | `I0,1X,'name',I4` → `5 'SY River'   2` | Version always `2` **[F]** |
 | L.002 | always | wetland MAP; `'rainfile'` | `F7.0,1X,'name'` → `     0. ' '` | mm. 0 and `' '` when there's no wetland **[M][F]** |
-| L.003 | always | CHBL bed loss; CHC1 wetland/aquifer storage; CHC2 area; CHC3 recharge coefficient | `4F8.2` | million m³/month; million m³; km²; –. Dummies are still required when there's no wetland (TT 691 p.156) |
+| L.003 | always | CHBL bed loss; CHC1 wetland/aquifer storage; CHC2 area; CHC3 recharge coefficient | `F7.2,3F8.2` **[F]** (all 253 files) | million m³/month; million m³; km²; –. Dummies are still required when there's no wetland (TT 691 p.156) |
 | L.004 | always | 12 × pan evaporation | `F7.2,11F8.2` | mm/month |
 | L.005 | always | 12 × pan factors | `F7.4,11F8.4` | – |
 | L.006 | always | principal outflow route | `L5` | Required (TT 689 fig.6.29) |
@@ -417,12 +417,12 @@ Example: [`SYCR5.DAT`](formats/examples/network/SYCR5.DAT). TT 691 §12.2 (pp.15
 | L.009 | always | number of outflow routes *o* | `L5` | ≤ 10 |
 | L.010 ×*o* | always | route; `'defined-flow file'` | `I0,1X,'name'` | |
 | L.011 | always | reserved (=1); wetland type | `2I4` → `   1   0` | 0 none, 1 basic, 2 comprehensive, 3 diversion. All observed are 0 **[F]** |
-| L.012 | always **[F]** | wetland area at bankfull; volume at bankfull; area–volume power; bankfull capacity; proportion of excess into wetland; proportion of wetland volume back to channel | `6F10.3` | Manual: present "if comprehensive". Files: **always present** (D-11) |
+| L.012 | always **[F]** | wetland area at bankfull; volume at bankfull; area–volume power; bankfull capacity; proportion of excess into wetland; proportion of wetland volume back to channel | `F9.3,5F10.3` **[F]** (all 253 files) | Manual: present "if comprehensive". Files: **always present** (D-11) |
 | L.013 | always | QDIV (reserved, 0.0) | `F7.3` | |
 | L.014 | always | local wetlands inflow route | `I4` | 0 = none |
 | L.015 | always | local wetlands outflow/abstraction route | `I4` | |
 | L.016 | always | diversion outflow route | `I4` | |
-| L.017 | always | bankfull capacity; diversion efficiency; maximum monthly diversion | `3F10.3` | Wetland types 1–3 never observed (U-15) |
+| L.017 | always | bankfull capacity; diversion efficiency; maximum monthly diversion | `F9.3,2F10.3` **[F]** (all 253 files) | Wetland types 1–3 never observed (U-15) |
 
 Eight hand-made v2 files write L.004 as `F0.0` with spaces and L.005 as leading-dot `.81` **[F]**. Read them as free format. Write as above.
 
@@ -535,7 +535,7 @@ No manual states the label rule outright, so it's listed as U-19. The CHIRPS ext
 |---|---|---|
 | 1–7 | `A7` | Code, left-justified (`SYA    `). One code per file **[F]** |
 | 8–11 | `I4` | Hydrological year |
-| 12–95 | `12F7.2` | Monthly rainfall, % of the catchment MAP, Oct→Sep. The row total is ≈ 100 on average |
+| 12–95 | `12F7.2` (read each field as `F7.0`: a value without a decimal point is whole percent, U-23) | Monthly rainfall, % of the catchment MAP, Oct→Sep. The row total is ≈ 100 on average |
 
 - Fixed columns (TT 689 §2.3.3 p.8). There's no header and no footer, years are contiguous and ascending, and the files have CRLF line endings **[F]**.
 - **Read** by columns, not by tokens. A 3-character code followed by blanks is fine, but a code longer than 7 characters would shift the year.
@@ -597,7 +597,7 @@ The file ends with CRLF after the footer **[F]**: all 395 `.ANS`, 136 `.MTS` and
 Arithmetic, checked over 41,125 rows **[F]**:
 
 - The annual total is the sum of the **unrounded** monthly values. In 54 % of rows it differs from the sum of the printed values by more than 0.005.
-- The mean column is always the printed annual divided by 12.
+- The mean column is the **unrounded** annual divided by 12. In 3.3 % of rows it is not the printed annual divided by 12 (Round 2 check over 531 `.ANS`/`.MTS` files, 47,785 rows). `answerFromSeries` therefore needs the unrounded months; fed printed values it can't reproduce a WRSM2000 file.
 - `AVERAGE` matches the mean of the printed values to within 0.0063, which means it was computed from unrounded values.
 
 So writers compute from unrounded float32 values and round only when printing.
@@ -789,6 +789,7 @@ Each unknown has a best guess and the evidence for it. Later rounds resolve thes
 | U-20 | `.MTS` series codes other than `ncr`/`dfl`; the annual column in `RV*.ANS` | Short codes per series; sum as for flows | Only `ncr` observed; `dfl` in TT 689 p.198 |
 | U-21 | Units of RU L.011 riparian area | km² | Values 0.00–0.60 alongside alien areas of a few km² |
 | U-22 | Whether WRSM2000 accepts LF-only files | Probably (Fortran formatted reads usually tolerate both) | All files are CRLF; we always write CRLF, so this doesn't matter for output |
+| U-23 | How WRSM2000 reads a `.RAN` field with no decimal point | As `F7.0` (`12` = 12 %), provisional | TT 689 gives no read format; one hand-made reference file is affected |
 
 ---
 

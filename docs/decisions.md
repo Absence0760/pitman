@@ -50,6 +50,20 @@ Notes:
 - **Formats:** writers always produce runoff file version 7 and irrigation version 32; demands are written as defined-flow files, never `'*'` monthly abstractions; a negative `.obs` value means missing; a `.RAN` row labelled Y is October Y to September Y+1 (U-19, A1).
 - **Routes** in `.NET` refer to 1-based positions in the module list, not module numbers (`types.ts`, TT 691 L.014).
 
+## Round 2 (2026-10-28)
+
+| ID | Decision | Status |
+|---|---|---|
+| R2-1 | The provisional classic-Pitman choices (OQ-1, 3, 8, 12, 20/22, 23, 24, 25) are switchable through `PitmanOptions` (`packages/wrsm/src/runoff/pitman.ts`), defaults as accepted above. The comparison against #21 R1 flips them there; the winner is recorded here and the default changed in the same commit | Decided |
+| R2-2 | Invalid runoff parameters, a rainfall year missing from the run, or a negative `.RAN` value make `runRunoffModule` throw (`PitmanRunError`); the module is not skipped | Decided |
+| R2-3 | Readers return only the typed object: non-fatal warnings (TT 691 quirks, odd flags, non-ASCII bytes) are read silently, as WRSM2000 reads them. A `diagnostics` array beside each reader's result is a later contract change (Round 3) | Provisional |
+| R2-4 | Lossless round-trips: `.RAN`, `.obs` and defined-flow readers keep the source lines (`SeriesSource`), and writers reuse any row the caller didn't change; RU, RV and CR keep per-file layout quirks (`RunoffLayout`, `unpaddedRouteLines`, `Network.directoryLineWidths`). Changed or new content is always written in WRSM2000's standard layout | Decided |
+| R2-5 | Irrigation: a v32 file that ends at L.012 is the original layout and is upgraded on write; the unversioned WRSM90 layout reads as `fileVersion: 0`, model type 1. v42 (WQT type 4) is read but never written | Decided |
+| R2-6 | U-23: `.RAN` fields are read as `F7.0` (a value with no decimal point is whole percent) | Provisional; Round 3 comparison checks |
+| R2-7 | Which reference routes are "expected to match" (`compare/expectations.ts`): public WR2012 network folders may be named in git; anything from the operator's own networks goes in an uncommitted `expectations.local.json` under `WRSM_REFERENCE_DIR` | Decided; the loader arrives with the first entry (#21 R1) |
+
+Round 2 reference suite (local, `WRSM_REFERENCE_DIR`): every `.NET` (35), `.RAN` (73), `.obs` and gauge files (56), defined-flow files (44), `.ANS` (395), RV (181) and RR (315) file reads and writes back byte-identical; RU 257/259 and CR 245/253, the rest being hand-edited files that keep every value. The classic-GW exit check waits on #21 R1: no WR2012 output in the archive comes from a classic module (the 27 classic modules are alien-vegetation children routed to the zero sink, plus one empty template).
+
 ## Repository follow-ups
 
 | Item | Status |
