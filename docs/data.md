@@ -532,9 +532,8 @@ needs (`MapPosition`, the outline and point types) locally. Packages:
 `maplibre-gl` **6.15.0**, `pmtiles` **4.5.0**. The MapLibre worker is
 emitted as a page-build entry by a Vite plugin in IC-WBT's
 `frontend/vite.config.ts` (`workerChunks`, `virtual:maplibre-worker-url`),
-written for Vite 8 / SvelteKit 3; Pitman is on Vite 5.4 / SvelteKit 2.61, so
-the orchestrator either ports that plugin or upgrades Pitman's toolchain
-first (shared files). Without it, MapLibre needs a `blob:` worker, which the
+written for Vite 8 / SvelteKit 3, which Pitman also runs (since 2026-10-28),
+so the plugin ports as is. Without it, MapLibre needs a `blob:` worker, which the
 CSP refuses. About 2 500 lines after stripping.
 
 ### Infra

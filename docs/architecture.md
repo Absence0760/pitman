@@ -27,7 +27,6 @@ pitman/
 ├── docs/                     Architecture, deployment, run-locally, security
 ├── frontend/
 │   ├── package.json
-│   ├── svelte.config.js
 │   ├── vite.config.ts
 │   ├── .env.development      PUBLIC_API_URL, PUBLIC_SITE_URL (committed defaults)
 │   └── src/

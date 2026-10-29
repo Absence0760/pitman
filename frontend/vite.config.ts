@@ -12,7 +12,9 @@ export default defineConfig({
 			paths: {
 				// Kit rejects a base without a leading '/' at startup; the cast only tells the type checker.
 				base: (process.env.BASE_PATH || '') as '' | `/${string}`
-			}
+			},
+			// Kit 3 polls _app/version.json hourly by default; nothing here reads `updated` (as IC-WBT).
+			version: { pollInterval: 0 }
 		})
 	]
 });
