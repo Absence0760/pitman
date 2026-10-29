@@ -5,12 +5,23 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
+		"//-- dev --": "Local dev servers: frontend on 7777, backend on 3001 (docs/STACK.md).",
 		"dev": "pnpm --filter @pitman/frontend --filter @pitman/backend --parallel run dev",
+		"//-- build --": "Build every workspace that has a build script (packages/* are consumed as TypeScript source and have none).",
 		"build": "pnpm -r run build",
-		"check": "pnpm -r run check",
-		"test": "pnpm -r run test",
+		"//-- check --": "Typecheck. `check` runs every workspace (--no-bail: one failure does not hide the rest); `check:<surface>` runs one.",
+		"check": "pnpm -r --no-bail run check",
+		"check:wrsm": "pnpm --filter @pitman/wrsm run check",
+		"check:wrsm-cli": "pnpm --filter @pitman/wrsm-cli run check",
+		"//-- test --": "vitest. `test` runs every workspace (--no-bail); `test:<surface>` runs one. Engine tests use synthetic fixtures only.",
+		"test": "pnpm -r --no-bail run test",
+		"test:wrsm": "pnpm --filter @pitman/wrsm run test",
+		"test:wrsm-cli": "pnpm --filter @pitman/wrsm-cli run test",
+		"//-- workspaces --": "Run any script in one workspace: `pnpm frontend <script>`, `pnpm wrsm <script>`; `pnpm wrsm-cli wrsm run <dir>` runs the CLI under tsx.",
 		"frontend": "pnpm --filter @pitman/frontend",
-		"backend": "pnpm --filter @pitman/backend"
+		"backend": "pnpm --filter @pitman/backend",
+		"wrsm": "pnpm --filter @pitman/wrsm",
+		"wrsm-cli": "pnpm --filter @pitman/wrsm-cli"
 	},
 	"engines": {
 		"node": ">=22"

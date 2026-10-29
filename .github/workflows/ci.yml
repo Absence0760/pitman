@@ -47,9 +47,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Seed frontend .env for typecheck
-        run: cp frontend/.env.example frontend/.env
-
+      # `pnpm check` / `pnpm test` recurse into every workspace in
+      # pnpm-workspace.yaml, including the engine packages under packages/*
+      # (@pitman/wrsm, @pitman/wrsm-cli). The frontend typechecks from its
+      # committed .env.development, so no .env seeding is needed.
       - name: Typecheck all workspaces
         run: pnpm check
 
