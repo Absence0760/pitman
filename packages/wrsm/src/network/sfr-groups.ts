@@ -8,12 +8,11 @@
  * docs/theory/network.md §2.3.
  */
 
-import { activeAreaPavedFraction, pavedFractionByMonth } from '../landuse/paved.js';
+import { activeAreaPavedFraction, collapseYears, pavedFractionByMonth, specialAreaMessages } from '../landuse/paved.js';
 import {
-	activeAreaByYear,
-	activeAreaTable,
+	childAreasByYear,
+	parentAreaByYear,
 	runSfrGroup,
-	sfrKind,
 	type ChildTargetModel,
 	type SfrGroupResult,
 	type SfrOptions,
@@ -21,11 +20,11 @@ import {
 	type SfrSimulator
 } from '../landuse/sfr.js';
 import { runRunoffModule, type RunRunoffOptions } from '../runoff/pitman.js';
-import type { HydroYear, MonthlySeries, NetworkBundle, RainfallSeries, RunMode, RunoffDiagnostics, RunoffModule } from '../types.js';
+import type { HydroYear, MonthlySeries, NetworkBundle, RainfallSeries, RunMessage, RunMode, RunoffDiagnostics, RunoffModule } from '../types.js';
 import { lookupFile } from './modules.js';
 import { applyRunMode } from './modes.js';
 
-/** Each SFR child's parent (L.038–L.039 on the parent; a child doesn't name it, TT 691 §7.4.2). The first parent in module order wins (validation warns). */
+/** Each SFR child's parent (L.038–L.039 on the parent; a child doesn't name it, TT 691 §7.4.2). A child named by two parents is a validation error (TT 690 p.126), so a run never meets one; here the first parent in module order wins. */
 export function sfrParents(bundle: NetworkBundle): Map<number, RunoffModule> {
 	const parents = new Map<number, RunoffModule>();
 	for (const m of bundle.modules) {
@@ -55,10 +54,24 @@ export function bareModule(module: RunoffModule): RunoffModule {
  * the groundwater evaporation area keeps its share of the catchment
  * (B28_GWEvapAreaFactor = EVAREA/AREA, TT 691 p.49), so a child or a
  * reduced parent doesn't get the whole parent's riparian strip (R6-R5).
+ *
+ * The regional outflow OUT = T·HG·days·W/AREA with W = 4·√AREA (OQ-S11)
+ * is a depth ∝ 1/√AREA, so it does depend on the area a member runs on.
+ * `outflowArea` (`SfrOptions.samiOutflowArea`): `'own'` (default) takes W
+ * and AREA from the area the member runs on, `'owner'` keeps the owner's
+ * W/AREA so the OUT depth is the parent's. The logged virgin MARs favour
+ * `'own'` (25 logged child blocks: median |error| 2.5 % against 3.6 %).
  */
-export function samiOnArea(module: RunoffModule, ownerAreaKm2: number): RunoffModule {
+export function samiOnArea(module: RunoffModule, ownerAreaKm2: number, outflowArea: 'own' | 'owner' = 'own'): RunoffModule {
 	if (!module.sami || !(ownerAreaKm2 > 0) || module.areaKm2 === ownerAreaKm2) return module;
-	return { ...module, sami: { ...module.sami, gwEvaporationArea: (module.sami.gwEvaporationArea * module.areaKm2) / ownerAreaKm2 } };
+	return {
+		...module,
+		sami: {
+			...module.sami,
+			gwEvaporationArea: (module.sami.gwEvaporationArea * module.areaKm2) / ownerAreaKm2,
+			...(outflowArea === 'owner' ? { outflowAreaKm2: module.sami.outflowAreaKm2 ?? ownerAreaKm2 } : {})
+		}
+	};
 }
 
 /**
@@ -72,12 +85,17 @@ export function samiOnArea(module: RunoffModule, ownerAreaKm2: number): RunoffMo
 export function sfrSimulator(
 	rainfall: (fileName: string) => RainfallSeries | undefined,
 	options: Omit<RunRunoffOptions, 'reductions' | 'parent'>,
-	group?: { readonly parentNumber: number; readonly ownerAreaKm2: number; readonly parentImpervious?: readonly number[] }
+	group?: {
+		readonly parentNumber: number;
+		readonly ownerAreaKm2: number;
+		readonly parentImpervious?: readonly number[];
+		readonly samiOutflowArea?: 'own' | 'owner';
+	}
 ): SfrSimulator {
 	return (module) => {
 		const ran = rainfall(module.rainfallFile);
 		if (!ran) throw new Error(`RU ${module.number}: rainfall file ${module.rainfallFile} is not in the network`);
-		const run = group ? samiOnArea(module, group.ownerAreaKm2) : module;
+		const run = group ? samiOnArea(module, group.ownerAreaKm2, group.samiOutflowArea) : module;
 		const impervious = group && module.number === group.parentNumber ? group.parentImpervious : undefined;
 		const result = runRunoffModule(bareModule(run), ran, { ...options, reductions: [], ...(impervious ? { imperviousFraction: impervious } : {}) });
 		return { outflow: result.outflow, diagnostics: result.diagnostics, messages: result.messages };
@@ -157,17 +175,29 @@ export function runGroup(
 		.map((m) => applyRunMode(m, mode));
 	const appliedParent = applyRunMode(parent, mode);
 	// R6-P1: the parent's AI is of its whole AREA; on the area left after the children's active areas it is min(1, AI·AREA/active).
-	const active = activeAreaByYear([], mode, startYear, endYear).map((_, y) => {
-		let a = parent.areaKm2;
-		for (const c of children) a -= activeAreaByYear(activeAreaTable(c, sfrKind(c)), mode, startYear, endYear)[y]!;
-		return Math.max(0, a);
-	});
+	// The same areas runSfrGroup takes the parent's run over (`parentAreaByYear`).
+	const years = endYear - startYear + 1;
+	const childAreas = childAreasByYear(children, mode, startYear, endYear);
+	const active = parentAreaByYear(parent.areaKm2, childAreas, years);
 	const paved = pavedFractionByMonth(appliedParent, mode, startYear, endYear);
-	const parentImpervious = paved.fraction.map((ai, i) => activeAreaPavedFraction(ai, parent.areaKm2, active[Math.floor(i / 12)]!));
+	const extra: RunMessage[] = [...paved.messages];
+	const ref = { type: 'RU', number: parent.number } as const;
+	let capped = 0;
+	const parentImpervious = paved.fraction.map((ai, i) => {
+		const y = Math.floor(i / 12);
+		if (i % 12 === 0 && active[y]! > 0 && ai * parent.areaKm2 > active[y]! * (1 + 1e-9)) capped++;
+		return activeAreaPavedFraction(ai, parent.areaKm2, active[y]!);
+	});
+	if (capped > 0) {
+		extra.push({ level: 'warning', module: ref, text: `RU ${parent.number}: the paved area is larger than the area its SFR children leave the parent in ${capped} year(s); its fraction of that area is held at 1 (R6-P1)` });
+	}
+	// R6-P3: afforestation + alien vegetation + paved + the children's active areas against AREA, year by year (TT 689 p.127).
+	extra.push(...collapseYears(Array.from({ length: years }, (_, y) => specialAreaMessages(appliedParent, startYear + y, childAreas.map((c) => c[y]!), mode)).flat()));
 	const simulate = sfrSimulator((f) => lookupFile(bundle.rainfall, f), { ...runoff, startYear, endYear, mode }, {
 		parentNumber: parent.number,
 		ownerAreaKm2: parent.areaKm2,
-		parentImpervious
+		parentImpervious,
+		...(sfr.options?.samiOutflowArea ? { samiOutflowArea: sfr.options.samiOutflowArea } : {})
 	});
 	const result = runSfrGroup(
 		{ parent: appliedParent, children, mode, startYear, endYear, simulate, ...(sfr.targets ? { targets: sfr.targets } : {}) },
@@ -178,5 +208,5 @@ export function runGroup(
 	const childComponents = result.children.map((c) => ({ run: c.run, areaKm2ByYear: c.areaKm2ByYear }));
 	members.set(parent.number, { outflow: result.outflowMm3, diagnostics: groupDiagnostics([parentComponent, ...childComponents], result.outflowMm3) });
 	result.children.forEach((c, i) => members.set(c.number, { outflow: c.outflowMm3, diagnostics: groupDiagnostics([childComponents[i]!], c.outflowMm3) }));
-	return { result: paved.messages.length > 0 ? { ...result, messages: [...paved.messages, ...result.messages] } : result, members };
+	return { result: extra.length > 0 ? { ...result, messages: [...extra, ...result.messages] } : result, members };
 }

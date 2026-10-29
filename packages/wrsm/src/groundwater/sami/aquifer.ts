@@ -196,7 +196,7 @@ export function samiAquiferStepDetail(
   // 3. Regional outflow (§3.9). HG and OUT are not clamped: below SWL
   // they turn negative and draw water in (TT 690 p.87).
   const gradient = (p.HGRAD * (store - p.SWL)) / range;
-  const areaM2 = area * 1e6;
+  const areaM2 = (p.outflowAreaKm2 && p.outflowAreaKm2 > 0 ? p.outflowAreaKm2 : area) * 1e6;
   const widthM = p.outflowWidthFactor * Math.sqrt(areaM2);
   const outflow =
     ((p.T_m2d * gradient * p.daysPerMonth * widthM) / areaM2) * 1000;
@@ -349,5 +349,6 @@ export function samiAquiferParams(
     outflowWidthFactor: SAMI_OUTFLOW_WIDTH_FACTOR,
     daysPerMonth: SAMI_DAYS_PER_MONTH,
     areaKm2: module.areaKm2,
+    ...(sami.outflowAreaKm2 !== undefined ? { outflowAreaKm2: sami.outflowAreaKm2 } : {}),
   };
 }

@@ -415,6 +415,12 @@ export interface SamiParameters {
 	readonly boreholeDistanceToRiver: number;
 	/** L.033 v4: groundwater evaporation area (B28_GWEvapArea), km² assumed. */
 	readonly gwEvaporationArea: number;
+	/**
+	 * Not in the file: the catchment area the regional outflow's W/AREA is
+	 * taken over when the block runs on part of it (an SFR parent or child,
+	 * `samiOnArea`, R6-R5); absent = the module's own area.
+	 */
+	readonly outflowAreaKm2?: number;
 	/** L.034 v1: K2 (D24_K2). */
 	readonly K2: number;
 	/** L.034 v2: K3 (D25_K3). */

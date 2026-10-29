@@ -102,6 +102,9 @@ describe('the SFR simulator (network/sfr-groups.ts)', () => {
 		expect(scaled.sami!.gwEvaporationArea).toBeCloseTo((m.sami!.gwEvaporationArea * 25) / 100, 12);
 		expect(samiOnArea({ ...m, areaKm2: 100 }, 100)).toEqual({ ...m, areaKm2: 100 });
 		expect(samiOnArea(ru(bundle, 3), 100)).toBe(ru(bundle, 3));
+		// The regional outflow: own W/AREA by default, the owner's on request.
+		expect(scaled.sami!.outflowAreaKm2).toBeUndefined();
+		expect(samiOnArea(m, 100, 'owner').sami!.outflowAreaKm2).toBe(100);
 	});
 
 	it("runs a paved parent on its active area with AI·AREA/active (R6-P1)", () => {
@@ -113,5 +116,31 @@ describe('the SFR simulator (network/sfr-groups.ts)', () => {
 		const pavedMm3 = result.runoff![3]!.pavedFlow!.values;
 		const rainMm = (bundle.rainfall[parent.rainfallFile.toUpperCase()] ?? Object.values(bundle.rainfall)[0]!).rows[0]!.months[2] / 100 * parent.mapMm;
 		expect(pavedMm3[2]).toBeCloseTo((0.1 * parent.areaKm2 * rainMm) / 1000, 9);
+	});
+
+	it('warns when the paved area is more than the children leave the parent, and checks the special areas (R6-P1, R6-P3)', () => {
+		const bundle = syntheticBundle();
+		const parent: RunoffModule = { ...ru(bundle, 3), sfrChildren: [1], paved: { fraction: [{ year: 1990, value: 0.6 }] } };
+		const child: RunoffModule = { ...ru(bundle, 1), afforestation: { algorithm: 4, algorithmInFile: true, areaKm2: [{ year: 1990, value: parent.areaKm2 / 2 }] } };
+		const result = runNetwork(replace(bundle, parent, child), { kind: 'historical' }, { ...fakeSimulators(), sfr: { targets: { forest: () => ({ targets: null, label: 'test', messages: [] }) } } });
+		const years = bundle.network.endYear - bundle.network.startYear + 1;
+		const capped = result.messages.filter((m) => /fraction of that area is held at 1/.test(m.text));
+		expect(capped).toHaveLength(1);
+		expect(capped[0]!.text).toContain(`in ${years} year(s)`);
+		// 0.6·AREA paved + AREA/2 of child: one error for the whole run, not one a year.
+		const special = result.messages.filter((m) => /special areas/.test(m.text));
+		expect(special).toHaveLength(1);
+		expect(special[0]!.level).toBe('error');
+		expect(special[0]!.text).toContain(`also in ${years - 1} more year(s)`);
+	});
+
+	it('checks a free module’s special areas once for the run (R6-P3; TT 689 p.127)', () => {
+		const bundle = syntheticBundle();
+		const m = ru(bundle, 3);
+		const over: RunoffModule = { ...m, paved: { fraction: [{ year: 1990, value: 0.5 }] }, afforestation: { algorithm: 4, algorithmInFile: true, areaKm2: [{ year: 1990, value: 0.6 * m.areaKm2 }] } };
+		const result = runNetwork(replace(bundle, over), { kind: 'historical' }, fakeSimulators());
+		expect(result.messages.filter((x) => /special areas/.test(x.text))).toHaveLength(1);
+		const fine = runNetwork(replace(bundle, { ...over, paved: { fraction: [{ year: 1990, value: 0.3 }] } }), { kind: 'historical' }, fakeSimulators());
+		expect(fine.messages.filter((x) => /special areas/.test(x.text))).toEqual([]);
 	});
 });

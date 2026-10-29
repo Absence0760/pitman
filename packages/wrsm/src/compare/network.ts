@@ -90,6 +90,30 @@ export function referenceAnswerTexts(bundle: LoadedBundle): Map<number, { readon
 	return new Map([...found].map(([route, { path, text }]) => [route, { path, text }]));
 }
 
+/**
+ * The reference MAR from the answer file's annual-total column instead of
+ * its printed months. WRSM2000 writes each month to two decimals but sums
+ * the unrounded months into the annual total (`io/answer.ts`), so on a
+ * small route, whose months are mostly below 0.005, the printed months
+ * lose most of the flow: a route of 0.014 million m³/a reads as 0.008
+ * from its months. The annual column keeps that flow; its own rounding
+ * (±0.005 a year) averages out over the run. NSE and the divergence month
+ * stay monthly.
+ */
+export function withAnnualReferenceMar(comparison: SeriesComparison | null, answer: AnswerFile): SeriesComparison | null {
+	if (!comparison) return comparison;
+	const { startYear, endYear } = comparison.overlap;
+	const rows = answer.rows.filter((r) => r.year >= startYear && r.year <= endYear);
+	if (rows.length !== endYear - startYear + 1) return comparison;
+	const marReference = rows.reduce((a, r) => a + r.annualTotal, 0) / rows.length;
+	const { marSimulated } = comparison;
+	return {
+		...comparison,
+		marReference,
+		marPctDiff: marReference !== 0 ? ((marSimulated - marReference) / marReference) * 100 : marSimulated === 0 ? 0 : null
+	};
+}
+
 /** `referenceAnswerTexts` parsed with `readAnswer`; unreadable files are listed, not thrown. */
 export function referenceAnswers(bundle: LoadedBundle): { readonly answers: Map<number, AnswerFile>; readonly unreadable: { path: string; problem: string }[] } {
 	const answers = new Map<number, AnswerFile>();
@@ -138,7 +162,7 @@ export function compareRunWithReference(
 		}
 		let comparison: SeriesComparison | null;
 		try {
-			comparison = compareSeries(simulated, answerToSeries(answer), options);
+			comparison = withAnnualReferenceMar(compareSeries(simulated, answerToSeries(answer), options), answer);
 		} catch (error) {
 			raw.set(route, { ...base, comparison: null, fails: true, problem: error instanceof Error ? error.message : String(error) });
 			continue;

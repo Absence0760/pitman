@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { syntheticSamiParameters } from '../groundwater/sami/fake-parts.js';
 import { syntheticBundle } from '../network/synthetic-bundle.js';
 import { potentialEvaporation, simulatePitman } from '../runoff/pitman.js';
 import type { AlienVegetation, MonthlySeries, RunMode, RunoffModule } from '../types.js';
@@ -377,6 +378,14 @@ describe('alienVegetationReduction', () => {
 	it('free module with FT > 0: notes that TT 689 p.140 wants a child', () => {
 		const out = call(freeModule(alienBlock(), 15), runoff(5));
 		expect(out.messages.map((m) => m.level)).toEqual(['info']);
+	});
+
+	it('the FT note reads the active Pitman set: a Sami module’s L.035 FT, not L.003’s', () => {
+		const m = freeModule(alienBlock(), 0);
+		const sami = { ...m, groundwaterModel: 2 as const, sami: syntheticSamiParameters({ ...m.pitman, FT: 15 }) };
+		expect(call(sami, runoff(5)).messages.map((x) => x.level)).toEqual(['info']);
+		const samiZero = { ...freeModule(alienBlock(), 15), groundwaterModel: 2 as const, sami: syntheticSamiParameters({ ...m.pitman, FT: 0 }) };
+		expect(call(samiZero, runoff(5)).messages).toEqual([]);
 	});
 
 	it('area above the module area is an error (TT 689 p.128) and is held at the area', () => {

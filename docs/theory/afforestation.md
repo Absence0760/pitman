@@ -184,8 +184,22 @@ area that will be covered" (p.139).
 - A child whose active area exceeds its L.002 area gets a warning (p.139).
 
 A module is run once at its largest area and scaled to `A(y)/A_max` year by
-year (R6-F16): exact for classic Pitman and Sami depths, which don't depend on
-area, and exact for any constant area.
+year (R6-F16): exact for classic Pitman depths and for any constant area. Sami
+depths do depend on the area: the regional outflow OUT = T·HG·30·W/AREA with
+W = 4·√AREA (OQ-S11) is a depth ∝ 1/√AREA, so a child of 1 km² loses 10× the
+OUT depth of a 100 km² parent, and the groundwater evaporation area is a share
+of the area (R6-R5). For a year-varying area the scaling is therefore an
+approximation for Sami. Which area OUT is taken over is `samiOutflowArea`:
+`'own'` (default, the area the member runs on) or `'owner'` (the parent's
+W/AREA, so the OUT depth is the parent's). The logged virgin MARs favour
+`'own'` (25 child blocks: median |error| 2.5 % against 3.6 % for `'owner'`).
+
+**What a parent's `ncr.MTS` holds.** On the 11 public parents with an
+`<net>RU<n>ncr.MTS`, the file matches the parent's *own* runoff depth × its
+full L.002 area, not the flow its routes carry (own area + children): read as
+the route flow it looks 8–40 % low wherever the children are a large share of
+the area; read as depth × AREA it agrees within −4 … +4 % (2026-10-29, before
+R6-R9/R10). The `ncr.MTS` replay check below uses it that way.
 
 ### 4.3 What a child inherits
 
@@ -259,11 +273,19 @@ the structure. Pitman's algorithm (`runSfrGroup`):
 
 1. `p₀` = the inherited PI, FF, SL, ST, HGSL. Unknowns `u = ΔFF` (with
    `ΔPI = k·u`, R6-F6) and `v = ΔSL = ΔST`.
-2. **Constants (R6-F10).** With A…Z unpublished, they are estimated from two
-   extra runs: the reductions at `u = 0.1` and at `v = 10 mm` give the columns
-   `(A·k + B, X·k + Y)` and `(C, Z)` of a 2×2 matrix J. Like WRSM2000's
-   constants, J is fixed for the whole calibration **[F]** (the log prints the
-   constants once).
+2. **Constants (R6-F10).** The manual says only that A…Z "depend on MAP and
+   ST". The run logs print them for every child: across the 19 distinct sets
+   (MAP 373–930 mm, ST 90–250 mm) A, B, X, Y are linear in MAP and C, Z in ST,
+   and `sfrConstants` reproduces every printed value within one unit of its 4th
+   decimal **[I]**:
+   A = 14.4753 − 0.00836·MAP, B = 275.2365 − 0.16114·MAP,
+   X = 7.3665 − 0.00244·MAP, Y = 200.1673 − 0.09435·MAP,
+   C = 0.6913 − 0.00181·ST, Z = 1.54 − 0.00389·ST
+   (MAP = the parent's, "PMean"; ST = the original ST). J = [(A·k + B, C),
+   (X·k + Y, Z)] is fixed for the whole calibration **[F]**: the logged steps
+   solve with the original constants even after ST has moved. `constants:
+   'estimated'` keeps the earlier two-run estimate (reductions at `u = 0.1` and
+   `v = 10 mm`).
 3. **Pre-iteration**: solve `J·(u, v) = (TPRM, TPRL)` and step.
 4. **Iteration i = 1 … 40**: run the child; `ERRM = TPRM − 100(1 − MAR/VMAR)`,
    `ERRL = TPRL − 100(1 − LQT/VLQT)` (% points; the log's ERRM/ERRL match this
@@ -273,8 +295,15 @@ the structure. Pitman's algorithm (`runSfrGroup`):
 5. **Step** (`applySfrStep`): FF += u, PI += k·u, SL and ST += `f(n)·v`,
    HGSL moves with SL (R6-F14). `f(n)` is 0.7 for the pre-iteration and updates
    1–10, 0.35 after (R6-F7 **[I]**). If SL would go below 0: SL = 0 and ST
-   grows by twice the overshoot (R6-F8 **[I]**, 488 of 488 logged cases). PI
-   floors at 0, FF at 0.01 (R6-F15).
+   grows by twice the overshoot (R6-F8 **[I]**, 488 of 488 logged cases), and
+   u is re-solved from the MAR equation alone with the SL change that happens,
+   `u = (ERRM − C·(−SL)) / (A·k + B)` (R6-F19 **[I]**). PI floors at 0, FF at
+   0.01 (R6-F15). With these rules the logged constants replay 475 of the 501
+   logged updates to within 0.005 in every parameter (public logs; 585 of 613 over every local log); the rest are 3 updates
+   where WRSM2000 put PI and FF back to their original values when FF would
+   fall below 1 (not reproduced; R6-F15 open), 5 updates at the step-factor
+   change (update 11) with SL > 0 whose ΔFF is smaller than the solve gives,
+   and print rounding.
 6. After 40 iterations without closure: keep the last run and warn, as WRSM2000
    does ("The SFR iteration did not converge after 40 iterations … Check the
    data of the module, especially the rotation periods if this is a CSIR-forest
@@ -402,14 +431,16 @@ series instead of a reduction. `ReductionInput.parent` is therefore unused, and
 | R6-F6 | ΔPI = k·ΔFF | k = 34 (`piPerFf`) | **[I]** DPI/DFF in 590 logged steps (33.0–35.1, rounding) |
 | R6-F7 | Step factor on ΔSL | 0.7 to update 10, 0.35 after (`slStepFactor`) | **[I]** 376 + 235 logged steps |
 | R6-F8 | SL below 0 | SL = 0, ST += 2·overshoot (`slFloor: 'clamp'` moves ST by ΔSL) | **[I]** 488 of 488 logged cases |
-| R6-F9 | Closing error | 1 % to iteration 10, then 2 (11–16), 4 (17–24), 8 (25–32), 16 (33–40) (`tolerance`) | TT 689 p.139; steps read off the logs **[I]**. Three logged stops at iterations 7–9 have \|ERRL\| between 1 and 1.6, so WRSM2000's exact test differs |
-| R6-F10 | Constants A…Z of eqs. 11.2–11.3 | estimated from two runs (`jacobianStep`: ΔFF 0.1, ΔSL 10 mm), fixed thereafter | TT 690 p.126: "depend on MAP and ST", formulas not given |
+| R6-F9 | Closing error | 1 % to iteration 8, then 2 (9–16), 4 (17–24), 8 (25–32), 16 (33–40) (`tolerance`) | TT 689 p.139 says "within 10 iterations"; the logs **[I]**: these bands reproduce 613 of 613 logged stop-or-continue decisions; "10" misses the four logged stops at iteration 9 with 1 < \|ERRL\| ≤ 2 |
+| R6-F10 | Constants A…Z of eqs. 11.2–11.3 | `constants: 'logged'`: the linear forms in MAP and ST (§4.5 step 2), fixed for the calibration; `'estimated'` from two runs (`jacobianStep`) | TT 690 p.126: "depend on MAP and ST", formulas not given; **[I]** 19 of 19 distinct logged constant sets within 0.0001 |
 | R6-F11 | Child with both afforestation and alien vegetation | afforestation; alien ignored, warned | TT 691 p.52: one NSFR per child |
 | R6-F12 | Active area within a year | constant, the year table's value for the hydrological year | TT 689 p.126 "determined for every given year"; p.140 "every specific month" |
 | R6-F13 | Child's Sami abstractions | none (the parent's volumes are not copied) | abstractions are not climate or calibration parameters (TT 691 pp.53–54); every reference L.036 is 0 |
 | R6-F14 | HGSL | moves with SL, floored at 0 | logs: HGSLA = SLA in 501 of 501 steps, but original HGSL = SL in all 33 blocks, so "= SL" and "moves with SL" can't be told apart |
 | R6-F15 | Parameter floors | PI ≥ 0, FF ≥ 0.01 | none |
-| R6-F16 | Year-varying areas | run once at the largest area, scale by year | exact for depth models and constant areas; Sami inputs given as volumes or areas (abstractions, GW evaporation area) would scale with them |
+| R6-F16 | Year-varying areas | run once at the largest area, scale by year | exact for classic Pitman and constant areas; approximate for Sami with a varying area (OUT ∝ 1/√AREA, GW evaporation area, abstractions) |
+| R6-F19 | ΔFF when SL hits 0 | re-solved from the MAR equation with the SL change that happens (`slFloorResolve`) | **[I]** the logged updates (§4.5 step 5) |
+| R6-F20 | Area of a Sami member's regional outflow | `samiOutflowArea: 'own'` | logged virgin MARs: 'own' median \|error\| 2.5 %, 'owner' 3.6 % (25 blocks) |
 | R6-F17 | Child route in natural mode | 0 | the route ends at the zero sink, so totals don't depend on it |
 
 Also open, for the orchestrator: whether Scott & Smith (1997, Water SA 23(2)),
@@ -433,5 +464,16 @@ reads the `WRSM2000.ERR` child blocks (2026-10-29):
   which includes paved flow; the check against Pitman's own virgin runs needs
   the Sami runner (integration).
 
-Not yet checked: the calibrated child flows ("Final QMAR/QLQT") against the logs,
-which needs Sami.
+- **Calibration steps**: the logged parameter updates replayed with
+  `sfrConstants` and `sfrUpdate` (no runoff model: each logged ERRM/ERRL in,
+  the next logged PIA … HGSLA out): 475 of 501 public updates within 0.005
+  (95 %); every constant set within 0.0001.
+- **Final QMAR** (whole-network probe, Sami, 2026-10-29 on the R6-R9/R10
+  defaults; 32 public child blocks whose log belongs to the folder's network):
+  MAR reduction achieved within 1 % point of the logged one in 27 (was 14 with
+  the estimated constants and the 10-iteration bands); Final QMAR within 2 % in
+  20 (was 14), median |error| 1.8 % (was 2.3 %), most of it the virgin MAR
+  (median |error| 1.3 %). The final low-flow reduction is within 2 points in 7:
+  at the same parameters Pitman's Sami child responds differently from
+  WRSM2000's (alien children reduce more, afforested ones less), which the
+  calibration path then follows; not explained yet.

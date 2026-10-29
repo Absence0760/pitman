@@ -192,6 +192,15 @@ describe("Sami aquifer: one equation at a time (hand-worked)", () => {
     );
   });
 
+  it("OUT depth ∝ 1/√AREA; outflowAreaKm2 holds it at the owner's (R6-R5, an SFR member on part of a catchment)", () => {
+    const at = (areaKm2: number, outflowAreaKm2?: number) =>
+      step(state(80), {}, { areaKm2, evapAreaKm2: areaKm2 / 100, ...(outflowAreaKm2 !== undefined ? { outflowAreaKm2 } : {}) }).out.outflow;
+    // 0.06 mm at 100 km² (below); 10× that at 1 km².
+    expect(at(1)).toBeCloseTo(0.6, 12);
+    expect(at(1, 100)).toBeCloseTo(at(100), 12);
+    expect(at(100, 100)).toBe(at(100));
+  });
+
   it("eq. 8.7 + OQ-S11: OUT = T·HG·30 d·4√A/A in mm, negative below SWL", () => {
     // HG = 0.001·20/40 = 0.0005; T·HG·Δt = 10·0.0005·30 = 0.15 m²; W = 4·√1e8 = 40 000 m;
     // 0.15·40 000 = 6 000 m³ over 1e8 m² = 6e-5 m = 0.06 mm.

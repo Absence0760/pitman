@@ -101,3 +101,14 @@ export function specialAreaMessages(module: RunoffModule, year: HydroYear, child
 		text: `RU ${module.number}: special areas in ${year} (afforestation ${forest}, alien vegetation ${alien}, paved ${paved}, SFR children ${children} km²) add up to ${total} km², more than the module's ${module.areaKm2} km² (TT 689 p.127)`
 	}];
 }
+
+/**
+ * Per-year messages of one kind (`specialAreaMessages` run year by year)
+ * collapsed to the first, with the count of the other years, so a module
+ * over its area for the whole run gives one message, not one per year.
+ */
+export function collapseYears(messages: readonly RunMessage[]): RunMessage[] {
+	if (messages.length <= 1) return [...messages];
+	const [first] = messages;
+	return [{ ...first!, text: `${first!.text}; also in ${messages.length - 1} more year(s)` }];
+}

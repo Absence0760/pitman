@@ -274,7 +274,8 @@ export function validateNetwork(bundle: NetworkBundle): RunMessage[] {
 					continue;
 				}
 				const other = childOf.get(child);
-				if (other !== undefined) warning(`RU ${child} is an SFR child of both RU ${other} and RU ${m.number} (TT 689 p.135)`, { module: c.ref });
+				// TT 690 p.126: "A Child cannot be captured by more than one Parent"; run, both parents would add its flow.
+				if (other !== undefined) error(`RU ${child} is an SFR child of both RU ${other} and RU ${m.number}; a child cannot be captured by more than one parent (TT 690 p.126; TT 689 p.135)`, { module: c.ref });
 				childOf.set(child, m.number);
 				if (c.module?.kind === 'RU') {
 					// TT 689 p.133 rules A–C for a child's outflow.
