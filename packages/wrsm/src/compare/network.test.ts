@@ -7,7 +7,9 @@ import { runNetwork } from '../network/run-network.js';
 import { syntheticBundle } from '../network/synthetic-bundle.js';
 import { SAMI_PARTS_NOT_WIRED } from '../runoff/wiring.js';
 import type { MonthlySeries, NetworkBundle, RunoffModule, RunResult } from '../types.js';
-import { compareNetworkWithReference, compareRunWithReference, referenceAnswerTexts } from './network.js';
+import { compareNetworkWithReference, compareRunWithReference, referenceAnswerTexts, withAnnualReferenceMar } from './network.js';
+import { compareSeries, answerToSeries } from './compare.js';
+import { readAnswer } from '../io/answer.js';
 
 // The comparison harness on a synthetic network (issue #3 rule 2): the
 // "reference" answer files are written from one run and then perturbed, so
@@ -76,7 +78,8 @@ describe('compareNetworkWithReference', () => {
 		const byRoute = new Map(c.routes.map((r) => [r.route, r]));
 		expect(byRoute.get(1)).toMatchObject({ fails: true, origin: true, module: { type: 'RU', number: 1 }, position: 1 });
 		expect(byRoute.get(2)).toMatchObject({ fails: true, origin: false, module: { type: 'RU', number: 2 } });
-		expect(c.modules[0]).toMatchObject({ module: { type: 'RU', number: 1 }, origin: true, fails: true });
+		// Routes 1 and 2 are both 10 % off by construction, so which ranks first is a tie; look RU 1 up.
+		expect(c.modules.find((m) => m.module.number === 1)).toMatchObject({ module: { type: 'RU', number: 1 }, origin: true, fails: true });
 		expect(c.modules.find((m) => m.module.number === 2)).toMatchObject({ origin: false, fails: true });
 	});
 
@@ -98,5 +101,32 @@ describe('compareRunWithReference', () => {
 		const out = compareRunWithReference(samiBundle().network, result, new Map([[1, ref], [77, ref]]));
 		expect(out.routes.find((r) => r.route === 77)).toMatchObject({ problem: 'route not in the network', fails: true, module: null });
 		expect(out.routes.find((r) => r.route === 1)).toMatchObject({ problem: 'no common year', fails: true, comparison: null });
+	});
+});
+
+describe('withAnnualReferenceMar', () => {
+	// A small route: 0.004 million m³ every month. WRSM2000 prints each month as 0.00 but the annual total,
+	// summed from the unrounded months, as 0.05: the reference MAR comes from that column.
+	const small: MonthlySeries = { startYear: 2000, values: new Array<number>(36).fill(0.004), unit: 'Mm3' };
+	const answer = readAnswer(ans(7, small), 'SYRQ7.ANS');
+
+	it('the printed months lose the flow; the annual column keeps it', () => {
+		expect(answerToSeries(answer).values.every((v) => v === 0)).toBe(true);
+		expect(answer.rows.map((r) => r.annualTotal)).toEqual([0.05, 0.05, 0.05]);
+		const monthly = compareSeries(small, answerToSeries(answer))!;
+		expect(monthly.marReference).toBe(0);
+		const c = withAnnualReferenceMar(monthly, answer)!;
+		expect(c.marReference).toBeCloseTo(0.05, 12);
+		expect(c.marPctDiff).toBeCloseTo((100 * (0.048 - 0.05)) / 0.05, 9);
+		// NSE and the divergence month stay monthly.
+		expect(c.nse).toBe(monthly.nse);
+		expect(c.firstDivergingMonth).toEqual(monthly.firstDivergingMonth);
+	});
+
+	it('leaves the comparison alone when the answer lacks a year of the overlap', () => {
+		const monthly = compareSeries(small, answerToSeries(answer))!;
+		const short = { ...answer, rows: answer.rows.slice(1) };
+		expect(withAnnualReferenceMar(monthly, short)).toBe(monthly);
+		expect(withAnnualReferenceMar(null, answer)).toBeNull();
 	});
 });
