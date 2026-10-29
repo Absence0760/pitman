@@ -1,0 +1,27 @@
+# Base-owned paths from the `templates` repo that this project has declined or moved.
+#
+# `templates/scripts/sync-projects.sh` is additive: it treats any base-owned
+# file this repo lacks as a gap and copies it in. A file moved or deleted on
+# purpose looks the same as one never synced, so record it here or the next
+# sweep re-adds it. One path per line; `#` comments and blank lines ignored.
+# (Same mechanism as threkir's.)
+
+# Agents are grouped by team under `.claude/agents/{engineering,audit,design,personas}/`
+# (2026-10-28, as in threkir and project-water-management). A subagent resolves
+# by its frontmatter `name:`, never by path, so a flat copy from base would be a
+# second definition of the same agent, not an addition.
+.claude/agents/code-reviewer.md
+.claude/agents/doc-hygiene-checker.md
+.claude/agents/migration-coordinator.md
+.claude/agents/test-gap-checker.md
+.claude/agents/compliance-auditor.md
+.claude/agents/repo-security-auditor.md
+.claude/agents/ui-polisher.md
+.claude/agents/persona-accessibility-user.md
+.claude/agents/persona-admin.md
+.claude/agents/persona-adversary.md
+.claude/agents/persona-data-subject.md
+.claude/agents/persona-integrator.md
+.claude/agents/persona-international-user.md
+.claude/agents/persona-new-user.md
+.claude/agents/persona-power-user.md

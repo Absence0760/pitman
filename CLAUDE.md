@@ -108,7 +108,7 @@ Run these as slash-commands. Each delegates to a specialised agent (`.claude/age
 - `/polish-ui` — typography / layout polish on a target frontend surface.
 - `/release-readiness` — go/no-go checklist before tagging.
 - `/audit/all` — runs every audit in `audit/`; `/audit/<area>` for a single sweep. Areas: `secrets`, `infra`, `deps`, `xss`, `cost-controls`, `auth`, `accessibility`, `gdpr`, `data-export-completeness`, `account-deletion-completeness`, `cookie-consent`, `third-party-data-flows`.
-- `/persona` — runs the bug-hunting persona auditors (`.claude/agents/persona-*.md`): real-world points of view (new user, power user, admin, international user, accessibility, integrator, adversary, data subject) that find logic / UX / domain bugs a code review misses. Each writes a living report to `reviews/<persona>.md` (git-ignored). Protocol + how to add domain personas: `.claude/personas/README.md`.
+- `/persona` — runs the bug-hunting persona auditors (`.claude/agents/personas/persona-*.md`): real-world points of view (new user, power user, admin, international user, accessibility, integrator, adversary, data subject) that find logic / UX / domain bugs a code review misses. Each writes a living report to `reviews/<persona>.md` (git-ignored). Protocol + how to add domain personas: `.claude/personas/README.md`.
 
 Pitman's own additions (listed in `.claude/README.md` § Pitman additions):
 

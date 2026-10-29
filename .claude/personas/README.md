@@ -1,6 +1,6 @@
 # Persona audits
 
-A **persona** is a read-only Claude subagent (`.claude/agents/persona-*.md`) that
+A **persona** is a read-only Claude subagent (`.claude/agents/personas/persona-*.md`) that
 adopts a specific real-world point of view — a brand-new user, an admin, an
 international customer, an integrator, an attacker — and walks the app the way
 that person would, looking for bugs, missing primitives, wrong assumptions, and

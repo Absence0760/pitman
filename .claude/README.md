@@ -6,7 +6,10 @@ These agents and commands were derived from a real working web app (SvelteKit + 
 
 ## What's here
 
-### Agents (`agents/`)
+### Agents (`agents/`, grouped by team: `engineering/`, `audit/`, `design/`, `legal/`, `personas/`)
+
+Claude Code resolves an agent by its frontmatter `name:`, not its path, so the folders are for people. Base ships these flat; `.github/template-sync-ignore` lists the flat paths so a template sync doesn't add second copies.
+
 
 - **`code-reviewer.md`** — invoked at PR / pre-commit time to review the diff against the project's documented rules.
 - **`doc-hygiene-checker.md`** — checks that code changes update docs and tests in the same change.
@@ -15,7 +18,7 @@ These agents and commands were derived from a real working web app (SvelteKit + 
 - **`repo-security-auditor.md`** — read-only security auditor. The "trust boundaries" section needs rewriting per project — the example boundaries (frontend ↔ user, backend ↔ caller, backend ↔ <CMS>, backend ↔ <payment-processor>) reflect one specific stack shape, not a universal map.
 - **`compliance-auditor.md`** — read-only privacy / legal / accessibility auditor. Backs the GDPR, cookie-consent, data-export, account-deletion, third-party-data-flows, and accessibility audit commands. Knows enough about GDPR / ePrivacy / CCPA / WCAG to flag the obvious gaps; the operator still owns the final policy / legal call.
 - **`migration-coordinator.md`** — DB schema-change coordinator. Applies a migration locally, verifies RLS coverage on tenant tables, surfaces manual type-sync edits, proposes smoke-test additions. Pairs with `/safe-migration`.
-- **`persona-*.md`** — bug-hunting personas. Each adopts a real-world point of view (`new-user`, `power-user`, `admin`, `international-user`, `accessibility-user`, `integrator`, `adversary`, `data-subject`) and walks the app the way that person would, finding logic / UX / domain bugs a code review misses. Read-only; each writes a living report to `reviews/<persona>.md` (git-ignored). Stack-agnostic — they discover the app first. Protocol + how to add project-specific domain personas (an invoicing app's approver/CFO/accountant, a marketplace's buyer/seller, …): `personas/README.md`. Run via `/persona`.
+- **`persona-*.md`** — bug-hunting personas. Each adopts a real-world point of view (`new-user`, `power-user`, `admin`, `international-user`, `accessibility-user`, `integrator`, `adversary`, `data-subject`) and walks the app the way that person would, finding logic / UX / domain bugs a code review misses. Read-only; each writes a living report to `reviews/<persona>.md` (git-ignored). Stack-agnostic — they discover the app first. They live in `agents/personas/`. Protocol + how to add project-specific domain personas (an invoicing app's approver/CFO/accountant, a marketplace's buyer/seller, …): `personas/README.md`. Run via `/persona`.
 
 ### Commands (`commands/`)
 
@@ -54,7 +57,7 @@ domain and stack), with every fact rewritten for Pitman.
 
 ## Adapting these for a new project
 
-1. Rewrite the trust-boundary map in `agents/repo-security-auditor.md` to match your stack's actual third-party integrations.
+1. Rewrite the trust-boundary map in `agents/audit/repo-security-auditor.md` to match your stack's actual third-party integrations.
 2. Update route tables in `audit/cost-controls.md` and `audit/infra.md` to match your `backend/src/routes/*` and `infra/*.tf`.
 3. Replace the `<placeholder>` tokens (`<payment-processor>`, `<CMS>`, `<email-service>`, `<aws-region>`) with real service names so the agents stop emitting them in reports.
 4. Add stack-specific audits not covered here (Postgres RLS? Edge functions? Mobile-twin parity? GDPR / app-store privacy? — extend `audit/` with the checks that matter for your trust surface).

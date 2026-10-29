@@ -91,7 +91,7 @@ backend.config
 .localstack/
 
 # Persona audit reports
-# `.claude/agents/persona-*.md` auditors write their findings here. The reports
+# `.claude/agents/personas/persona-*.md` auditors write their findings here. The reports
 # are per-clone working notes (often half-reconciled), never a committed
 # artifact — but the folder's README documents the convention, so keep that one
 # file tracked via the negation below. Glob the contents (`/reviews/*`), not the
