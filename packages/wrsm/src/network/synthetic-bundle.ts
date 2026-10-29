@@ -25,8 +25,11 @@ import type {
 	MonthlyRow,
 	Network,
 	NetworkBundle,
+	ObservedFlow,
+	ObservedRow,
 	ReservoirModule,
-	RunoffModule
+	RunoffModule,
+	Twelve
 } from '../types.js';
 
 const twelve = (f: (m: number) => number) => Array.from({ length: 12 }, (_, m) => f(m)) as unknown as Monthly12;
@@ -35,6 +38,25 @@ function flowFile(fileName: string, startYear: number, endYear: number, f: (year
 	const rows: MonthlyRow[] = [];
 	for (let year = startYear; year <= endYear; year++) rows.push({ year, months: twelve((m) => f(year, m)) });
 	return { fileName, rows, hasTotals: false, hasAverage: false };
+}
+
+/**
+ * Invented observed flow at the gauge for every run year, million m³: a
+ * seasonal shape, one missing month (negative, docs/decisions.md) and one
+ * incomplete (`+`) month, so readers and the results screen meet both.
+ */
+function observedFlow(startYear: number, endYear: number): ObservedFlow {
+	const rows: ObservedRow[] = [];
+	for (let year = startYear; year <= endYear; year++) {
+		const months = twelve((m) => {
+			if (year === startYear && m === 2) return -1;
+			return Math.round((0.4 + 0.3 * Math.cos(((m - 4) * Math.PI) / 6) + 0.02 * (year - startYear)) * 1000) / 1000;
+		});
+		const incomplete = twelve(() => 0).map((_, m) => year === endYear && m === 11) as unknown as Twelve<boolean>;
+		const annualTotal = Math.round(months.reduce((a, v) => a + Math.max(v, 0), 0) * 1000) / 1000;
+		rows.push({ year, months, incomplete, annualTotal, annualIncomplete: year === endYear });
+	}
+	return { rows };
 }
 
 /** The bundle described in the module comment. Same options as `syntheticNetwork`. */
@@ -75,7 +97,11 @@ export function syntheticBundle(options: SyntheticOptions = {}): NetworkBundle {
 		mapMm: ru2.mapMm,
 		rainfallFile: rainA,
 		areaVolumePower: 0.6,
-		capacity: [{ year: startYear, fullSupplyVolumeMm3: 2, fullSupplyAreaKm2: 0.5 }],
+		// TT 689 p.91: at least two triplets, the first in or before the first simulated year and the last in or after the last.
+		capacity: [
+			{ year: startYear, fullSupplyVolumeMm3: 2, fullSupplyAreaKm2: 0.5 },
+			{ year: endYear, fullSupplyVolumeMm3: 2, fullSupplyAreaKm2: 0.5 }
+		],
 		panMm: ru2.sPanMm,
 		panFactors: twelve(() => 0.8),
 		spillRoute: 5,
@@ -141,7 +167,7 @@ export function syntheticBundle(options: SyntheticOptions = {}): NetworkBundle {
 		network,
 		modules: [ru1, ru2, ru3, irrigation, reservoir, channel],
 		rainfall,
-		observed: { [`${code}H001.OBS`]: { rows: [] } },
+		observed: { [`${code}H001.OBS`]: observedFlow(startYear, endYear) },
 		flowFiles: Object.fromEntries(files.map((f) => [f.fileName.toUpperCase(), f]))
 	};
 }

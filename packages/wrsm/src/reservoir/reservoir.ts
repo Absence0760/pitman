@@ -16,7 +16,7 @@
  */
 
 import type { ModuleRunContext, ModuleRunResult, RouteFlows } from '../network/contract.js';
-import { definedFlowSeries, monthCount } from '../network/contract.js';
+import { MAJOR_FAILURE_MM3, definedFlowSeries, monthCount } from '../network/contract.js';
 import type { HydroYear, ModuleRef, MonthlySeries, ReservoirModule, ReservoirOutflow, RunMessage } from '../types.js';
 import { allocateDrafts, type DeficitCase } from './allocate.js';
 import { CapacityTableError, capacitySeries, surfaceArea, type CapacityBetweenRows, type CapacityOutsideTable, type YearCapacity } from './capacity.js';
@@ -47,11 +47,6 @@ export const DEFAULT_RESERVOIR_OPTIONS: ReservoirOptions = {
 	precision: 'float64' // R3-RV11
 };
 
-/**
- * TT 691 p.80: a failure is "minor" below 0.009 million m³ in a month and
- * "major" above it (R3-RV10: exactly 0.009 counts as minor).
- */
-export const MAJOR_FAILURE_MM3 = 0.009;
 
 /** Deficits smaller than this are rounding noise, not failures, million m³. */
 const DEFICIT_TOLERANCE_MM3 = 1e-9;

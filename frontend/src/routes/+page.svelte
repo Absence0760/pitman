@@ -332,8 +332,12 @@
 			{/if}
 		</section>
 
-		<section aria-labelledby="results-h" data-run-state={runState} data-ready={runState === 'done' ? 'true' : 'false'}>
-			<h2 id="results-h">Results</h2>
+		<!-- Results.svelte is its own region headed "Results"; this wrapper only carries the run state and,
+		     before there are results, the same heading, so the page never has two regions of one name. -->
+		<div class="run-output" data-run-state={runState} data-ready={runState === 'done' ? 'true' : 'false'}>
+			{#if runs.length === 0}
+				<h2>Results</h2>
+			{/if}
 			{#if failedModes.length > 0}
 				<ul class="failures" aria-label="Modes that failed">
 					{#each failedModes as failure (modeId(failure.mode))}
@@ -346,7 +350,7 @@
 			{:else if runState !== 'done'}
 				<p class="note">Choose the modes and run the network to see results here.</p>
 			{/if}
-		</section>
+		</div>
 	{/if}
 </main>
 

@@ -33,14 +33,22 @@ export * from './io/runoff.js';
 export * from './io/reservoir.js';
 export * from './io/channel.js';
 export * from './io/irrigation.js';
+// A whole network folder: path → text in, NetworkBundle out, and back (Round 3).
+export * from './io/bundle.js';
 
 // The classic Pitman runoff module (docs/theory/pitman.md).
 export * from './runoff/rain.js';
 export * from './runoff/lag.js';
 export * from './runoff/pitman.js';
 
-// Round 3 contract between the network runner and the module simulators, and the whole-network run.
+// Round 3: the contract between the network runner and the module simulators,
+// the runner (docs/theory/network.md), reservoirs (reservoir.md), channel
+// reaches (channel.md), flow statistics (statistics.md), and the whole-network run.
 export * from './network/contract.js';
+export * from './network/index.js';
+export * from './reservoir/index.js';
+export * from './channel/index.js';
+export * from './stats/index.js';
 export * from './run.js';
 
 // Comparison against WRSM2000 outputs, and a synthetic network for tests.

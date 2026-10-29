@@ -614,6 +614,8 @@ Names (TT 689 §2.3.4 p.8 and §4.5–4.8, pp.13–17):
 
 The other `.MTS` series codes (surface runoff, GW outflow, Pitman S, …) are unknown (U-20). For the series given in mm (soil moisture, recharge), the same layout holds but the units are mm. All five types are written to the output folder.
 
+Pitman's results screen downloads `.ANS` files in this layout. When several run modes are shown it appends the mode to the name (`SYRQ4-natural.ANS`); WRSM2000's readers still take the file.
+
 `RV*.ANS` (reservoir storage) was never observed. Its annual and mean columns, which would be meaningless for a storage, are unknown (U-20). Write it in the same layout, with the annual column as the sum, until a real one is seen.
 
 ### 11.3 Defined-flow and demand input files (`.abs`, `.prn`, `.IRR`, `.DEF`, `.URB`, `.IND`, or any name)

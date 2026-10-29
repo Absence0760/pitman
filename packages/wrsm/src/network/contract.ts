@@ -73,6 +73,13 @@ export interface ModuleSimulators {
 	readonly channel: ChannelSimulator;
 }
 
+/**
+ * A month's supply failure above this is "major", at or below it "minor",
+ * million m³ (TT 691 p.80 for reservoirs, §7.7.1 pp.86–87 CRFAIL for channel
+ * reaches; R3-RV10, OQ-CR14). Shared by the reservoir and channel simulators.
+ */
+export const MAJOR_FAILURE_MM3 = 0.009;
+
 /** Number of months in `startYear`–`endYear`. */
 export function monthCount(startYear: HydroYear, endYear: HydroYear): number {
 	return 12 * (endYear - startYear + 1);

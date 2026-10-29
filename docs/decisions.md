@@ -39,7 +39,11 @@ All proposed defaults in these specs are **accepted as provisional**, with the e
 | `docs/theory/hughes.md` | OQ-H1 … OQ-H12 | none yet: no reference network uses Hughes |
 | `docs/formats.md` | U-1 … U-22 | Round 2 (every reference file round-trips) |
 | `docs/theory/extend.md` | A1 … A6 | Round 4 |
-| `docs/theory/subdivide.md` | B1 … B9 | Round 5 |
+| `docs/theory/subdivide.md` | B1 … B9 | Round 5 (B1 answered by R3-N8: a route can end at a runoff module) |
+| `docs/theory/network.md` | R3-N1 … R3-N22 | Round 6 discrepancy hunter (whole-network comparison, once Sami runs) |
+| `docs/theory/reservoir.md` | R3-RV1 … R3-RV23 | Round 3: 39 reference reservoirs, run on WRSM2000's own route flows, all within 1 % spill MAR (NSE ≥ 0.996); the rest when the network runs |
+| `docs/theory/channel.md` | OQ-CR1 … OQ-CR19 | Round 6/8 (the reference set has no wetland, bed loss or active diversion: those paths are manual-only) |
+| `docs/theory/statistics.md` | R3-S1 … R3-S9 | none yet: no WRSM2000 `.OUT` statistics file in the reference set |
 
 Notes:
 
@@ -79,3 +83,11 @@ Round 2 reference suite (local, `WRSM_REFERENCE_DIR`): every `.NET` (35), `.RAN`
 |---|---|---|
 | R3-1 | The network is solved **one module at a time over the whole record, in `.NET` order** (TT 689 §6.1.16: a "sequence error" is raised when a module's upstream module "has not yet been solved"). Module simulators get complete inflow series and return complete outflow series (`packages/wrsm/src/network/contract.ts`) | Provisional; the reference comparison checks it |
 | R3-2 | Defined-flow and demand files per mode (`definedFlowSeries`): historical takes each year's row and a missing year is an error; present day holds the chosen year's row (the nearest year the file has when it lacks it, reported); natural is zero | Provisional |
+| R3-3 | Reservoirs and channel reaches share one failure threshold: a month short by more than 0.009 million m³ is a "major" failure (TT 691 p.80, §7.7.1; `MAJOR_FAILURE_MM3` in `contract.ts`) | Decided |
+| R3-4 | **Calculated demands are not in the contract yet.** Irrigation abstraction routes from reservoirs (151 of 168 reference reservoirs) and channels (146 channel outflow routes) carry zero until Round 7 adds a `demands` argument and returns the supply to the irrigation module (R3-N2, R3-RV13, OQ-CR4). A channel diverting into a reservoir would need the reservoir's previous-month storage, which whole-record solving (R3-1) can't give; no reference channel diverts (R3-N1) | Open: Round 7 |
+| R3-5 | **RV9** (defined outflows cut when water runs short) contradicts TT 689 p.169 ("NEVER adjusted downwards") but matches pp.16–17, p.170 and the real `.ERR` wording. Kept; asked on #21 | Provisional; hydrologist to confirm |
+| R3-6 | A network folder in the app (`packages/wrsm/src/io/bundle.ts`): WRSM2000 files are decoded as Latin-1 (one character per byte) and `pitman.json` as UTF-8. Names resolve case-insensitively inside the `.NET`'s folder; a name inside the `.NET`'s input directory counts as relative; failing that, a unique base-name match is used with a warning (R3-A3). A missing module, rainfall, gauge or defined-flow file blocks loading; a type-0 channel's dummy wetland rainfall file only warns (R3-A2). Unchanged files are written back verbatim, changed ones in the standard layout (R3-A4, extends R2-4). Non-ASCII bytes are a bundle-level warning (R3-A5, supersedes R2-3's "read silently" for the app). Files no reader uses (`Out/`, diagrams, other `.NET`s) are kept and written back. `__MACOSX` and `._*` entries are ignored when finding the `.NET` (R3-A9) | Decided |
+| R3-7 | The app's working copy is the network's files in IndexedDB, one network at a time (R3-A6); every save stamps the sidecar with `writtenBy`/`savedAt` (R3-A7); load limits 20,000 files, 64 MB per file, 256 MB in all (R3-A8, reviewed in Round 8.5) | Provisional |
+| R3-8 | Synthetic test networks give every reservoir at least two capacity rows covering the run (TT 689 p.91: "at least two year – area – volume triplet[s]", the first in or before the first simulated year and the last in or after the last) | Decided |
+
+Round 3 reference checks (local, `WRSM_REFERENCE_DIR`): 34 of 35 `.NET` files validate (connectivity, sequence, percentages); one public network lists an SFR parent after the channel it drains into yet has outputs (R3-N3). 3,140 of 3,140 files in 35 networks read and write back byte-identical through `readBundle`/`writeBundle`. No reference network runs end to end yet: every one has Sami runoff modules (Round 6).

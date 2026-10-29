@@ -1,11 +1,4 @@
-/**
- * The engine's whole-folder API (`packages/wrsm/src/io/bundle.ts`).
- *
- * `@pitman/wrsm`'s `index.ts` belongs to the orchestrator and doesn't export
- * bundle.ts yet, so this shim imports it by path. At integration, once
- * `index.ts` has `export * from './io/bundle.js'`, this becomes
- * `export … from '@pitman/wrsm'` and nothing else changes.
- */
+/** The engine's whole-folder API (`packages/wrsm/src/io/bundle.ts`), re-exported for the app. */
 
 export {
 	SIDECAR_FILE,
@@ -21,4 +14,4 @@ export {
 	type ReadBundleOptions,
 	type ReadBundleResult,
 	type WriteBundleOptions
-} from '../../../../packages/wrsm/src/io/bundle.js';
+} from '@pitman/wrsm';

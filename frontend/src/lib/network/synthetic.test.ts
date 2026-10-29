@@ -8,13 +8,15 @@ describe('the synthetic network zip', () => {
 		const result = readBundle(syntheticNetworkFiles());
 		expect(result.errors).toEqual([]);
 		expect(result.warnings).toEqual([]);
-		expect(result.ok && result.bundle.modules.map((m) => `${m.kind}${m.number}`)).toEqual(['RU1', 'RU2', 'RU3', 'CR4']);
+		expect(result.ok && result.bundle.modules.map((m) => `${m.kind}${m.number}`)).toEqual(['RU1', 'RU2', 'RU3', 'RR6', 'RV5', 'CR4']);
 	});
 
-	it('the channel reach takes routes 2 and 3 and sends route 4 out', () => {
-		const cr = syntheticBundle().modules[3];
-		expect(cr).toMatchObject({ kind: 'CR', principalOutflowRoute: 4, wetlandRainfallFile: null });
-		if (cr?.kind === 'CR') expect(cr.inflows.map((r) => r.route)).toEqual([2, 3]);
+	it('has a reservoir, a channel reach and a gauge with observed flow', () => {
+		const bundle = syntheticBundle();
+		expect(bundle.modules.find((m) => m.kind === 'CR')).toMatchObject({ principalOutflowRoute: 4 });
+		expect(bundle.modules.find((m) => m.kind === 'RV')).toMatchObject({ spillRoute: 5 });
+		expect(bundle.network.gauges.map((g) => g.route)).toEqual([4]);
+		expect(Object.values(bundle.observed)[0]?.rows.length).toBeGreaterThan(0);
 	});
 
 	it('unzips to the same files, in a folder when asked', () => {

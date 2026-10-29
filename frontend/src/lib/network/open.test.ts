@@ -36,12 +36,14 @@ describe('summarise / engineBundle', () => {
 			endYear: 1999,
 			modules: [
 				{ type: 'RU', label: 'runoff', count: 3 },
+				{ type: 'RV', label: 'reservoir', count: 1 },
+				{ type: 'RR', label: 'irrigation', count: 1 },
 				{ type: 'CR', label: 'channel reach', count: 1 }
 			],
-			routes: 4,
-			gauges: 0,
+			routes: 9,
+			gauges: 1,
 			rainfallFiles: 2,
-			flowFiles: 0,
+			flowFiles: 2,
 			notModelled: [],
 			hasSidecar: false
 		});

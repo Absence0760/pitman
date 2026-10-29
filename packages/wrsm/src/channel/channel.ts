@@ -19,7 +19,7 @@
  */
 
 import type { ChannelModule, MonthlySeries, RainfallSeries, RunMessage, RouteConnection } from '../types.js';
-import { definedFlowSeries, monthCount, type ModuleRunContext, type ModuleRunResult, type RouteFlows } from '../network/contract.js';
+import { MAJOR_FAILURE_MM3, definedFlowSeries, monthCount, type ModuleRunContext, type ModuleRunResult, type RouteFlows } from '../network/contract.js';
 import {
 	basicWetlandMonth,
 	comprehensiveWetlandMonth,
@@ -70,8 +70,6 @@ export const DEFAULT_CHANNEL_OPTIONS: ChannelOptions = {
 	wetlandSolver: DEFAULT_WETLAND_SOLVER
 };
 
-/** Failures of a month below this are "minor", above it "major" (TT 691 §7.7.1 pp.86–87, CRFAIL: 0.009 per month; OQ-CR14). */
-export const MAJOR_FAILURE_MM3 = 0.009;
 
 /** At most this many messages of each failure type are listed (TT 691 §7.7.1 p.87: "only the first 255 errors of any type"). */
 export const MAX_FAILURE_MESSAGES = 255;

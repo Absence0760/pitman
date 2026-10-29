@@ -33,7 +33,7 @@ pitman/
 │       ├── app.css           Base styles
 │       ├── app.html
 │       ├── lib/network/      Load, validate, store, run (worker), save (§ App flow)
-│       ├── lib/results/      Results and plots
+│       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
 │       └── routes/           +page.svelte: the app shell
 ├── backend/
 │   ├── package.json          Build script runs esbuild → dist/lambda.mjs
