@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { makeSamiAquiferStep, samiAquiferInit, samiAquiferStep } from '../groundwater/sami/aquifer.js';
 import type { SamiOptionsInput, SamiRunParts } from '../groundwater/sami/index.js';
 import type { PitmanOptions } from '../runoff/pitman.js';
-import { samiInterflow, samiSoilPass } from '../groundwater/sami/soil.js';
+import { samiInterflow, samiInterflowRouter, samiSoilPass } from '../groundwater/sami/soil.js';
 import { readBundle } from '../io/bundle.js';
 import { runNetwork } from '../network/run-network.js';
 import { DEFAULT_SIMULATORS } from '../run.js';
@@ -25,7 +25,7 @@ const dir = process.env.WRSM_REFERENCE_DIR;
 const allVariants = process.env.WRSM_SAMI_VARIANTS === 'all';
 
 /** The real parts (soil.ts, aquifer.ts); `makeAquiferStep` carries the aquifer switches. */
-const PARTS: SamiRunParts = { soilPass: samiSoilPass, interflow: samiInterflow, aquiferInit: samiAquiferInit, aquiferStep: samiAquiferStep, makeAquiferStep: makeSamiAquiferStep };
+const PARTS: SamiRunParts = { soilPass: samiSoilPass, interflow: samiInterflow, interflowRouter: samiInterflowRouter, aquiferInit: samiAquiferInit, aquiferStep: samiAquiferStep, makeAquiferStep: makeSamiAquiferStep };
 
 /** A Sami reading plus Pitman core options (R2-1; OQ-22 decides whether the TL lag can go negative). */
 interface Variant {

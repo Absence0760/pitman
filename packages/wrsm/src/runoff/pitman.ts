@@ -697,7 +697,7 @@ export function simulateModuleRunoff(
 		messages.push({
 			level: 'warning',
 			module: ref,
-			text: `RU ${module.number}: Sami runoff is negative in ${sim.negativeRunoffMonths} month(s): transmission loss exceeded surface runoff + interflow + baseflow (OQ-S3); ${sim.options.negativeRunoff === 'clamp' ? 'raised to 0' : 'kept'} (R6-R3)`
+			text: `RU ${module.number}: Sami runoff is negative in ${sim.negativeRunoffMonths} month(s): surface runoff + interflow + baseflow − transmission loss < 0 (a lagged part went negative, OQ-22; TL is capped at that runoff, R6-A10); ${sim.options.negativeRunoff === 'clamp' ? 'raised to 0' : 'kept'} (R6-R3)`
 		});
 	}
 	return { runoffMm: sim.months.map((m) => m.runoff), pitman: sim.pitman, sami: sim, messages, diagnostics: { ...samiDiagnostics(sim, options.activeAreaKm2 ?? module.areaKm2, startYear), ...evaporation(sim.pitman, sami.pitman.FF) } };

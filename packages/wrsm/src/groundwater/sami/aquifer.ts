@@ -218,6 +218,12 @@ export function samiAquiferStepDetail(
     store -= grossBaseflow;
   } else if (head < 0) {
     transmissionLoss = Math.min(magnitude, runoff);
+    // R6-A10: nor more than the runoff it comes out of (TT 687 p.12–13:
+    // "transmission losses cannot exceed runoff"). HEAD's runoff (OQ-S3 (i),
+    // Pitman total Q) can exceed it, so without this Qfinal goes negative.
+    if (i.runoffForLoss && transmissionLoss > 0) {
+      transmissionLoss = Math.min(transmissionLoss, Math.max(0, i.runoffForLoss(aqx)));
+    }
     if (options.transmissionLossCap === "runoffAndCapacity") {
       transmissionLoss = Math.max(0, Math.min(transmissionLoss, cap - store));
     }
