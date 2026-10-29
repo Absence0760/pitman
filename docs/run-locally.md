@@ -124,8 +124,8 @@ cp scripts/git-hooks/pre-push .git/hooks/pre-push
 
 ## Common issues
 
-**`PUBLIC_API_URL` is not defined at build time**
-: It's set in the committed `frontend/.env.development`. If you overrode it in `frontend/.env.development.local`, make sure that file still defines it.
+**The app calls the wrong API**
+: `PUBLIC_API_URL` is declared in `frontend/src/env.ts` and set in the committed `frontend/.env.development` (`http://localhost:3001`). A build without it (a local `vite build`, the end-to-end tests) uses production's same-origin `/api` (decision R4-I4).
 
 **CORS errors in the browser**
 : `ALLOWED_ORIGINS` (in `backend/.env.development`, or your `.env.development.local` override) must include `http://localhost:7777`.
