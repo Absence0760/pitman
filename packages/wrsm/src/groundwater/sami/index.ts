@@ -46,7 +46,12 @@ import { DEFAULT_SAMI_INTERFLOW_OPTIONS, DEFAULT_SAMI_SOIL_OPTIONS, samiRecharge
  * Any `SamiParts` (a fake that ignores options included) is assignable.
  */
 export interface SamiRunParts {
-	readonly soilPass: (S: readonly Mm[], p: SamiSoilParams, options?: SamiSoilOptions) => SamiSoilPass;
+	/**
+	 * `recharge`, when given, is RE per month already taken out of S by the
+	 * Pitman core (OQ-S2 (b)); the pass uses it instead of RE(S) so the water
+	 * drained from S is the water that reaches the percolating store.
+	 */
+	readonly soilPass: (S: readonly Mm[], p: SamiSoilParams, options?: SamiSoilOptions, recharge?: readonly Mm[]) => SamiSoilPass;
 	readonly interflow: (soilInterflow: readonly Mm[], excessToInterflow: readonly Mm[], lag: number, options?: SamiInterflowOptions) => Mm[];
 	readonly aquiferInit: SamiAquiferInitFn;
 	readonly aquiferStep: SamiAquiferStepFn;
@@ -56,12 +61,18 @@ export interface SamiRunParts {
 /** The provisional choices of the composition, each with its open question in docs/theory/sami.md §8. */
 export interface SamiOptions {
 	/**
-	 * OQ-S3, Qfinal. `surfacePlusSami` (reading (a), default):
-	 * Qsurface + QLAG + GWBF_net − TL, the Pitman FT term replaced by Sami's
-	 * interflow. `totalPlusBaseflow` (reading (b)): Pitman total Q +
-	 * GWBF_net − TL (Sami's interflow unused, the aquifer excess lost).
+	 * OQ-S3, Qfinal. `totalOrBaseflow` (reading (c), default, R6-R10):
+	 * max(Pitman total Q, GWBF_net) − TL. The baseflow is a part of Q, not
+	 * added to it (TT 687 p.5 Fig 1 "Surface Runoff = Q − GWBaseflow −
+	 * Interflow − TL"): it shows only when it exceeds Q, in dry months. The
+	 * baseflow the stream doesn't show still leaves the aquifer, and
+	 * Sami's interflow (SIF + AQX) partitions Q without adding to it.
+	 * `surfacePlusSami` (reading (a), R6-R0 … R6-R9): Qsurface + QLAG +
+	 * GWBF_net − TL, the Pitman FT term replaced by Sami's interflow.
+	 * `totalPlusBaseflow` (reading (b)): Pitman total Q + GWBF_net − TL
+	 * (Sami's interflow unused, the aquifer excess lost).
 	 */
-	readonly finalRunoff: 'surfacePlusSami' | 'totalPlusBaseflow';
+	readonly finalRunoff: 'totalOrBaseflow' | 'surfacePlusSami' | 'totalPlusBaseflow';
 	/**
 	 * OQ-S3, the runoff in HEAD = STORE − SWL − Q (eq. 8.9) and the TL cap.
 	 * `total` (reading (i), default): Pitman total Q. `surface` (reading
@@ -116,7 +127,7 @@ export interface SamiOptions {
 
 /** The accepted provisional defaults (docs/theory/sami.md §8; docs/decisions.md). */
 export const DEFAULT_SAMI_OPTIONS: SamiOptions = {
-	finalRunoff: 'surfacePlusSami', // OQ-S3 (a)
+	finalRunoff: 'totalOrBaseflow', // OQ-S3 (c), R6-R10 (was (a))
 	headRunoff: 'total', // OQ-S3 (i)
 	pitmanParts: 'lagged', // OQ-S3
 	soilFeedback: 'none', // OQ-S2 (a)
@@ -236,9 +247,15 @@ export function simulateSami(
 		pitmanTotal[i]! - (opt.pitmanParts === 'lagged' ? mo.routedFastSubsurface : mo.fastSubsurface)
 	);
 
-	// 2–3. Soil passes 1 and 2.
-	const soil = parts.soilPass(S, input.soil, opt.soil);
+	// 2–3. Soil passes 1 and 2. Under OQ-S2 (b) RE is what the core drained from S, not RE(month-end S).
+	const drained = soilDrain ? pitman.months.map((mo) => mo.drain) : undefined;
+	const soil = drained ? parts.soilPass(S, input.soil, opt.soil, drained) : parts.soilPass(S, input.soil, opt.soil);
 	for (const key of ['re', 'soilInterflow', 'perc', 'exrech'] as const) checkLength(`soilPass ${key}`, soil[key], n);
+	if (drained) {
+		const out = total(drained);
+		const into = total(soil.re);
+		if (Math.abs(out - into) > 1e-9 * Math.max(1, out)) throw new SamiPartError(`Sami soilPass recharge ${into} mm differs from the ${out} mm drained from S (OQ-S2 (b))`);
+	}
 
 	// 4. Pass 3: the aquifer, month by month (§4.2).
 	const aquiferParams: SamiAquiferParams = {
@@ -283,7 +300,9 @@ export function simulateSami(
 		const raw =
 			opt.finalRunoff === 'surfacePlusSami'
 				? surface[i]! + qlag[i]! + out.baseflow - out.transmissionLoss
-				: pitmanTotal[i]! + out.baseflow - out.transmissionLoss;
+				: opt.finalRunoff === 'totalOrBaseflow'
+					? Math.max(pitmanTotal[i]!, out.baseflow) - out.transmissionLoss // OQ-S3 (c)
+					: pitmanTotal[i]! + out.baseflow - out.transmissionLoss;
 		if (!Number.isFinite(raw)) throw new SamiPartError(`Sami runoff is ${raw} in month ${i}`);
 		if (raw < 0) negative++;
 		const clampedMm = raw < 0 && opt.negativeRunoff === 'clamp' ? -raw : 0; // R6-R3
@@ -314,8 +333,10 @@ export interface SamiWaterBalance {
 	readonly pitmanNotUsed: Mm;
 	readonly deltaPercolating: Mm;
 	readonly deltaAquifer: Mm;
-	/** Interflow lag storage change (reading (a)); the discarded aquifer excess (reading (b)). */
+	/** Interflow lag storage change (reading (a)); the discarded aquifer excess (readings (b), (c)). */
 	readonly interflowNotUsed: Mm;
+	/** Reading (c): baseflow taken from the aquifer that the stream doesn't show, Σ min(GWBF_net, Q); 0 otherwise. */
+	readonly baseflowNotUsed: Mm;
 	readonly groundwaterEvaporation: Mm;
 	readonly regionalOutflow: Mm;
 	readonly abstraction: Mm;
@@ -331,7 +352,7 @@ const total = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
  * extended through the Pitman core):
  *
  *   rain + ΣRE + ΣSIF + Σclamped = I + E + drain + ΔS + pitmanNotUsed + ΔP + ΔSTORE
- *                       + interflowNotUsed + ET + OUT + ABS + ΣQfinal
+ *                       + interflowNotUsed + baseflowNotUsed + ET + OUT + ABS + ΣQfinal
  *
  * (ΣSIF only in OQ-S3 (a)). Every term is measured from the parts'
  * outputs, so the residual checks the composition and the parts together.
@@ -360,6 +381,8 @@ export function samiWaterBalance(sim: SamiSimulation, input: SamiInput): SamiWat
 		deltaPercolating: pEnd - p0,
 		deltaAquifer: storeEnd - sim.initialAquifer.store,
 		interflowNotUsed: readingA ? sif + aqx - total(sim.months.map((m) => m.interflow)) : aqx,
+		baseflowNotUsed:
+			sim.options.finalRunoff === 'totalOrBaseflow' ? total(sim.months.map((m) => Math.min(m.aquifer.baseflow, m.pitmanTotal))) : 0,
 		groundwaterEvaporation: total(a.map((o) => o.et)),
 		regionalOutflow: total(a.map((o) => o.outflow)),
 		abstraction: total(sim.months.map((m) => m.aquiferInput.abstraction)),
@@ -368,7 +391,7 @@ export function samiWaterBalance(sim: SamiSimulation, input: SamiInput): SamiWat
 	const sources = t.rain + t.recharge + t.soilInterflow + t.clamped;
 	const sinks =
 		t.interception + t.evaporation + t.soilDrain + t.deltaSoil + t.pitmanNotUsed + t.deltaPercolating + t.deltaAquifer +
-		t.interflowNotUsed + t.groundwaterEvaporation + t.regionalOutflow + t.abstraction + t.runoff;
+		t.interflowNotUsed + t.baseflowNotUsed + t.groundwaterEvaporation + t.regionalOutflow + t.abstraction + t.runoff;
 	return { ...t, residual: sources - sinks };
 }
 
@@ -381,13 +404,16 @@ export function samiWaterBalance(sim: SamiSimulation, input: SamiInput): SamiWat
  * the L.036–L.037 annual value (million m³/a, interpolated by
  * hydrological year and held flat beyond the table, OQ-17) spread evenly
  * over the 12 months. Returns `null` for a time-series file (AbstractionsOn = 2), which is not
- * read yet (R3-N9).
+ * read yet (R3-N9). `areaKm2PerMonth` is the area the run converts depths
+ * back to volume with when it changes month by month (`activeAreaKm2`,
+ * R6-P1), so the abstracted volume stays the L.037 volume; L.002 otherwise.
  */
 export function samiAbstractionMm(
 	module: Pick<RunoffModule, 'sami' | 'areaKm2'>,
 	startYear: HydroYear,
 	endYear: HydroYear,
-	options: SamiOptionsInput = {}
+	options: SamiOptionsInput = {},
+	areaKm2PerMonth?: readonly number[]
 ): number[] | null {
 	const s = module.sami;
 	const months = 12 * (endYear - startYear + 1);
@@ -397,8 +423,8 @@ export function samiAbstractionMm(
 	const on = opt.abstractions === 'whenTablePresent' ? s.abstractions.length > 0 : s.abstractionMode === 1 && s.abstractions.length > 0;
 	const out: number[] = [];
 	for (let year = startYear; year <= endYear; year++) {
-		const mm = on ? (yearTableValue(s.abstractions, year) / 12) * (1000 / module.areaKm2) : 0;
-		for (let m = 0; m < 12; m++) out.push(mm);
+		const mm3 = on ? yearTableValue(s.abstractions, year) / 12 : 0;
+		for (let m = 0; m < 12; m++) out.push(mm3 === 0 ? 0 : (mm3 * 1000) / (areaKm2PerMonth?.[out.length] ?? module.areaKm2));
 	}
 	return out;
 }
