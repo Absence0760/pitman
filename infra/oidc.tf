@@ -2,7 +2,7 @@
 # GitHub OIDC deploy role — bootstrap-aware
 #
 # The OIDC provider AND the deploy role are owned by the cross-project
-# bootstrap (~/repos/templates/scripts/new-project-account.sh). This file
+# bootstrap (~/github/templates/scripts/new-project-account.sh). This file
 # just LOOKS UP the role and attaches this project's per-resource deploy
 # policy to it.
 #
@@ -16,7 +16,7 @@
 #     reviewer-gated deploy surface.
 #
 # Pre-condition: the bootstrap must have been run for this project (see
-# infra/README.md "Bootstrap workflow"). A stale `var.bootstrap_slug`
+# docs/deployment.md § First deploy). A stale `var.bootstrap_slug`
 # (default `pitman`) makes the lookup fail at plan time with a clear
 # "role not found" error.
 # ----------------------------------------------------------------------------
@@ -28,6 +28,10 @@ data "aws_iam_role" "github_deploy" {
 # ----------------------------------------------------------------------------
 # Project-specific deploy permissions, attached to the bootstrap role.
 # Scope every action to a specific ARN; no `s3:*` / `iam:*` wildcards.
+# What the two deploy workflows do and nothing more: sync the site bucket,
+# invalidate (and wait on) this distribution, replace this function's code
+# (and wait for the update). No PublishVersion: nothing uses versions or
+# aliases, so the deploy doesn't create them.
 # ----------------------------------------------------------------------------
 
 data "aws_iam_policy_document" "github_deploy" {
@@ -49,7 +53,7 @@ data "aws_iam_policy_document" "github_deploy" {
 
   statement {
     sid       = "CloudFrontInvalidation"
-    actions   = ["cloudfront:CreateInvalidation"]
+    actions   = ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"]
     resources = [aws_cloudfront_distribution.frontend.arn]
   }
 

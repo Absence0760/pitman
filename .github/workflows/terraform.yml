@@ -72,6 +72,13 @@ jobs:
           terraform -chdir=infra init -backend=false -input=false
           terraform -chdir=infra validate
 
+      # Mocked providers, no credentials: pins the cross-account grants and the stack's guard rails.
+      - name: terraform test
+        run: terraform -chdir=infra test
+
+      - name: CloudFront function and CSP-check tests
+        run: node --test infra/scripts/*.test.mjs
+
   trivy-iac:
     name: Trivy IaC scan
     runs-on: ubuntu-latest
@@ -110,7 +117,7 @@ jobs:
       # job summary instead.
       - name: Upload Trivy IaC SARIF
         if: ${{ !github.event.repository.private }}
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         with:
           sarif_file: trivy-iac.sarif
           category: trivy-iac

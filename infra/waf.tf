@@ -1,22 +1,25 @@
 # ----------------------------------------------------------------------------
-# WAF — per-IP rate limit on CloudFront
+# WAF: per-IP rate limits on the CloudFront distribution (us-east-1: scope
+# CLOUDFRONT is a hard AWS constraint).
 #
-# CloudFront ACLs MUST live in us-east-1 (the scope = CLOUDFRONT requirement
-# is a hard AWS constraint regardless of where the rest of the stack runs).
-# That's why providers.tf in main.tf declares an aws.us_east_1 alias.
+# Covers the whole site, API included: the browser calls same-origin /api/*,
+# CloudFront proxies it to the Function URL with the shared secret, and the
+# app rejects requests that skip CloudFront.
 #
-# Coverage: this WAF sits in front of the CloudFront distribution serving
-# the frontend bucket. The Lambda Function URL is reached directly by the
-# browser (NOT proxied through CloudFront in this template's default
-# shape) — so the WAF does NOT protect the API. To extend WAF coverage to
-# the API path, front the Function URL with a CloudFront /api/* behavior
-# + shared secret (see USING.md § "CloudFront → API Gateway shared secret"
-# — the same pattern applies to Function URL origins).
+# Two rules, tightest first:
+#   - /api/*: waf_api_rate_limit_per_ip (default 300 per 5 minutes). Each is
+#     a Lambda invocation, and a CHIRPS read is up to a few hundred S3 GETs
+#     billed to IC-WBT. Extending one network is a handful of calls.
+#   - every path: waf_site_rate_limit_per_ip (default 2,000), a backstop for
+#     the edge-cached static site (a cold visit is ~20 requests).
+# A distributed flood is the invocation alarm's and the budget's job
+# (alarms.tf), and reserved concurrency caps what it can cost (lambda.tf).
 #
-# Cost: ~$5/month base ACL fee + $1/month per rule + $0.60 per 1M
-# requests evaluated. At low scale this is rounding error against a $25
-# monthly budget; the rate-limit rule is the cheapest first-line defence
-# against per-IP bursts.
+# No AWS managed rule groups: AWSManagedRulesCommonRuleSet blocks bodies
+# over 8 KB, and a quaternary polygon POSTed to /api/chirps/monthly can be
+# larger. The API enforces its own input-size limits (4.2).
+#
+# Cost: ~$5/month for the ACL + $1/month per rule + $0.60 per 1M requests.
 # ----------------------------------------------------------------------------
 
 resource "aws_wafv2_web_acl" "frontend" {
@@ -29,7 +32,7 @@ resource "aws_wafv2_web_acl" "frontend" {
   }
 
   rule {
-    name     = "RateLimitPerIP"
+    name     = "RateLimitApiPerIP"
     priority = 0
 
     action {
@@ -38,15 +41,63 @@ resource "aws_wafv2_web_acl" "frontend" {
 
     statement {
       rate_based_statement {
-        limit              = var.waf_rate_limit_per_ip
-        aggregate_key_type = "IP"
+        limit                 = var.waf_api_rate_limit_per_ip
+        evaluation_window_sec = 300
+        aggregate_key_type    = "IP"
+
+        scope_down_statement {
+          byte_match_statement {
+            search_string         = "/api/"
+            positional_constraint = "STARTS_WITH"
+            field_to_match {
+              uri_path {}
+            }
+            # Match the path CloudFront routes on, not its raw spelling:
+            # decode, then collapse //, /./ and /../, then fold case.
+            text_transformation {
+              priority = 0
+              type     = "URL_DECODE"
+            }
+            text_transformation {
+              priority = 1
+              type     = "NORMALIZE_PATH"
+            }
+            text_transformation {
+              priority = 2
+              type     = "LOWERCASE"
+            }
+          }
+        }
       }
     }
 
     visibility_config {
       sampled_requests_enabled   = true
       cloudwatch_metrics_enabled = true
-      metric_name                = "${local.project}-frontend-RateLimitPerIP"
+      metric_name                = "${local.project}-RateLimitApiPerIP"
+    }
+  }
+
+  rule {
+    name     = "RateLimitSitePerIP"
+    priority = 1
+
+    action {
+      block {}
+    }
+
+    statement {
+      rate_based_statement {
+        limit                 = var.waf_site_rate_limit_per_ip
+        evaluation_window_sec = 300
+        aggregate_key_type    = "IP"
+      }
+    }
+
+    visibility_config {
+      sampled_requests_enabled   = true
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${local.project}-RateLimitSitePerIP"
     }
   }
 
@@ -54,5 +105,12 @@ resource "aws_wafv2_web_acl" "frontend" {
     sampled_requests_enabled   = true
     cloudwatch_metrics_enabled = true
     metric_name                = "${local.project}-frontend-acl"
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.waf_site_rate_limit_per_ip >= var.waf_api_rate_limit_per_ip
+      error_message = "waf_site_rate_limit_per_ip must be at least waf_api_rate_limit_per_ip (the site rule counts the API's requests too)."
+    }
   }
 }

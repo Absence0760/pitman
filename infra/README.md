@@ -1,161 +1,36 @@
 # Infrastructure
 
-Terraform configuration for the project's AWS resources.
+Terraform for Pitman's production stack at `pitman.jaredhoward.com`, in
+Pitman's own AWS account. **How to deploy it (the operator's numbered
+first-deploy runbook), the CI variables, the Lambda environment and what
+IC-WBT must grant: `docs/deployment.md`.** This file is the map of the code.
 
 ## What it creates
 
-- **S3 bucket** hosting the prerendered SvelteKit site
-- **CloudFront distribution** with Origin Access Control in front of the bucket, attached to a per-IP rate-limit WAF
-- **WAFv2 Web ACL** (us-east-1, CloudFront scope) — first-line per-IP rate limit
-- **ACM certificate** (in us-east-1, as CloudFront requires) with DNS validation
-- **Route 53 records** for the apex domain, `www`, and cert validation
-- **Lambda function** running the Hono backend as an ESM bundle, with `reserved_concurrent_executions` capping worst-case spend
-- **Lambda Function URL** (no API Gateway) with CORS scoped to the site domain
-- **Lambda execution IAM role** + CloudWatch log group with configurable retention
-- **Project-scoped deploy policy** attached to the bootstrap-created OIDC role (no provider or role creation here)
-- **AWS Budget** + **SNS topic** + per-resource CloudWatch alarms (Lambda errors/throttles, CloudFront 5xx)
+| File | Resources |
+|---|---|
+| `main.tf` | Providers: primary `aws_region` (`af-south-1`, D-6) and `aws.us_east_1` (CloudFront's certificate, WAF and metrics); partial S3 backend (bucket and region from `backend.config`) |
+| `s3_cloudfront.tf` | Private site bucket (`pitman-frontend-<account>`, OAC-only, TLS-only); ACM certificate (us-east-1) validated in the delegated child zone, which is **looked up** (`data.aws_route53_zone`), never created; CloudFront with two behaviours: default → S3 (`functions/spa_rewrite.js`), `/api/*` → Lambda Function URL (`functions/api_strip_prefix.js`, shared-secret header, caching off, 30 s read timeout); A + AAAA alias records |
+| `security_headers.tf` + `csp.json` | Response-headers policies: the site's strict CSP (split with SvelteKit's meta-tag hash; the reasoning is in the file), HSTS, nosniff, DENY framing, COOP, Permissions-Policy; the API's `default-src 'none'` |
+| `waf.tf` | WAFv2 web ACL (us-east-1): per-IP rate limits on `/api/*` (300 / 5 min) and on every path (2 000 / 5 min) |
+| `lambda.tf` | API Lambda (Node 24, arm64, 1 024 MB, 30 s, reserved concurrency 10), its log group (30 days), its role (own log group only, plus the cross-account read of IC-WBT's `rnl/*` and MAP-grid file, each conditioned on IC-WBT's account and present only once configured), the NONE-auth Function URL |
+| `alarms.tf` | Monthly budget; SNS topics in both regions (alarms can only notify a topic in their own region); alarms on Lambda errors, throttles, invocations per hour and p95 duration, CloudFront 5xx, WAF blocks |
+| `oidc.tf` | Looks up the bootstrap's `pitman-deploy` role and attaches the deploy policy: sync the site bucket, invalidate this distribution, update this function's code. Nothing else |
+| `outputs.tf` | What `export-tf-vars.sh` pushes to repo variables, plus `lambda_role_arn` for IC-WBT's bucket policies |
 
-## Architecture note: Function URL is reached directly
+Created elsewhere, by the estate bootstrap (`~/github/templates/scripts/new-project-account.sh pitman`): the account, the tfstate bucket, `alias/pitman-sops`, the GitHub OIDC provider and deploy role (trust pinned to `repo:Absence0760/pitman:environment:production`), the `pitman.jaredhoward.com` zone and its delegation, the `production` environment.
 
-The browser hits the Lambda Function URL directly (not via CloudFront). This means the WAF on CloudFront protects the *frontend* only — the API surface is unprotected by WAF and goes only through the CORS allow-list. If you need WAF on the API path, front the Function URL with a CloudFront `/api/*` behavior + shared secret (see USING.md § "CloudFront → API Gateway shared secret" — the same pattern applies to Function URL origins).
+## Checks (credential-free)
 
-## Bootstrap workflow
+- `terraform fmt -check -recursive infra && terraform -chdir=infra init -backend=false && terraform -chdir=infra validate`: also CI (`terraform.yml`).
+- `terraform -chdir=infra test`: `tests/stack.tftest.hcl`, mocked providers, `command = plan`. Pins the cross-account grants statement by statement, the Lambda's bounds, the CSP's strictness, the `/api/*` behaviour and the WAF scope.
+- `node --test infra/scripts/*.test.mjs`: the CSP guard (`scripts/check-csp.mjs`, which `deploy-frontend.yml` runs on every build) and the two CloudFront functions.
 
-This template assumes the **cross-project bootstrap** has already run for this project's AWS account. The bootstrap (in `~/repos/templates/scripts/new-project-account.sh`) creates:
+Never `terraform apply` from a Claude session, nor a plan against the real backend: those are the operator's (`docs/deployment.md`).
 
-- The AWS sub-account itself (under your org)
-- Tfstate S3 bucket + KMS for sops + Route 53 child zone
-- GitHub OIDC provider + scoped deploy role (named `<bootstrap-slug>-deploy`, trust policy gated on `:sub = repo:<owner>/<repo>:environment:production`)
-- GitHub `production` environment with you as required reviewer
-- Branch protection on `main` (PR required, linear history, no force-push, no deletions, conversation resolution)
+## Notes
 
-This Terraform stack **looks up** that deploy role via `data "aws_iam_role" "github_deploy"` and attaches the per-resource policy — it does NOT create the OIDC provider or role.
-
-If the bootstrap hasn't run yet:
-
-```bash
-cd ~/repos/templates
-cp infra/bootstrap/projects/example.tfvars infra/bootstrap/projects/<your-slug>.tfvars
-$EDITOR infra/bootstrap/projects/<your-slug>.tfvars
-./scripts/new-project-account.sh <your-slug> --plan   # dry-run
-./scripts/new-project-account.sh <your-slug>          # apply (~3-5 min)
-```
-
-The script's final summary prints the account ID, tfstate bucket, KMS alias, and deploy role ARN — you'll need the tfstate bucket name for `backend.config` below.
-
-## Prerequisites
-
-- Terraform `~> 1.6` (the pin in `main.tf`)
-- AWS CLI v2 configured with credentials for the project sub-account (`aws sso login --profile <project>`)
-- Bootstrap has been run for this project (see above)
-- IAM "Billing access" enabled on the member account (one-time root toggle; required for `aws_budgets_budget`)
-
-## First-time setup
-
-```bash
-# 1. Configure the partial backend (bucket name embeds account ID).
-cp infra/backend.config.example infra/backend.config
-$EDITOR infra/backend.config        # fill in <bootstrap-slug>-tfstate-<account-id>
-
-# 2. Configure project variables.
-cp infra/terraform.tfvars.example infra/terraform.tfvars
-$EDITOR infra/terraform.tfvars
-#    bootstrap_slug MUST match the slug new-project-account.sh was run with.
-#    domain_name + route53_zone_id come from the bootstrap output (child zone).
-
-# 3. Init + apply.
-cd infra
-terraform init -backend-config=backend.config
-terraform plan
-terraform apply
-```
-
-First apply takes ~15 minutes (CloudFront propagation + ACM validation).
-
-## Wire CI
-
-After `terraform apply` succeeds, push the outputs into GitHub repo variables + secrets so the deploy workflows can read them:
-
-```bash
-# From repo root.
-~/repos/templates/scripts/export-tf-vars.sh infra/
-```
-
-The script splits Terraform outputs: anything marked `sensitive = true` (currently just `aws_deploy_role_arn`) goes to GitHub *secrets*; the rest go to *variables*. Re-run after any apply that renames resources.
-
-## Updating
-
-```bash
-cd infra
-terraform plan        # always; CloudFront drift can be subtle
-terraform apply
-~/repos/templates/scripts/export-tf-vars.sh infra/   # if any output value changed
-```
-
-## Upgrading from the pre-bootstrap shape
-
-Versions of this template before commit `c919538` created the OIDC provider + deploy role IN this Terraform stack (`aws_iam_openid_connect_provider.github` + `aws_iam_role.github_actions`). The current shape looks them up from the cross-project bootstrap instead.
-
-If you have state from the old shape, migrate in this order — **plan everything before applying; touching IAM state is hard to roll back**:
-
-```bash
-# 1. Run the bootstrap if you haven't (no-op if you have).
-cd ~/repos/templates
-./scripts/new-project-account.sh <your-slug>
-```
-
-The bootstrap will refuse to create the OIDC provider if one already exists at `arn:aws:iam::<account-id>:oidc-provider/token.actions.githubusercontent.com` (only one per account is allowed). If that happens, import the existing provider into the bootstrap state instead:
-
-```bash
-cd ~/repos/templates/infra/bootstrap/2-baseline
-terraform workspace select <your-slug>
-terraform import 'module.baseline.aws_iam_openid_connect_provider.github' \
-  arn:aws:iam::<account-id>:oidc-provider/token.actions.githubusercontent.com
-terraform plan        # should now be a no-op
-```
-
-Then in **this** repo's `infra/`:
-
-```bash
-# 2. Pull the new template code (you've presumably already done this).
-git pull   # or: rebase your local changes onto the new oidc.tf shape
-
-# 3. Remove the now-redundant resources from THIS state. They still exist
-#    in AWS, but they shouldn't be managed by this stack anymore.
-cd infra
-terraform state rm aws_iam_role_policy.github_actions
-terraform state rm aws_iam_role.github_actions
-terraform state rm aws_iam_openid_connect_provider.github
-
-# 4. Delete the now-orphaned AWS resources via console or CLI. Order matters:
-#    detach the inline policy + role (4a) BEFORE deleting the role + provider.
-aws iam delete-role-policy --role-name <project>-github-actions --policy-name <project>-github-actions-deploy
-aws iam delete-role --role-name <project>-github-actions
-# Provider: delete ONLY if you imported it into bootstrap (otherwise leave it).
-# aws iam delete-open-id-connect-provider --open-id-connect-provider-arn arn:...
-
-# 5. Update terraform.tfvars: add `bootstrap_slug = "<your-slug>"`.
-
-# 6. terraform plan — should show:
-#      + aws_iam_policy.github_deploy            (project's per-resource policy)
-#      + aws_iam_role_policy_attachment.github_deploy   (attach to bootstrap role)
-#    and no destroys.
-terraform plan
-terraform apply
-
-# 7. Push the renamed/secret-ified outputs to gh:
-~/repos/templates/scripts/export-tf-vars.sh .
-```
-
-**Workflow update**: the deploy workflows now consume `${{ secrets.AWS_DEPLOY_ROLE_ARN }}` instead of `${{ vars.AWS_ROLE_TO_ASSUME }}`. If you have an old `AWS_ROLE_TO_ASSUME` repo variable, delete it after verifying the new secret works (`gh variable delete AWS_ROLE_TO_ASSUME`).
-
-**GitHub environment**: the bootstrap-created deploy role's trust policy pins `:sub = repo:<owner>/<repo>:environment:production`. The deploy workflows already declare `environment: production` on the deploy job, so no workflow change is needed — but verify the `production` environment exists in Settings → Environments with you as a Required reviewer. If it doesn't (the bootstrap may have run before commit `67c085c`), create it manually or re-run the bootstrap.
-
-## Tearing down
-
-```bash
-cd infra
-terraform destroy
-```
-
-Removes everything this Terraform created. The tfstate bucket itself lives in the bootstrap and survives — remove via `~/repos/templates/infra/bootstrap/2-baseline` (with `prevent_destroy` loosened first).
+- **Provider: hashicorp/aws 6.x** (`~> 6.70`, locked 6.71.0, Dependabot #2). The 5 → 6 upgrade needed no resource changes here; v6's per-resource `region` argument isn't used (the `us_east_1` alias stays, as in IC-WBT).
+- **Function URL permissions**: the provider adds both public-invoke statements itself when it creates a NONE URL (since 6.28); don't declare `aws_lambda_permission` for it (`lambda.tf`).
+- **Shared secret** in state: `random_password.cloudfront_shared_secret`; rotation in `docs/deployment.md` § Secrets.
+- **Tearing down**: `AWS_PROFILE=pitman terraform -chdir=infra destroy`. The tfstate bucket and the zone belong to the bootstrap and survive.

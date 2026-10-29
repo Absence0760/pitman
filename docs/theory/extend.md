@@ -106,9 +106,18 @@ same ratio while leaving the results unchanged. So the sidecar records
 
 ### Step 5. The overlap and the 12 factors
 
-The overlap `O` is the hydrological years that are in the `.RAN` and in
-`Y_c`, narrowed to the D5 window if the user set one. For a WR2012 record
-(1920–2009) the default overlap is 1981/82 to 2009/10, 29 years.
+The overlap `O` is the hydrological years that are in the `.RAN` and whose
+twelve months all lie inside the CHIRPS record (from its first October to
+the last September it reaches), narrowed to the D5 window if the user set
+one; a window that runs past those years is clamped to them, with a note,
+and one that misses them is refused. For a WR2012 record (1920–2009) the
+default overlap is 1981/82 to 2009/10, 29 years.
+
+`O` is *not* limited to `Y_c`: a year with a missing CHIRPS month stays in
+the overlap and drops out of `O_k` for that month only (§ Edge cases), while
+`MAP_c` (step 4) leaves the whole year out. (Round 4 correction: an earlier
+draft defined `O` from `Y_c`, which made `O_k` always equal `O` and
+contradicted the edge-case table.)
 
 For each month `k`, with `O_k` the years of `O` whose `p[y][k]` is present:
 
@@ -142,7 +151,8 @@ special case for a zero month in a single year.
 - `|O_k| = 0` (every overlap year of that month missing): `f_k = 1`, flagged.
 
 **Short overlap.** `|O| < 5`: no factors are computed (all shown as 1,
-flagged) and the user must enter them or widen the window. `5 ≤ |O| < 15`:
+flagged `shortOverlap`; the overlap means are still reported) and the user
+must enter them or widen the window. `5 ≤ |O| < 15`:
 computed, with a warning that the factors rest on few years. The default
 overlap for any WR2012 network is about 29 years, so the warning shows only
 for a narrowed window or an unusual file.
@@ -171,6 +181,13 @@ it):
 The bounds are deliberately loose: a dry month can carry a legitimately
 large factor, and the fit plots are the real check.
 
+The same check applies to **computed** factors (Round 4, `R4-E1`): the fit
+warns on a computed factor outside `[0.5, 2]`, and on one above 5 says that
+the engine won't accept it, so applying refuses until the user edits it or
+narrows the window. A factor above 5 means CHIRPS and the file disagree
+about the season (the wrong area, or a winter-rainfall file against a
+summer pattern), which a user must look at rather than have silently capped.
+
 ### Step 7. Apply and append
 
 For each hydrological year `y = y_N + 1, y_N + 2, …` in order:
@@ -182,7 +199,8 @@ For each hydrological year `y = y_N + 1, y_N + 2, …` in order:
 - otherwise **stop**. Appended years are contiguous: a year with a missing
   month stops the extension there, and the years after it are not appended
   even if complete (a `.RAN` has no way to say "missing"). The screen names
-  the year and month that stopped it.
+  the year and month that stopped it (`stoppedAt`, month 0 = October, as
+  `RunMessage.at`; `null` when the stop is the partial last year).
 
 The last complete CHIRPS hydrological year ends in September; a partial
 year (CHIRPS finals through, say, March) is never appended. CHIRPS finals
@@ -197,13 +215,14 @@ The original rows are never changed. The function returns the extended
 ### Step 8. Provenance (sidecar)
 
 `pitman.json` gets one entry per extended file (rule 8; `Sidecar` in
-`src/types.ts`):
+`src/types.ts`, the entry is `RainfallExtension`):
 
 ```jsonc
 {
-  "rainfall": {
+  "rainfallExtensions": {
     "ZZA.RAN": {
       "method": "extend-1",
+      "file": "ZZA.RAN",
       "area": { "quaternaries": ["Z01A", "Z01B"], "areaKm2": 812.4,
                 "cells": 41, "weightRemovedPct": 0.0 },
       "chirps": { "product": "CHIRPS v3 rnl (final)", "copy": "IC-WBT rain data copy",
@@ -213,15 +232,28 @@ The original rows are never changed. The function returns the extended
       "overlap": { "from": 1981, "to": 2009, "window": "default" },
       "factors": [ { "month": "Oct", "computed": 0.8330, "used": 0.8330, "note": "" } /* … 12 */ ],
       "appended": { "from": 2010, "to": 2025, "rows": 16 },
+      "originalEndYear": 2009,
       "stoppedAt": null,
-      "createdAt": "2026-10-28T00:00:00Z"
+      "createdAt": "2026-10-28T00:00:00Z"   // optional, stamped by the app
     }
   }
 }
 ```
 
 `factors[].used` differs from `computed` only when the user edited it; an
-edited factor carries `"edited": true`. Every appended year is marked by
+edited factor carries `"edited": true` and the user's note (an unedited one
+carries the fit's note). `copy` names the store that answered
+(`ChirpsMonthly.source`: IC-WBT's copy, or the local synthetic copy), and
+`createdAt` is optional: the engine doesn't read the clock, so the app
+stamps it (the sidecar's `savedAt` dates every save in any case).
+
+**Re-extending** a file that already has an entry (CHIRPS has gained months):
+`refitFromSidecar` drops the rows after `originalEndYear`, refits on the
+recorded overlap with the **recorded** `MAP_c`, and returns the factors used
+last time; applying them reproduces the years appended before (unless the
+copy revised them, `manifestRevision`) and continues past them. The overlap
+must never reach into CHIRPS-derived rows, which is why the appended rows are
+dropped before the fit. Every appended year is marked by
 being in `appended` (WRSM2000 ignores the sidecar; the `.RAN` itself carries
 no marks).
 
@@ -270,6 +302,13 @@ Over the overlap, before (`p`) and after (`f·p`) correction:
 
 R² is nearly unchanged by per-month scaling and NSE is the more telling
 "after" number; both are shown.
+
+The fit's `after` uses the computed factors; for edited ones the screen
+calls `fitStatistics(overlapYears(ran, fit), factors)`. Monthly numbers pool
+every overlap month whose CHIRPS value is present; annual numbers use the
+overlap years with all twelve present. A statistic with no variance or too
+few points is `NaN`, and a month's bias is `null` when the file has no rain
+in it over the overlap.
 
 ## Worked example
 
