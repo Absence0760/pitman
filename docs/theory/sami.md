@@ -51,9 +51,12 @@ lagged by GL, and a remainder, lagged by TL. In a Sami module:
    averaged over D9_MMA months) into an **aquifer store** (CAP = thickness × storativity). The aquifer
    loses water to **riparian evaporation**, **regional outflow** and **baseflow**. It gains water from
    **transmission losses** out of the river, and it supplies **abstractions**.
-5. **Final RU runoff** (OQ-S3; switchable in `SamiOptions`, §6):
-   `Qfinal = Qsurface + INTERFLOW_lagged + GWBaseflow_net − TL`, where `Qsurface` is the Pitman
-   run's surface component, with the FT subsurface term excluded because Sami's interflow replaces it.
+5. **Final RU runoff** (OQ-S3 reading (c), R6-R10; switchable in `SamiOptions`, §6):
+   `Qfinal = max(Q, GWBaseflow_net) − TL`, where Q is the Pitman run's total (lagged) runoff. The
+   baseflow is a component *of* Q (TT 687 p.5 Fig 1: "Surface Runoff = Q − GWBaseflow − Interflow −
+   TL"), so it shows in the stream only in months where it exceeds Q; it still leaves the aquifer.
+   Sami's interflow partitions Q and is reported, not added. Reading (a), the Round 6.5 default, was
+   `Qsurface + INTERFLOW_lagged + GWBaseflow_net − TL` with the FT term swapped for Sami's interflow.
 6. **Upstream inflow routed through a Sami RU is not touched.** Sami transmission losses apply only to
    the module's own runoff. "What comes in via the inflow route goes out via the outflow route(s)"
    (TT 689 p.42 §6.1.8.1). This is unlike Hughes.
@@ -292,7 +295,8 @@ its first pumping month has ratio > 1). Nothing floors STORE: heavy abstraction 
 
 ```
 GWBF_net_i = GWBF_i (after depletion)
-Qfinal_i   = Qsurface_i + QLAG_i + GWBF_net_i − TL_i          (OQ-S3)
+Qfinal_i   = max(Q_i, GWBF_net_i) − TL_i                       (OQ-S3 (c), default, R6-R10)
+Qfinal_i   = Qsurface_i + QLAG_i + GWBF_net_i − TL_i          (OQ-S3 (a), `surfacePlusSami`)
 ```
 Time series WRSM2000 can save for a Sami RU (TT 689 p.18 and p.181–182), which our outputs should match
 by name:
@@ -473,14 +477,14 @@ The composition is `simulateSami(input, parts, options)` in `src/groundwater/sam
 options argument and an optional `makeAquiferStep(options)` factory), and `src/runoff/wiring.ts` holds
 the defaults `runRunoffModule` uses. To make the swap possible the Pitman core reports its FT part
 routed on its own (`PitmanMonth.routedFastSubsurface`, `fastSubsurface`). Muskingum routing is linear,
-so `routedFast − routedFastSubsurface` is the lagged surface + spill part. Every reading of OQ-S2,
+so `routedFast − routedFastSubsurface` is the lagged surface + spill part (also under the time shift, R6-R9, which is linear too). Every reading of OQ-S2,
 OQ-S3 and OQ-S4 is a `SamiOptions` field (§8), and so are the soil and aquifer switches (`soil`,
 `interflow`, `aquifer`), the OQ-S11 constants, GWMAX and R6-R3 (negative Qfinal kept or clamped).
 `samiWaterBalance` closes the composed module's balance (§5 carried through the Pitman core):
 
 ```
 rain + ΣRE + ΣSIF (+ Σclamped) = I + E + drain + ΔS + (Pitman flow not passed on) + ΔP + ΔSTORE
-                                 + (interflow lag storage) + ET + OUT + ABS + ΣQfinal
+                                 + (interflow lag storage) + (baseflow not shown, OQ-S3 (c)) + ET + OUT + ABS + ΣQfinal
 ```
 
 Under OQ-S2 (a), RE and SIF are computed from S without being taken out of it. They are sources in
@@ -616,6 +620,16 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   3.26 % to 3.14 %. The number of routes within thresholds stays at 102/375. Simulated runoff is high
   on 70 of 92 RU routes under (a), consistent with (a) adding RE on top of the soil balance. That
   points towards (b) but doesn't settle it.
+  *Wave 2 correction:* that (b) leaked. The core drained Σ DT·RE(S_step) from S but the soil pass
+  recomputed RE from month-end S and sent that to the aquifer (≈ 5 % of the drained water vanished on a
+  synthetic run, with the balance hiding it because RE was booked as a source and the drain as a sink).
+  The composition now hands the soil pass the drained amount per month as its RE
+  (`SamiRunParts.soilPass`'s fourth argument) and throws `SamiPartError` if the soil side's ΣRE differs.
+  *Re-measured* (wave 2, defaults R6-R9/R6-R10; module level = 71 free Sami modules against their own
+  `ncr.MTS`, `src/compare/module.reference.test.ts`): (b) median MAR +0.87 % (IQR 0.43 … 2.32), 48
+  within |MAR| ≤ 2 % and NSE ≥ 0.97, against (a) +0.66 % (0.41 … 1.77), 48. Network: 171/377 routes
+  within thresholds against 168, RU-route median MAR +0.13 % against +0.24 %. Not decisive: the default
+  stays (a).
 - **OQ-S3. What is Q, and how is final runoff assembled?** TT 690 Fig 8.2 and TT 687 Fig 1 are
   truncated or ambiguous ("Surface Runoff = Q − GWBaseflow − Interflow − TL"). The HEAD runoff is "input
   of streamflow" (TT 690 p.87). The spreadsheet's column C was the naturalised flow from a Pitman-GW run
@@ -646,10 +660,36 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   sequence-valid networks run. A negative Qfinal can still come from a negative lagged part (OQ-22);
   that is kept and warned (`negativeRunoff: 'keep'`) or raised to 0 with the water booked
   (`'clamp'`) (R6-R3).
+  *Wave 2 (R6-R10): reading (c) `totalOrBaseflow`, Qfinal = max(Q, GWBF_net) − TL, is the default.*
+  Isolated at module level (each free Sami module run alone on its `.RAN` against its WRSM2000 net
+  catchment runoff `<net>RU<n>ncr.MTS`, 71 modules), with the time-shift lag (R6-R9) in place, a
+  regression of the reference on our parts gave surface ≈ 1.0, but baseflow ≈ 0.6 and interflow ≈ 0.7:
+  month by month the reference equals the surface runoff whenever there is any, and the baseflow only in
+  months without. Assemblies tested (median MAR %, IQR, modules within 2 %, median NSE):
+  - (a) surface + QLAG + GWBF − TL: +2.59 % (1.65 … 3.64), 24, 1.000
+  - (b) Q + GWBF − TL: +2.90 % (1.88 … 3.71), 17
+  - max(surface + QLAG, GWBF) − TL: +0.64 % (0.35 … 1.76), 48, 0.9998
+  - **(c) max(Q, GWBF) − TL: +0.66 % (0.41 … 1.77), 52, 0.9999 (Q1 0.9986)**
+  - (a) without GWBF: −3.12 %; without TL: +9.40 %
+  - (c) but drawing from the aquifer only the baseflow the stream shows (mass-conserving): +2.06 %, 30
+  On the 13 modules with real interflow (c) is decisively better than the surface + QLAG form (MAR
+  within ±0.9 % on 11, NSE ≥ 0.997, against −4.3 … +5.3 % and 0.97–0.99), so the stream sees the
+  Pitman FT term, not Sami's own interflow. It is what TT 687 Fig 1 prints: total streamflow is Q − TL,
+  with GWBaseflow and Interflow parts *of* Q ("Surface Runoff = Q − GWBaseflow − Interflow − TL",
+  "GWBaseflow < Qg"). TL is capped at Q (R6-A10's base for this reading), so Qfinal ≥ 0. The baseflow
+  the stream doesn't show leaves the aquifer and is booked as `baseflowNotUsed` in
+  `samiWaterBalance`; the conserving variant above is the rejected alternative. Network (34 networks):
+  168/377 routes within |MAR| ≤ 1 % and NSE ≥ 0.99 (102 before), RU-route median MAR +0.24 %
+  (was +1.88 %), median NSE 0.998 (was 0.950). HEAD (ii) under (c): 171/377, +0.53 %.
 - **OQ-S4. Which S value per month?** The Pitman core updates S in 4 sub-steps. Sami's spreadsheet
   takes one S per month (the saved "Pitman S" series).
   *Readings:* end-of-month S; mean of the four sub-step values.
   *Default:* end-of-month S, the value written to the "Pitman S" time series.
+  *Wave 2 evidence* (module level, defaults R6-R9/R6-R10): `stepMean` gives median MAR +0.63 % (IQR
+  0.33 … 1.52) and 56 of 71 modules within 2 % / NSE ≥ 0.97, against +0.66 % (0.41 … 1.77) and 48 at
+  month end; network 171/377 routes against 168, RU median unchanged. Under (c) S reaches the output
+  only through recharge → baseflow in dry months, so this is a dry-month effect. Leaning `stepMean`;
+  not switched on this evidence alone (candidate for the dry-module tail the initial-state hunt found).
 - **OQ-S5. One SL or two?** TT 690 eq. 8.3 uses SL for recharge. TT 687 Table 2 and the file use HGSL.
   *Default:* recharge uses HGSL (L.032 v6), interflow uses SL (L.035 v2). Switch:
   `SamiSoilOptions.rechargeThreshold` (`HGSL` | `SL`), `groundwater/sami/soil.ts`.
