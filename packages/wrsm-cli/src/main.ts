@@ -11,8 +11,8 @@ export const USAGE = `Usage: wrsm <command> [options]
 
 Commands:
   run <networkDir> [--mode <${RUN_MODE_KINDS.join('|')}>] [--year <yyyy>] [--out <dir>] [--net <file.NET>]
-      Run a WRSM2000 network folder and write answer files (default --out
-      <networkDir>/${DEFAULT_OUT_DIR}). Round 2: runoff modules only, each on its own.
+      Run a WRSM2000 network folder in one mode (default historical) and write
+      an answer file per route and reservoir (default --out <networkDir>/${DEFAULT_OUT_DIR}).
   compare <networkDir> <outDir> [--reference <dir>]
       Compare a run against WRSM2000's own .ANS outputs (default reference:
       <networkDir>/Out if present, else <networkDir>).

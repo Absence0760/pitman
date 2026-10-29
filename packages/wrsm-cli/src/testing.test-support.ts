@@ -1,7 +1,7 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { syntheticNetwork, type RunoffModule, type SyntheticNetwork } from '@pitman/wrsm';
+import { dirname, join } from 'node:path';
+import { syntheticBundle, writeBundle, type NetworkBundle } from '@pitman/wrsm';
 
 /** Captured CLI output. */
 export function capture() {
@@ -16,23 +16,26 @@ export function capture() {
 }
 
 /**
- * Write a synthetic network to a new temp folder as JSON "files" for the
- * fake engine. RU3's file is stored in lower case to exercise the
- * case-insensitive lookup. `edit` may change the objects first.
+ * Write the engine's synthetic network (three runoff modules, irrigation, a
+ * reservoir, a channel reach, a gauge, defined flows) to a new temp folder in
+ * WRSM2000's formats. RU3's file is stored in lower case to exercise the
+ * case-insensitive lookup. `edit` may change the files first.
  */
 export async function writeSyntheticNetwork(
-	edit: (net: { network: SyntheticNetwork['network']; runoff: RunoffModule[]; rainfall: SyntheticNetwork['rainfall'] }) => void = () => {}
-): Promise<{ dir: string; synthetic: SyntheticNetwork }> {
-	const base = syntheticNetwork({ seed: 11, years: 4 });
-	const synthetic = { network: base.network, runoff: [...base.runoff], rainfall: base.rainfall };
-	edit(synthetic);
-	const dir = await mkdtemp(join(tmpdir(), 'wrsm-cli-'));
-	const code = synthetic.network.code;
-	await writeFile(join(dir, `${code}.NET`), JSON.stringify(synthetic.network));
-	for (const module of synthetic.runoff) {
-		const name = module.number === 3 ? `${code}RU3.dat`.toLowerCase() : `${code}RU${module.number}.DAT`;
-		await writeFile(join(dir, name), JSON.stringify(module));
+	edit: (files: Record<string, string>) => void = () => {}
+): Promise<{ dir: string; bundle: NetworkBundle; files: Record<string, string> }> {
+	const bundle = syntheticBundle({ seed: 11, years: 4 });
+	const files = { ...writeBundle(bundle) };
+	const ru3 = Object.keys(files).find((p) => p.toUpperCase() === 'SYRU3.DAT');
+	if (ru3) {
+		files[ru3.toLowerCase()] = files[ru3]!;
+		delete files[ru3];
 	}
-	for (const file of synthetic.rainfall) await writeFile(join(dir, file.fileName), JSON.stringify(file.series));
-	return { dir, synthetic };
+	edit(files);
+	const dir = await mkdtemp(join(tmpdir(), 'wrsm-cli-'));
+	for (const [path, text] of Object.entries(files)) {
+		await mkdir(dirname(join(dir, path)), { recursive: true });
+		await writeFile(join(dir, path), text, 'latin1');
+	}
+	return { dir, bundle, files };
 }

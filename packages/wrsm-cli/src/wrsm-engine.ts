@@ -1,21 +1,5 @@
-import {
-	answerFromSeries,
-	readAnswer,
-	readNetwork,
-	readRainfall,
-	readRunoff,
-	runRunoffModule,
-	writeAnswer
-} from '@pitman/wrsm';
+import { answerFromSeries, readAnswer, readBundle, run, writeAnswer } from '@pitman/wrsm';
 import type { Engine } from './engine.js';
 
-/** The real engine: `@pitman/wrsm`'s readers, writers and runoff module. */
-export const wrsmEngine: Engine = {
-	readNetwork,
-	readRunoff,
-	readRainfall,
-	readAnswer,
-	writeAnswer,
-	answerFromSeries,
-	runRunoffModule
-};
+/** The real engine: `@pitman/wrsm`'s bundle reader, network run and answer files. */
+export const wrsmEngine: Engine = { readBundle, run, readAnswer, writeAnswer, answerFromSeries };

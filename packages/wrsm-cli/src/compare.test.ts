@@ -40,8 +40,9 @@ describe('wrsm compare', () => {
 		expect(lines[0]).toMatch(/^route\s+MAR sim\s+MAR ref\s+% diff\s+NSE\s+max \|diff\|\s+first diverging\s+expected$/);
 		expect(lines.slice(1, 4).map((l) => l.split(/\s+/)[0])).toEqual(['RQ1', 'RQ2', 'RQ3']);
 		for (const row of lines.slice(1, 4)) expect(row).toMatch(/\s0\.00\s+1\.0000\s+0\.000\s+-\s*$/);
-		expect(lines[4]).toBe(
-			'3 simulated files; 0 reference files without a simulated one; 0 expected to match (|MAR diff| <= 1 %, NSE >= 0.99), 0 failed'
+		// Nine routes and one reservoir (RV5).
+		expect(lines.find((l) => l.includes('simulated files;'))).toBe(
+			'10 simulated files; 0 reference files without a simulated one; 0 expected to match (|MAR diff| <= 1 %, NSE >= 0.99), 0 failed'
 		);
 		expect(c.err).toEqual([]);
 		expect(c.text()).not.toContain(dir);
@@ -70,30 +71,30 @@ describe('wrsm compare', () => {
 	it('fails an expected route with no simulated file', async () => {
 		const { dir, out } = await ranNetwork();
 		const c = capture();
-		expect(await main(['compare', dir, out], c.io, fakeEngine, { expectations: [{ network: basename(dir), route: 7 }] })).toBe(
+		expect(await main(['compare', dir, out], c.io, fakeEngine, { expectations: [{ network: basename(dir), route: 99 }] })).toBe(
 			EXIT_FAILED
 		);
-		expect(c.out.join('')).toContain('RQ7      no simulated file (FAIL)\n');
+		expect(c.out.join('')).toContain('RQ99     no simulated file (FAIL)\n');
 	});
 
 	it('reports simulated files without a reference and unreadable files', async () => {
 		const { dir, out, ref } = await ranNetwork();
 		await rm(join(ref, 'SYRQ3.ans'));
 		await writeFile(join(out, 'SYRQ5.ANS'), 'garbage');
-		await writeFile(join(ref, 'SYRQ6.ANS'), '{}');
+		await writeFile(join(ref, 'SYRQ66.ANS'), '{}');
 		const c = capture();
 		expect(await main(['compare', dir, out], c.io, fakeEngine)).toBe(EXIT_OK);
 		const text = c.out.join('');
 		expect(text).toContain('RQ3      no reference file\n');
 		expect(text).toContain('SYRQ5.ANS SYRQ5.ANS:1:1: not an answer file\n');
-		expect(text).toContain('4 simulated files; 1 reference file without a simulated one;');
+		expect(text).toContain('10 simulated files; 1 reference file without a simulated one;');
 	});
 
 	it('uses the network folder as the reference when it has no Out folder, or --reference', async () => {
 		const { dir, out } = await ranNetwork('.');
 		const c = capture();
 		expect(await main(['compare', dir, out], c.io, fakeEngine)).toBe(EXIT_OK);
-		expect(c.out.join('')).toContain('3 simulated files; 0 reference files');
+		expect(c.out.join('')).toContain('10 simulated files; 0 reference files');
 
 		const other = join(dir, 'other');
 		await mkdir(other);

@@ -1,16 +1,12 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { join, relative, sep } from 'node:path';
 import { parseArgs } from 'node:util';
-import { RUN_MODE_KINDS, type MonthlySeries, type Network, type RunMessage, type RunoffModule } from '@pitman/wrsm';
+import { RUN_MODE_KINDS, type MonthlySeries, type RunMessage, type RunMode, type RunResult } from '@pitman/wrsm';
 import type { Engine } from './engine.js';
-import { Folder } from './files.js';
 import { EXIT_FAILED, EXIT_OK, EXIT_USAGE, type Io } from './io.js';
 
 /** The default output folder, inside the network folder, so WRSM2000's own `Out` is never overwritten. */
 export const DEFAULT_OUT_DIR = 'Out.pitman';
-
-/** Groundwater model names for the skip message (RU L.022 v1). */
-const GW_MODEL_NAMES: Record<number, string> = { 1: 'Hughes', 2: 'Sami' };
 
 /** Format an engine message as one stderr/stdout line. */
 export function formatMessage(message: RunMessage): string {
@@ -22,24 +18,26 @@ export function formatMessage(message: RunMessage): string {
 	return `${message.level}: ${where.length ? `${where.join(', ')}: ` : ''}${message.text}\n`;
 }
 
-/** A Windows path in a file reference reduced to its file name. */
-function baseName(reference: string): string {
-	return reference.split(/[\\/]/).pop()!.trim();
-}
-
-/** The share `percent` of a series. */
-function share(series: MonthlySeries, percent: number): MonthlySeries {
-	return { ...series, values: series.values.map((v) => (v * percent) / 100) };
+/** Every file under `dir`, path (with `/`) → text decoded byte for byte (Latin-1, decision R3-6), skipping `skip` folders. */
+async function readFolder(dir: string, skip: ReadonlySet<string>): Promise<Record<string, string>> {
+	const files: Record<string, string> = {};
+	for (const entry of await readdir(dir, { recursive: true, withFileTypes: true })) {
+		if (!entry.isFile()) continue;
+		const path = relative(dir, join(entry.parentPath, entry.name)).split(sep).join('/');
+		if (skip.has(path.split('/')[0]!.toUpperCase())) continue;
+		files[path] = await readFile(join(dir, path), 'latin1');
+	}
+	return files;
 }
 
 /**
- * `wrsm run <networkDir> [--mode <kind>] [--year <yyyy>] [--out <dir>]`.
+ * `wrsm run <networkDir> [--mode <kind>] [--year <yyyy>] [--out <dir>] [--net <file.NET>]`.
  *
- * Round 2 scope: every classic-groundwater runoff module in the .NET is run
- * on its own over the .NET's years (network routing is Round 3), its outflow
- * split over its outflow routes by percentage, and `<net>RQ<route>.ANS`
- * written for each of those routes. Paths printed are relative to the
- * network folder.
+ * Reads the whole network folder (`readBundle`), runs it in the chosen mode
+ * (`run`: network routing with reservoirs and channel reaches, decision D1
+ * modes), and writes `<net>RQ<route>.ANS` for every route and
+ * `<net>RV<n>.ANS` for every reservoir's end-of-month storage. Paths
+ * printed are relative to the network folder.
  */
 export async function runCommand(argv: readonly string[], io: Io, engine: Engine): Promise<number> {
 	let parsed;
@@ -79,126 +77,53 @@ export async function runCommand(argv: readonly string[], io: Io, engine: Engine
 		return EXIT_USAGE;
 	}
 
-	let folder: Folder;
+	const outDir = values.out ?? join(networkDir, DEFAULT_OUT_DIR);
+	const shown = (path: string) => relative(networkDir, path) || '.';
+	let files: Record<string, string>;
 	try {
-		folder = await Folder.open(networkDir);
+		// Pitman's own output folder is never input (when it sits inside the network folder).
+		const own = relative(networkDir, outDir).split(sep)[0]!;
+		files = await readFolder(networkDir, new Set(own && !own.startsWith('..') ? [own.toUpperCase()] : []));
 	} catch {
 		io.err(`wrsm run: cannot read the network folder '${networkDir}'\n`);
 		return EXIT_USAGE;
 	}
 
-	if (mode !== 'historical') {
-		io.err(`warning: --mode ${mode} is Round 3; running historical (development as the files say)\n`);
+	const read = engine.readBundle(files, values.net === undefined ? {} : { network: values.net });
+	for (const issue of [...read.errors, ...read.warnings]) {
+		const where = [issue.file, issue.line, issue.column].filter((x) => x !== undefined).join(':');
+		io.err(`${issue.level}: ${where}: ${issue.field ? `${issue.field}: ` : ''}${issue.message}\n`);
 	}
+	if (!read.ok) {
+		if (read.networks.length > 1 && values.net === undefined) {
+			io.err(`error: more than one .NET file in the network folder (${read.networks.join(', ')}); choose one with --net <file>\n`);
+		}
+		return EXIT_FAILED;
+	}
+	const bundle = read.bundle;
 
-	// --net picks one network when a folder holds several (real WR2012 folders often do).
-	const allNetFiles = folder.withExtension('.NET');
-	const netFiles =
-		values.net === undefined ? allNetFiles : allNetFiles.filter((f) => f.toUpperCase() === values.net!.toUpperCase());
-	if (values.net !== undefined && netFiles.length === 0) {
-		io.err(`error: no network file '${values.net}' in the network folder (found ${allNetFiles.join(', ') || 'none'})\n`);
-		return EXIT_FAILED;
-	}
-	if (netFiles.length !== 1) {
-		io.err(
-			netFiles.length === 0
-				? 'error: no .NET file in the network folder\n'
-				: `error: more than one .NET file in the network folder (${netFiles.join(', ')}); choose one with --net <file>\n`
-		);
-		return EXIT_FAILED;
-	}
-	const netFile = netFiles[0]!;
-	let network: Network;
+	const runMode: RunMode = mode === 'presentDay' ? { kind: 'presentDay', year: Number(values.year) } : { kind: mode as 'natural' | 'historical' };
+	let result: RunResult;
 	try {
-		network = engine.readNetwork(await readFile(join(networkDir, netFile), 'utf8'), netFile);
+		result = engine.run(bundle, runMode);
 	} catch (error) {
-		io.err(`error: ${(error as Error).message}\n`);
+		const messages = (error as { messages?: readonly RunMessage[] }).messages;
+		if (messages && messages.length > 0) messages.forEach((m) => (m.level === 'info' ? io.out : io.err)(formatMessage(m)));
+		else io.err(`error: ${(error as Error).message}\n`);
 		return EXIT_FAILED;
 	}
+	result.messages.forEach((m) => (m.level === 'info' ? io.out : io.err)(formatMessage(m)));
 
-	const outDir = values.out ?? join(networkDir, DEFAULT_OUT_DIR);
 	await mkdir(outDir, { recursive: true });
-	const shown = (path: string) => relative(networkDir, path) || '.';
-
-	let failed = false;
+	const code = bundle.network.code;
 	let written = 0;
-	const fail = (text: string) => {
-		failed = true;
-		io.err(`error: ${text}\n`);
+	const write = async (kind: 'RQ' | 'RV', number: number, series: MonthlySeries) => {
+		await writeFile(join(outDir, `${code}${kind}${number}.ANS`), engine.writeAnswer(engine.answerFromSeries(kind, number, series)), 'latin1');
+		written++;
 	};
-	const report = (message: RunMessage) => (message.level === 'info' ? io.out : io.err)(formatMessage(message));
-
-	for (const [index, entry] of network.modules.entries()) {
-		if (entry.type !== 'RU') continue;
-		const position = index + 1;
-		const label = `RU${entry.number}`;
-		if (!entry.solve) {
-			io.out(`info: ${label}: marked N (not solved) in ${netFile}, skipped\n`);
-			continue;
-		}
-		const wanted = `${network.code}RU${entry.number}.DAT`;
-		const moduleFile = folder.file(wanted);
-		if (!moduleFile) {
-			fail(`${label}: module file ${wanted} not found`);
-			continue;
-		}
-
-		let module: RunoffModule;
-		try {
-			module = engine.readRunoff(await readFile(join(networkDir, moduleFile), 'utf8'), moduleFile);
-		} catch (error) {
-			fail((error as Error).message);
-			continue;
-		}
-		const gwModel = module.groundwaterModel ?? 0;
-		if (gwModel !== 0) {
-			io.out(`info: ${label}: ${GW_MODEL_NAMES[gwModel]} groundwater is not implemented yet (Round 2 runs classic Pitman only), skipped\n`);
-			continue;
-		}
-		if (module.inflowRoute) {
-			io.err(`warning: ${label}: upstream inflow on route ${module.inflowRoute} ignored (network routing is Round 3)\n`);
-		}
-		if (module.upstreamGroundwaterModule) {
-			io.err(`warning: ${label}: groundwater from RU${module.upstreamGroundwaterModule} ignored (network routing is Round 3)\n`);
-		}
-
-		const rainfallName = baseName(module.rainfallFile);
-		const rainfallFile = folder.file(rainfallName);
-		if (!rainfallFile) {
-			fail(`${label}: rainfall file ${rainfallName} not found`);
-			continue;
-		}
-		let outflow: MonthlySeries;
-		try {
-			const rainfall = engine.readRainfall(await readFile(join(networkDir, rainfallFile), 'utf8'), rainfallFile);
-			const result = engine.runRunoffModule(module, rainfall, { startYear: network.startYear, endYear: network.endYear });
-			result.messages.forEach(report);
-			if (result.messages.some((m) => m.level === 'error')) {
-				failed = true;
-				continue;
-			}
-			outflow = result.outflow;
-		} catch (error) {
-			fail(`${label}: ${(error as Error).message}`);
-			continue;
-		}
-
-		const totalPercent = module.outflows.reduce((sum, o) => sum + o.percent, 0);
-		if (Math.abs(totalPercent - 100) > 1e-6) {
-			io.err(`warning: ${label}: outflow percentages sum to ${totalPercent}, not 100\n`);
-		}
-		for (const outflowRoute of module.outflows) {
-			const route = network.routes.find((r) => r.number === outflowRoute.route);
-			if (!route || route.upstreamPosition !== position) {
-				io.err(`warning: ${label}: outflow route ${outflowRoute.route} does not start at this module in ${netFile}\n`);
-			}
-			const name = `${network.code}RQ${outflowRoute.route}.ANS`;
-			const answer = engine.answerFromSeries('RQ', outflowRoute.route, share(outflow, outflowRoute.percent));
-			await writeFile(join(outDir, name), engine.writeAnswer(answer));
-			written++;
-		}
-	}
+	for (const [route, series] of Object.entries(result.routeFlows)) await write('RQ', Number(route), series);
+	for (const [reservoir, series] of Object.entries(result.reservoirStorage)) await write('RV', Number(reservoir), series);
 
 	io.out(`wrote ${written} answer file${written === 1 ? '' : 's'} to ${shown(outDir)}\n`);
-	return failed ? EXIT_FAILED : EXIT_OK;
+	return result.messages.some((m) => m.level === 'error') ? EXIT_FAILED : EXIT_OK;
 }
