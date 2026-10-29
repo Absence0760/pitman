@@ -7,6 +7,9 @@ declare global {
 		// interface PageData {}
 		// interface Platform {}
 	}
+
+	/** The frontend package version, injected by vite.config.ts (`define`). */
+	const __PITMAN_VERSION__: string;
 }
 
 export {};
