@@ -39,6 +39,10 @@ export * from './runoff/rain.js';
 export * from './runoff/lag.js';
 export * from './runoff/pitman.js';
 
+// Round 3 contract between the network runner and the module simulators, and the whole-network run.
+export * from './network/contract.js';
+export * from './run.js';
+
 // Comparison against WRSM2000 outputs, and a synthetic network for tests.
 export * from './compare/index.js';
 export * from './synthetic/index.js';

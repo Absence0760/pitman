@@ -72,3 +72,10 @@ Round 2 reference suite (local, `WRSM_REFERENCE_DIR`): every `.NET` (35), `.RAN`
 | CodeQL ("Analyze") fails: code scanning isn't available on this private repo without GitHub Advanced Security | Open: resolved when the repo goes public (#22 step 2) |
 | The labeler workflow fails with "Resource not accessible by integration" | Open: check repository Actions workflow permissions |
 | Workflow: commit and push straight to `main`, no PRs, while the engine is built (operator, 2026-10-28). The repo is treated as public | Decided; PRs and branch protection return later (#22 steps 10–11) |
+
+## Round 3 (2026-10-29)
+
+| ID | Decision | Status |
+|---|---|---|
+| R3-1 | The network is solved **one module at a time over the whole record, in `.NET` order** (TT 689 §6.1.16: a "sequence error" is raised when a module's upstream module "has not yet been solved"). Module simulators get complete inflow series and return complete outflow series (`packages/wrsm/src/network/contract.ts`) | Provisional; the reference comparison checks it |
+| R3-2 | Defined-flow and demand files per mode (`definedFlowSeries`): historical takes each year's row and a missing year is an error; present day holds the chosen year's row (the nearest year the file has when it lacks it, reported); natural is zero | Provisional |
