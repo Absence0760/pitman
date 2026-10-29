@@ -579,6 +579,13 @@ export interface ReservoirModule {
 	 * the manual prints as "01.00", read as -1) means 50 % of full supply.
 	 */
 	readonly initialStorageMm3?: number;
+	/**
+	 * Layout only, no meaning: the file wrote its `L5` count and route lines
+	 * (L.009, L.010, L.012) without WRSM2000's 5-column padding, as 7 real
+	 * RV files do (docs/formats.md §6, U-10). The writer reproduces it so
+	 * those files round-trip byte for byte. Absent = padded.
+	 */
+	readonly unpaddedRouteLines?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -662,6 +669,12 @@ export interface ChannelModule {
 		/** v3: maximum monthly diversion, million m³/month (TT 691 §7.7 "mcm/month"). */
 		readonly maxMonthlyMm3: number;
 	};
+	/**
+	 * Layout only, no meaning: the file wrote its `L5` count and route lines
+	 * (L.006, L.007, L.009) without the 5-column padding, as 38 real CR files
+	 * do (docs/formats.md §7, U-10). The writer reproduces it. Absent = padded.
+	 */
+	readonly unpaddedRouteLines?: boolean;
 	/** Lines after the last line type the reader understood. */
 	readonly trailingLines?: readonly RawLine[];
 }
@@ -746,8 +759,13 @@ export interface IrrigationWqtLayout extends IrrigationCore {
 	readonly layout: 'wqt';
 	/** L.003 v3: apply the drought reduction factor (DROUGHT_APPLICABLE). */
 	readonly droughtReduction: boolean;
-	/** L.003 v4: curtail by clipping high months (1) rather than reducing all months proportionally (0). */
-	readonly curtailByClipping: boolean;
+	/**
+	 * L.003 v4: curtail by clipping high months (1) rather than reducing all
+	 * months proportionally (0). Optional because 16 real v32 files leave it
+	 * out (docs/formats.md D-10); absent behaves as 0 and is written absent,
+	 * so those files round-trip byte for byte.
+	 */
+	readonly curtailByClipping?: boolean;
 	/** L.013 v1: area interpolation option (KA + 1). */
 	readonly areaInterpolation: number;
 	/** L.013 v2: maximum water allocation, million m³/year (RRMA, WQT method). */
