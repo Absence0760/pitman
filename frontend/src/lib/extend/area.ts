@@ -21,8 +21,8 @@ export const CHIRPS_REGION = { west: 10, east: 41, south: -35.5, north: -8 } as 
 
 /** Largest boundary file read, bytes. A quaternary boundary is tens of kB; 5 MB leaves room for detailed hand-made ones. */
 export const MAX_AREA_FILE_BYTES = 5 * 1024 * 1024;
-/** Most vertices sent to the backend. */
-export const MAX_AREA_VERTICES = 100_000;
+/** Most vertices sent to the backend: its own limit (`GEO_MAX_VERTICES` in backend/src/geo/geojson.ts, R4-D4), so a bigger boundary is refused here with advice rather than by the API. */
+export const MAX_AREA_VERTICES = 50_000;
 
 /** Mean Earth radius (IUGG), m. */
 const EARTH_RADIUS_M = 6_371_008.8;

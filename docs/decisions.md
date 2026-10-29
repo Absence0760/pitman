@@ -106,3 +106,9 @@ Round 3 reference checks (local, `WRSM_REFERENCE_DIR`): 34 of 35 `.NET` files va
 | R4-D3 | `POST /map-grid/mean`: `meanMapMm` in whole mm (as IC-WBT); `cellSizeM` is the square root of the mean cell area | Provisional |
 | R4-D4 | API limits: body 2 MiB, 50 000 positions, 1 000 rings, 2 000 CHIRPS cells; 30 CHIRPS / 120 MAP-grid requests per client per 10 min **per Lambda instance** (WAF is the cross-instance limit); caches of 200 / 500 results per instance keyed by (geometry hash, copy, manifest revision); a 25 s read deadline under the 30 s Lambda timeout | Default; reviewed in Round 8.5 |
 | R4-D5 | Local-first data: `CHIRPS_SOURCE=local` / `MAP_GRID_SOURCE=local` in the committed `backend/.env.development`, read from `backend/.local/` written by `pnpm dev:data:synthetic` (a seeded, invented 1° block, 1981 to the last complete month). An unset source answers 503 "not configured", never silently local | Decided |
+| R4-U1 | An uploaded FeatureCollection of several polygons is sent as one MultiPolygon; overlapping features would count twice, so the screen warns (it does not refuse) | Provisional |
+| R4-U2 | Client limits match the backend's (R4-D4): boundary file ≤ 5 MB read, ≤ 50 000 vertices sent; 60 s request timeout | Decided |
+| R4-U3 | After applying, the screen offers to move the `.NET`'s last year (L.012) to the new end, only when every rainfall file the modules read reaches it (at most 150 years, TT 691 §12.6); never automatic | Decided |
+| R4-U4 | Applying an extension clears the previous run results (they describe the old rainfall) | Decided |
+| R4-U5 | Re-extending (R4-E2): the first fit reuses the recorded `MAP_c`; narrowing the window afterwards refits with a fresh `MAP_c` | Provisional |
+| R4-U6 | No "undo extension": extending again replaces the appended years; the original is the user's saved zip | Provisional |

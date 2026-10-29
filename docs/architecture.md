@@ -108,7 +108,7 @@ each with a vitest test beside it.
    `rainfallExtensions`). For one file the user uploads the area it
    represents as GeoJSON (`area.ts`: Polygon, MultiPolygon or a
    FeatureCollection of them, WGS84, inside the CHIRPS copy's region,
-   at most 100 000 vertices; decision D-1, no licensed boundaries yet) and
+   at most 50 000 vertices, the backend's limit; decision D-1, no licensed boundaries yet) and
    fetches CHIRPS (`api.ts`: `POST ${PUBLIC_API_URL}/chirps/monthly` with the
    bare geometry, nothing else, rule 7; decision R4-I4; 60 s timeout, Cancel,
    the backend's `{ error }` shown as it is). The fit (`engine.ts` wires the
