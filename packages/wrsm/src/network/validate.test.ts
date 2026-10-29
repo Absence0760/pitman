@@ -240,6 +240,10 @@ describe('validateNetwork', () => {
 		const parent = replace(b, { ...ru(b, 1), sfrChildren: [3, 40] });
 		expect(errors(parent)).toEqual(['RU 1 (SYRU1.DAT): SFR child RU 40 (L.039) is not in SY.NET']);
 		expect(warnings(parent)).toEqual([expect.stringMatching(/RU 3 \(SYRU3\.DAT\): an SFR child should have one outflow route carrying 100 % to the zero module/)]);
+		// A child named by two parents would be added to both (TT 690 p.126: one parent per child).
+		expect(errors(replace(replace(b, { ...ru(b, 1), sfrChildren: [3] }), { ...ru(b, 2), sfrChildren: [3] }))).toEqual([
+			'RU 3 is an SFR child of both RU 1 and RU 2; a child cannot be captured by more than one parent (TT 690 p.126; TT 689 p.135)'
+		]);
 		expect(errors(replace(b, { ...ru(b, 2), upstreamGroundwaterModule: 9 }))).toEqual(['RU 2 (SYRU2.DAT): upstream groundwater module RU 9 (L.021) is not in SY.NET']);
 		// RU 3 taking its groundwater state from RU 2, which is solved first: fine. The other way round is a sequence error.
 		expect(errors(replace(b, { ...ru(b, 3), upstreamGroundwaterModule: 2 }))).toEqual([]);

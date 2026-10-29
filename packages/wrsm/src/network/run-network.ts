@@ -11,6 +11,7 @@ import type { SamiOptionsInput, SamiRunParts } from '../groundwater/sami/index.j
 import type { StreamflowReduction } from '../landuse/contract.js';
 import type { ChildTargetModel, SfrOptions } from '../landuse/sfr.js';
 import { SFR_TARGETS } from '../runoff/wiring.js';
+import { collapseYears, specialAreaMessages } from '../landuse/paved.js';
 import { PitmanRunError, runRunoffModule, type PitmanOptions } from '../runoff/pitman.js';
 import type {
 	MonthlySeries,
@@ -197,12 +198,16 @@ function series(startYear: number, values: number[]): MonthlySeries {
 function runRunoff(p: PlacedModule, module: RunoffModule, bundle: NetworkBundle, mode: RunMode, options: RunNetworkOptions) {
 	const { startYear, endYear } = bundle.network;
 	const messages: RunMessage[] = [];
+	const specials: RunMessage[] = [];
 	const applied = applyRunMode(module, mode);
 	// TT 689 p.142: paved data must cover the whole simulation period, or the module warns.
 	const paved = applied.paved?.fraction ?? [];
 	if (mode.kind === 'historical' && paved.length > 0 && (paved[0]!.year > startYear || paved[paved.length - 1]!.year < endYear)) {
 		messages.push({ level: 'warning', module: p.ref, text: `${placedLabel(p)}: paved-area years ${paved[0]!.year}–${paved[paved.length - 1]!.year} don't cover the run ${startYear}–${endYear}; held flat beyond them (TT 689 p.142; OQ-17)` });
 	}
+	// R6-P3: afforestation + alien vegetation + paved area against AREA, year by year (TT 689 p.127; TT 691 p.63 RU_SPECIAL_AREA).
+	for (let y = startYear; y <= endYear; y++) specials.push(...specialAreaMessages(applied, y, [], mode));
+	messages.push(...collapseYears(specials));
 	const rainfall = lookupFile(bundle.rainfall, module.rainfallFile)!; // validated
 	const result = runRunoffModule(applied, rainfall, {
 		startYear,

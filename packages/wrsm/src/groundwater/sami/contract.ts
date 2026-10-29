@@ -86,6 +86,13 @@ export interface SamiAquiferParams {
 	readonly outflowWidthFactor: number;
 	/** 30. */
 	readonly daysPerMonth: number;
+	/**
+	 * The area the regional outflow's width W = factor·√AREA and its depth
+	 * divisor are taken over, km²; defaults to `areaKm2`. An SFR parent or
+	 * child running on part of its owner's catchment keeps the owner's
+	 * W/AREA, so its OUT depth doesn't grow as 1/√(its area) (R6-R5).
+	 */
+	readonly outflowAreaKm2?: number;
 }
 
 export interface SamiAquiferState {

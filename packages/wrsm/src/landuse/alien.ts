@@ -450,7 +450,7 @@ export function alienVegetationReduction(input: AlienReductionInput): AlienReduc
 	if (mode.kind === 'historical' && (years[0]!.year > startYear || years[years.length - 1]!.year < endYear)) {
 		messages.push({ level: 'warning', module: ref, text: `RU ${module.number}: alien vegetation years ${years[0]!.year}–${years[years.length - 1]!.year} don't cover the run ${startYear}–${endYear}; held flat beyond them (TT 689 p.128; OQ-17)` });
 	}
-	if (!isChild && module.pitman.FT > 0) {
+	if (!isChild && activePitman(module).FT > 0) {
 		messages.push({ level: 'info', module: ref, text: `RU ${module.number}: alien vegetation in a free module with FT > 0; TT 689 p.140 models it as an SFR child unless FT = 0` });
 	}
 
