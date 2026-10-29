@@ -4,7 +4,7 @@ Full-stack web template. Static frontend + serverless backend, deployed to AWS v
 
 ## Stack
 
-- **frontend/** — SvelteKit 5 static site (adapter-static), Vite, TypeScript, vitest. Dev port `7777`.
+- **frontend/** — SvelteKit 5 static site (adapter-static), Vite, TypeScript, vitest; Playwright for end-to-end tests. Dev port `7777`.
 - **backend/** — Hono on AWS Lambda (Function URL). TypeScript, esbuild, tsx for local dev, vitest. Dev port `3001` (`PORT` env override).
 - **infra/** — Terraform: S3 + CloudFront + Lambda + Route 53 + ACM + GitHub OIDC. No package.json.
 
@@ -18,13 +18,14 @@ pnpm dev                     # frontend (7777) + backend (3001) in parallel
 pnpm build                   # build all workspaces
 pnpm check                   # typecheck all
 pnpm test                    # vitest run across workspaces
+pnpm test:frontend:e2e       # Playwright against the built site (first: pnpm --filter @pitman/frontend exec playwright install chromium)
 pnpm test:coverage           # the same with v8 coverage + a table of what no test reaches (a report, never a gate)
 pnpm test:tools              # node:test suites for scripts/ (the coverage summary)
 pnpm frontend <script>       # run a script in one workspace
 pnpm backend <script>
 ```
 
-Tests live in `frontend/` and `backend/` (vitest).
+Unit tests (vitest) sit beside the code in every workspace. End-to-end tests (Playwright) live in `frontend/e2e/*.spec.ts` and run against `vite build` + `vite preview` on port 8888.
 
 ## First-time setup (after cloning this template)
 
@@ -78,7 +79,7 @@ Prefer reading these over guessing. Update them when behavior changes.
 
 ## What not to do
 
-- Don't add a test framework other than vitest.
+- Don't add a test framework other than vitest (unit) and Playwright (end-to-end, `frontend/e2e/`).
 - Don't replace pnpm with npm/yarn — workspace filters assume pnpm.
 - Don't add SSR adapters to the frontend; it must stay static for the S3 + CloudFront deploy.
 - Don't call secret-bearing services directly from the frontend — go through the backend.
