@@ -165,8 +165,10 @@ EXRECH_i = max(0, P − PMAX);   P ← P − EXRECH_i            (excess dumped 
 PERC_i  = REx_i · (P/PMAX)^PPOW · (REx_i / REbar)           TT 690 p.84 eq. 8.5; TT 687 p.8 eq. 3
 PERC_i  = min(PERC_i, P);      P ← P − PERC_i               (Fig 8.2 "PERC ≤ P")
 ```
-If REbar = 0 then PERC = 0. Whether P in eq. 8.5 is taken before or after adding RE_i is OQ-S8. The
-proposed order is the one above, after adding RE and removing EXRECH.
+If REbar = 0 then PERC = 0. If PMAX = 0 there is no percolating store: every RE_i leaves as EXRECH_i
+and PERC = 0 (R6-S1; eq. 8.5's P/PMAX is otherwise 0/0). A P₀ above PMAX leaves as EXRECH in month 1.
+Whether P in eq. 8.5 is taken before or after adding RE_i is OQ-S8. The proposed order is the one
+above, after adding RE and removing EXRECH.
 
 ### 3.6 Aquifer recharge and excess to interflow
 
@@ -463,7 +465,7 @@ Parameters (TT 690 Fig 8.13): AREA = 406 km², THICK = 17 m, Sy = 0.009 ⇒ CAP 
 SWL = 126, PMAX = 9, P₀ = 5, MMA = 2, FT = 4.2, POW = 3, SL = 180, ST = 800, HGGW = 4.5, GPOW = 1,
 BFMAX = 2, BPOW = −0.05, HGRAD = 0.001, T = 10 m²/d, x = 20 m, EVAREA = 12 km², k2 = 0.1, k3 = −3,
 LAG = 0. Assumed: HGSL = SL = 180 (the 2005 spreadsheet had one SL), PPOW = 0.2 (TT 689 default; not
-shown in Fig 8.13). REbar = 19.337/12 = 1.6115 mm ("Est Recharge 19.34 mm/a", Fig 8.13). PERCbar =
+shown in Fig 8.13). REbar = 19.337/12 = 1.61142 mm ("Est Recharge 19.34 mm/a", Fig 8.13). PERCbar =
 18.58/12 = 1.5483 mm (virgin aquifer recharge, Fig 8.17). W = 4√A = 80 598 m, Δt = 30 d.
 
 Invented inputs:
@@ -483,20 +485,26 @@ Soil side (`soil.ts`):
 
 | m | RE | SIF | REx | EXRECH | PERC | P end |
 |---|---|---|---|---|---|---|
-| 1 | 2.4677 | 0.6926 | 2.4677 | 0 | 3.6406 | 3.8272 |
-| 2 | 3.1210 | 1.4011 | 2.7944 | 0 | 4.6012 | 2.3469 |
-| 3 | 3.7016 | 2.3377 | 3.4113 | 0 | 6.0485 (capped at P) | 0 |
+| 1 | 2.4677 | 0.6926 | 2.4677 | 0 | 3.6407 | 3.8271 |
+| 2 | 3.1210 | 1.4011 | 2.7944 | 0 | 4.6013 | 2.3468 |
+| 3 | 3.7016 | 2.3377 | 3.4113 | 0 | 6.0484 (capped at P) | 0 |
 | 4 | 3.3387 | 1.7153 | 3.5202 | 0 | 3.3387 (cap) | 0 |
 | 5 | 1.7419 | 0.2436 | 2.5403 | 0 | 1.7419 (cap) | 0 |
 | 6 | 1.4516 | 0.1410 | 1.5968 | 0 | 1.0985 | 0.3531 |
 
 Month 1 by hand:
 
-- RE = 4.5·(340/620)¹ = 2.4677.
+- RE = 4.5·(340/620)¹ = 2.46774.
 - SIF = 4.2·(340/620)³ = 0.6926.
-- P = 5 + 2.4677 = 7.4677 < 9, so EXRECH = 0.
-- PERC = 2.4677·(7.4677/9)^0.2·(2.4677/1.6115) = 2.4677·0.96339·1.53132 = 3.6406.
-- P = 3.8272.
+- P = 5 + 2.46774 = 7.46774 < 9, so EXRECH = 0.
+- PERC = 2.46774·(7.46774/9)^0.2·(2.46774/1.61142) = 2.46774·0.96336·1.53141 = 3.6407.
+- P = 3.8271.
+
+(Round 6.1 recomputed this table at full precision. An earlier version rounded REbar to 1.6115 and
+carried 4-dp intermediates, giving PERC 3.6406, 4.6012, 6.0485 and P 3.8272, 2.3469 in months 1–3;
+the error was at most 1.3e‑4 mm. The aquifer table below still takes those earlier PERC values as
+its inflow, so it is self-consistent but its months 1–3 inflows differ from the soil table by that
+much.)
 
 Aquifer side (`aquifer.ts`):
 
@@ -583,12 +591,15 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   *Readings:* end-of-month S; mean of the four sub-step values.
   *Default:* end-of-month S, the value written to the "Pitman S" time series.
 - **OQ-S5. One SL or two?** TT 690 eq. 8.3 uses SL for recharge. TT 687 Table 2 and the file use HGSL.
-  *Default:* recharge uses HGSL (L.032 v6), interflow uses SL (L.035 v2).
+  *Default:* recharge uses HGSL (L.032 v6), interflow uses SL (L.035 v2). Switch:
+  `SamiSoilOptions.rechargeThreshold` (`HGSL` | `SL`), `groundwater/sami/soil.ts`.
 - **OQ-S6. REbar and REx details.** Is REbar the mean over all months or per calendar month? Is the
   REx window trailing or centred, and what happens in the first x − 1 months?
   *Default:* REbar = mean of RE over the whole run (per the three-pass note). REx is the trailing mean
   including month i, over the available months at the start. A centred window would need future S,
-  which a monthly spreadsheet can do but the text never suggests.
+  which a monthly spreadsheet can do but the text never suggests. Switch:
+  `SamiSoilOptions.rechargeAverageStart` (`available` | `zeroPadded`, the latter dividing the first
+  windows by MMA as if the months before the run had no recharge).
 - **OQ-S7. Groundwater PET.** TT 690 builds it from MAE·MDIST·CROP (A-pan). WRSM2000 stores S-pan
   monthly evaporation (L.004) and A-pan factors (L.040), and converts S→A "internally" without saying
   how (TT 689 p.34–35).
@@ -597,6 +608,8 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   (%MAP × MAP). 6.5 to verify.
 - **OQ-S8. P in eq. 8.5: before or after RE?**
   *Default:* after adding RE_i and removing EXRECH_i, then cap PERC at P (§3.5). Alternative: P_{i−1}.
+  Switch: `SamiSoilOptions.percolationStorage` (`afterRecharge` | `previous`); either way PERC is
+  capped at the month's store after EXRECH.
 - **OQ-S9. Abstraction inputs.** Is the annual value (Mm³/a) spread evenly (/12), or by a monthly
   pattern? `AD35_GWAbstraction(12)` exists in the record but no Sami line holds 12 values. For
   ABSON = 2, where is the time-series filename and what is its unit? TT 691 §11.21 also reports WR2005
@@ -645,7 +658,9 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   gives ≈ 95 % from storage at t' = 0.
 - **OQ-S17. Initial states and warm-up.** Is there a warm-up run like Hughes? Nothing says so. The
   reference files set STORE₀ = SWL and P₀ = ½ PMAX.
-  *Default:* single pass from STORE₀ and P₀ as read. QLAG₀ = INTERFLOW₀.
+  *Default:* single pass from STORE₀ and P₀ as read. QLAG₀ = INTERFLOW₀, i.e. the lag reservoir
+  starts in steady state at the first month's interflow. Switch (lag only):
+  `SamiInterflowOptions.initialLagState` (`steady` | `zero`, the classic OQ-24 dry start).
 - **OQ-S18. SFR parent/child.** WRSM2000 computes Sami for parent and child modules separately
   (TT 689 p.182), and `TS_AvGWStorage` is the area-weighted parent storage (TT 691 p.51). How a child's
   land-use reduction interacts with its Sami flows is ch.11/12 territory.
@@ -678,6 +693,13 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   are in italics and method-1-only ones underlined. At 100 and 140 dpi renders, no row is visibly
   italic or underlined. So the method split here comes from the prose and TT 691's per-method variable
   comments, not the typography. Nothing to decide unless a better scan disagrees.
+
+- **R6-S1. PMAX = 0.** Eq. 8.5 divides by PMAX. *Default:* no percolating store; all RE goes to the
+  aquifer as EXRECH and PERC = 0 (the limit of the dump rule). PMAX < 0 or P₀ < 0 is an invalid
+  parameter and the soil pass throws (R2-2).
+- **R6-S2. Reading MMA.** L.034 v4 is F7.2 but means a whole number of months (TT 690 p.84 "1–120
+  months"). *Default:* the nearest integer; a value below 1 after rounding makes the soil pass throw
+  (R2-2) rather than being silently raised to 1.
 
 ## 9. Method 1 (hydrograph separation), for reference
 

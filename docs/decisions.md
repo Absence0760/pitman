@@ -112,3 +112,11 @@ Round 3 reference checks (local, `WRSM_REFERENCE_DIR`): 34 of 35 `.NET` files va
 | R4-U4 | Applying an extension clears the previous run results (they describe the old rainfall) | Decided |
 | R4-U5 | Re-extending (R4-E2): the first fit reuses the recorded `MAP_c`; narrowing the window afterwards refits with a fresh `MAP_c` | Provisional |
 | R4-U6 | No "undo extension": extending again replaces the appended years; the original is the user's saved zip | Provisional |
+
+## Round 6 (2026-10-29)
+
+| ID | Decision | Status |
+|---|---|---|
+| R6-S0 | Sami soil-side open questions are switchable (`SamiSoilOptions`, `SamiInterflowOptions` in `groundwater/sami/soil.ts`): OQ-S5 recharge threshold `HGSL` (alt. `SL`); OQ-S6 moving-average start `available` (alt. `zeroPadded`); OQ-S8 eq. 8.5 uses P `afterRecharge` (alt. `previous`); OQ-S10 standard Muskingum as `runoff/lag.ts` (k = 0 no routing); OQ-S17 lag starts `steady` (alt. `zero`). The reference comparison picks the winners | Provisional |
+| R6-S1 | PMAX = 0 means no percolating store: all recharge is EXRECH, PERC = 0. PMAX < 0, P₀ < 0, MMA < 1 or non-finite S are errors (R2-2) | Decided |
+| R6-S2 | MMA (F7.2 in the file) is read as the nearest integer; below 1 is an error, never raised to 1 | Provisional |
