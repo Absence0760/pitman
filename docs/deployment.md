@@ -102,7 +102,7 @@ order. `pitman` is the SSO profile created in step 3.
 16. Export the outputs to the repo variables (this is the step that switches the deploy workflows on): `AWS_PROFILE=pitman ~/github/templates/scripts/export-tf-vars.sh infra/`.
 17. Check they're there: `gh variable list --repo Absence0760/pitman`.
 18. Deploy the API, then approve the run in the Actions tab: `gh workflow run deploy-backend.yml --repo Absence0760/pitman`.
-19. Deploy the site (needs `csp: { mode: 'hash', ... }` in `frontend/vite.config.ts`, R4-I1, or `check-csp` refuses the build), then approve: `gh workflow run deploy-frontend.yml --repo Absence0760/pitman`.
+19. Deploy the site (`check-csp` refuses a build without SvelteKit's hash CSP, R4-I1), then approve: `gh workflow run deploy-frontend.yml --repo Absence0760/pitman`.
 20. Check the site answers with its CSP: `curl -sI https://pitman.jaredhoward.com/ | grep -i -e '^content-security-policy' -e '^strict-transport-security'`.
 21. Check the API through CloudFront: `curl -s https://pitman.jaredhoward.com/api/health` → `{"ok":true}`.
 22. Check the bare Function URL refuses a caller that skips CloudFront: `curl -s "$(AWS_PROFILE=pitman terraform -chdir=infra output -raw lambda_function_url)health"` → `{"error":"forbidden"}`.
