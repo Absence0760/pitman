@@ -45,6 +45,9 @@ const ROUTE_LIMITS: Readonly<Record<string, { readonly in: number; readonly out:
  *   is supplied by `after`: "the demands of an irrigation block should also
  *   be determined before its source module" (TT 691 §12.6 p.183; TT 689
  *   pp.83–84, the route's demand stream).
+ * - `returnFlow`: `before` supplies an irrigation module whose return
+ *   flow enters `after` (TT 689 p.85). Used only to find cycles, never as
+ *   a sequence error (R3-N22).
  * - `groundwater`: `before` is the runoff module whose groundwater state
  *   feeds `after` (RU L.021 v2; TT 689 p.41, "the order in which the
  *   modules are solved is important").
@@ -52,7 +55,7 @@ const ROUTE_LIMITS: Readonly<Record<string, { readonly in: number; readonly out:
 export interface Dependency {
 	readonly before: number;
 	readonly after: number;
-	readonly kind: 'flow' | 'demand' | 'groundwater';
+	readonly kind: 'flow' | 'demand' | 'groundwater' | 'returnFlow';
 	readonly route?: number;
 }
 
@@ -77,6 +80,19 @@ export function networkDependencies(bundle: NetworkBundle, placed: readonly Plac
 		} else if (definedFileOn(down.module, route.number, 'in') === undefined) {
 			out.push({ before: u, after: d, kind: 'flow', route: route.number });
 		}
+	}
+	// An irrigation return flow may only go "to modules that are downstream of the module that supplies an
+	// Irrigation Block" (TT 689 p.85). The constraint only feeds the cycle check: a return that reaches back
+	// to the supplier is circular, but the destination may sit earlier in the list (R3-N22).
+	for (const p of placed) {
+		const m = p.module;
+		if (m?.kind !== 'RR' || !m.returnFlowRoute) continue;
+		const supply = bundle.network.routes.find((r) => r.number === m.abstractionRoute && r.downstreamPosition === p.position);
+		const back = bundle.network.routes.find((r) => r.number === m.returnFlowRoute && r.upstreamPosition === p.position);
+		if (!supply || !back) continue;
+		const s = supply.upstreamPosition;
+		const x = back.downstreamPosition;
+		if (validEndpoint(s, count) && validEndpoint(x, count) && s > 0 && x > 0 && s !== x) out.push({ before: s, after: x, kind: 'returnFlow', route: back.number });
 	}
 	for (const p of placed) {
 		const m = p.module;
@@ -226,8 +242,17 @@ export function validateNetwork(bundle: NetworkBundle): RunMessage[] {
 		if (m.kind === 'CR' && m.wetlandType !== 0 && m.wetlandRainfallFile && !lookupFile(bundle.rainfall, m.wetlandRainfallFile)) {
 			error(`${label}: wetland rainfall file '${m.wetlandRainfallFile}' is not in the network`, ref);
 		}
+		if (m.kind === 'RR' && m.returnFlowRoute) {
+			const supply = routes.get(m.abstractionRoute);
+			const back = routes.get(m.returnFlowRoute);
+			if (supply && back && supply.upstreamPosition > 0 && supply.upstreamPosition === back.downstreamPosition && back.upstreamPosition === p.position) {
+				error(`${label}: return-flow route ${back.number} goes back into ${at(supply.upstreamPosition)}, which supplies it through route ${supply.number}; a return flow may only go to the zero sink or downstream of the supplier (TT 689 p.85, p.104)`, { ...ref, route: back.number });
+			}
+		}
 		if (m.kind === 'RU') {
 			// TT 689 p.133 ("All Runoff Modules must have at least one outflow route"); p.56 (100 % of all flows).
+			const repeated = m.outflows.map((o) => o.route).filter((r, i, all) => all.indexOf(r) !== i);
+			for (const r of new Set(repeated)) error(`${label}: outflow route ${r} is listed more than once in L.020`, { ...ref, route: r });
 			if (m.outflows.length === 0) {
 				error(`${label} has no outflow routes (L.019 is 0; TT 689 p.133)`, ref);
 			} else {
@@ -285,7 +310,7 @@ export function validateNetwork(bundle: NetworkBundle): RunMessage[] {
 	}
 	for (const dep of dependencies) {
 		const k = inCycle.get(dep.before);
-		if (k !== undefined && k === inCycle.get(dep.after)) continue;
+		if (dep.kind === 'returnFlow' || (k !== undefined && k === inCycle.get(dep.after))) continue;
 		const before = placed[dep.before - 1]!;
 		const after = placed[dep.after - 1]!;
 		if (!after.entry.solve) continue;

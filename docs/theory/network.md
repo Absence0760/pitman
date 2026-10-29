@@ -162,10 +162,15 @@ in the irrigation module are placed in the 'demand' stream of the Irrigation
 Abstraction Route … the Irrigation Module assumes that these demands will be
 supplied somehow" (TT 689 p.84); the supplying channel or reservoir then
 puts the supply on the route. The route record flags this (`IIR`, "the
-irrigation block will set the demands", TT 691 §7.3.1 p.30). So the
+irrigation block will set the demands", TT 691 §7.3.1 p.31). So the
 irrigation module is solved **before** its supplier, against the route's
-direction (§4). Its return flow may not return to its supplier, which "has
-all the makings of a circular argument" (TT 689 p.104).
+direction (§4). "Return Flow Routes may only be connected to Zero Sink
+Modules or to modules that are downstream of the module that supplies an
+Irrigation Block" (TT 689 p.85); returning to the supplier "has all the
+makings of a circular argument" (p.104). A return into the supplier is an
+error, and a return that flows back to the supplier shows up as a cycle
+(§4). A return into a module that is merely listed earlier, on another
+branch, is accepted (R3-N22).
 
 ## 3. Gauges and the summary file
 
@@ -201,6 +206,7 @@ source module." The constraints (`networkDependencies`):
 |---|---|---|
 | flow | a route's upstream module before its downstream module | TT 689 p.56, pp.92 (RV spill into CR) |
 | demand | an irrigation module before the module that supplies its abstraction route | TT 691 p.183; TT 689 pp.83–84 |
+| return flow | an irrigation module's supplier "upstream" of the module its return flow enters; used only to find cycles, never as a sequence error | TT 689 p.85; R3-N22 |
 | groundwater | a runoff module's upstream groundwater module before it | TT 689 p.41 |
 | none | a route the **downstream** module reads from a defined-flow file | R3-N4 |
 
@@ -243,7 +249,8 @@ number, file), the route and the file; `runNetwork` throws one
 | a `.NET` route leaving (entering) a module whose file doesn't name it as an outflow (inflow) | error |
 | a route from the zero module whose downstream module gives it no defined-flow file (p.xv) | error (warning when that module is unparsed) |
 | a defined-flow file, RU or RV rainfall file, or CR wetland rainfall file (wetland type ≠ 0) that the bundle lacks | error |
-| an RU module with no outflow routes (TT 689 p.133), or whose percentages miss 100 by more than 0.05 % per route (R3-N5) | error |
+| an RU module with no outflow routes (TT 689 p.133), the same L.020 route listed twice, or percentages missing 100 by more than 0.05 % per route (R3-N5) | error |
+| an irrigation return flow into the module that supplies it (TT 689 p.85, p.104) | error |
 | a missing upstream groundwater module or SFR child | error |
 | sequence errors and cycles (§4) | error |
 | a gauge on a route the network lacks | error |
@@ -359,8 +366,10 @@ read, every RU percentage exactly 100, and every module file agrees with its
   imposes no order (the downstream module doesn't wait for the upstream one).
   Needed by two reference routes.
 - **R3-N5** RU percentages are used as written, not rescaled. The check
-  allows 0.05 % per route (half the `F6.1` resolution), so 3 × 33.3 passes.
-  Every reference module sums to exactly 100.
+  allows 0.05 % per route (half the `F6.1` resolution), so 3 × 33.3 passes
+  and then loses 0.1 % of the module's runoff every month. Every reference
+  module sums to exactly 100, so the reference can't tell whether WRSM2000
+  rescales; if it does, this is a departure.
 - **R3-N6** RR modules before Round 7: zero demand on the abstraction route
   and zero on the return-flow route, with a warning (info in natural mode).
 - **R3-N7** MM and unparsed modules: zero on every outflow route, with a
@@ -371,7 +380,8 @@ read, every RU percentage exactly 100, and every module file agrees with its
 - **R3-N9** Natural mode also removes Sami groundwater abstractions (L.036–
   L.037) and zeroes the Hughes annual abstractions (L.027, L.029). TT 689
   p.27 names only paved area, afforestation and alien vegetation; D1 adds
-  "abstractions".
+  "abstractions". Sami abstraction mode 2 (a time-series file, TT 691
+  §11.21) isn't read yet and so isn't covered.
 - **R3-N10** Present day holds every RU year table at its linearly
   interpolated value in the chosen year, flat beyond the table's last year
   (no extrapolation), the OQ-17 rule. Round 7 extends the tables to 2025.
@@ -395,5 +405,14 @@ read, every RU percentage exactly 100, and every module file agrees with its
   one `RTFile` per route.
 - **R3-N19** `RunResult` has no slot for channel (wetland) storage; a
   channel simulator's `storage` is checked and dropped.
+- **R3-N21** A solved channel or reservoir that supplies an **unsolved**
+  irrigation module is a sequence error (it would wait for a demand nobody
+  sets). TT 689 p.58 only says modules *downstream* of an unsolved one must be
+  unsolved, and the supplier is upstream, so WRSM2000 may accept this. No
+  reference network has an unsolved module.
+- **R3-N22** TT 689 p.85's "downstream of the supplier" is enforced only as
+  "no loop back to the supplier", not as list order: one public reference
+  network returns irrigation flow into a channel listed before the supplying
+  reservoir, on a branch the reservoir doesn't drain into, and was run.
 - **R3-N20** The paved-coverage warning (TT 689 p.142) is given only in
   historical mode; the other modes don't read the table year by year.

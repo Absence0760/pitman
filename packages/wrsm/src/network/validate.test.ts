@@ -173,6 +173,38 @@ describe('validateNetwork', () => {
 		expect(errors(withNetwork(b, { modules: downstream }))).toEqual([]);
 	});
 
+	it('rejects an irrigation return flow into its own supplier or upstream of it (TT 689 p.85)', () => {
+		const b = syntheticBundle();
+		// Return flow route 8 from RR6 back into CR4, its supplier.
+		let own = setRoute(b, { ...route(b, 8), downstreamPosition: 6 });
+		own = replace(own, { ...cr(own), inflows: [...cr(own).inflows, { route: 8, definedFlowFile: null }] });
+		const e = errors(own);
+		expect(e).toContain(
+			'RR 6 (SYRR6.DAT): return-flow route 8 goes back into CR 4 (position 6), which supplies it through route 7; a return flow may only go to the zero sink or downstream of the supplier (TT 689 p.85, p.104)'
+		);
+		// Return flow into RV5, which drains into CR4 (upstream of the supplier): a loop.
+		let up = setRoute(b, { ...route(b, 8), downstreamPosition: 5 });
+		up = replace(up, { ...rv(up), inflows: [...rv(up).inflows, { route: 8, definedFlowFile: null }] });
+		expect(errors(up).filter((t) => t.startsWith('circular'))).toEqual([expect.stringMatching(/^circular routing between RV 5, CR 4 \(routes 5, 8\)/)]);
+
+		// A return into a channel listed after the irrigation module but before its supplier, on a branch
+		// the supplier doesn't drain into, is accepted (R3-N22).
+		const shift = (p: number) => (p >= 5 ? p + 1 : p);
+		const modules = [...b.network.modules.slice(0, 4), { number: 9, type: 'CR' as const, solve: true }, ...b.network.modules.slice(4)];
+		const routes = [
+			...b.network.routes.map((r) => ({ ...r, upstreamPosition: shift(r.upstreamPosition), downstreamPosition: r.number === 8 ? 5 : shift(r.downstreamPosition) })),
+			{ number: 40, upstreamPosition: 5, downstreamPosition: 0, cost: 0 }
+		];
+		const cr9: ChannelModule = { ...cr(b), number: 9, inflows: [{ route: 8, definedFlowFile: null }], outflows: [{ route: 40, definedFlowFile: null }], principalOutflowRoute: 40 };
+		const side: NetworkBundle = { ...withNetwork(b, { modules, routes }), modules: [...b.modules, cr9] };
+		expect(errors(side)).toEqual([]);
+	});
+
+	it('rejects an RU outflow route listed twice in L.020', () => {
+		const b = syntheticBundle();
+		expect(errors(replace(b, { ...ru(b, 3), outflows: [{ route: 3, percent: 50 }, { route: 3, percent: 50 }] }))).toContain('RU 3 (SYRU3.DAT): outflow route 3 is listed more than once in L.020');
+	});
+
 	it('reports circular routing once, naming every module in the loop', () => {
 		const b = syntheticBundle();
 		// CR4's principal route goes back into RV5 (CR4 -> RV5 -> CR4).
