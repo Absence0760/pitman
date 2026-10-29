@@ -491,6 +491,18 @@ export interface RunoffModule {
 	readonly aPanFactors?: Monthly12;
 	/** Lines after the last line type the reader understood, kept for round-trip. */
 	readonly trailingLines?: readonly RawLine[];
+	/** Write-layout variants that carry no meaning; absent = WRSM2000's usual layout. */
+	readonly layout?: RunoffLayout;
+}
+
+/**
+ * Widths that differ between real runoff files without changing a value
+ * (docs/formats.md §5.1), kept so a file read and written back is
+ * byte-identical. Added in Round 2 (runoff files).
+ */
+export interface RunoffLayout {
+	/** L.031 vars 3–5 written `3F7.2` instead of `3F8.2` (31 real files). */
+	readonly samiStorageNarrow?: boolean;
 }
 
 // ---------------------------------------------------------------------------
