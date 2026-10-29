@@ -7,6 +7,8 @@
  * (`ModuleSimulators`, `contract.ts`). Spec: docs/theory/network.md §6.
  */
 
+import type { SamiOptionsInput, SamiRunParts } from '../groundwater/sami/index.js';
+import type { StreamflowReduction } from '../landuse/contract.js';
 import { PitmanRunError, runRunoffModule, type PitmanOptions } from '../runoff/pitman.js';
 import type {
 	MonthlySeries,
@@ -25,8 +27,14 @@ import { NetworkError, validateNetwork } from './validate.js';
 /** What `runNetwork` needs besides the bundle and the mode. */
 export interface RunNetworkOptions {
 	readonly simulators: ModuleSimulators;
-	/** Classic Pitman options for every runoff module (R2-1). */
+	/** Pitman core options for every runoff module (R2-1). */
 	readonly pitman?: Partial<PitmanOptions>;
+	/** Sami parts for every Sami module; default `SAMI_PARTS` (`runoff/wiring.ts`). */
+	readonly samiParts?: SamiRunParts;
+	/** The Sami composition's switches for every Sami module (OQ-S2 … S11, R6-R3). */
+	readonly sami?: SamiOptionsInput;
+	/** Streamflow reductions for every runoff module; default `STREAMFLOW_REDUCTIONS` (`runoff/wiring.ts`). */
+	readonly reductions?: readonly StreamflowReduction[];
 }
 
 /**
@@ -34,7 +42,7 @@ export interface RunNetworkOptions {
  *
  * Throws `NetworkError` (every validation problem at once) when the network
  * can't be run, `PitmanRunError` when a runoff module can't (R2-2: e.g. a
- * Sami or Hughes module before Round 6, or a rainfall year missing), and
+ * Hughes module, a Sami module whose parts are not wired, or a rainfall year missing), and
  * `NetworkError` naming the module when a simulator throws or breaks the
  * contract (a series of the wrong length).
  *
@@ -55,6 +63,8 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 	const flows = new Map<number, MonthlySeries>();
 	const reservoirStorage: Record<number, MonthlySeries> = {};
 	const runoff: Record<number, RunoffDiagnostics> = {};
+	const virginMarMm3: Record<number, number> = {};
+	const parents = sfrParents(bundle);
 	const ctx: ModuleRunContext = {
 		mode,
 		startYear,
@@ -85,9 +95,10 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 		}
 		switch (module.kind) {
 			case 'RU': {
-				const result = runRunoff(p, module, bundle, mode, options.pitman);
+				const result = runRunoff(p, module, bundle, mode, options, parents.get(module.number) ?? null);
 				messages.push(...result.messages);
 				runoff[module.number] = result.diagnostics;
+				if (result.virginMarMm3 !== undefined) virginMarMm3[module.number] = result.virginMarMm3;
 				const inflow = module.inflowRoute ? flows.get(module.inflowRoute)!.values : undefined;
 				const total = result.outflow.values.map((v, i) => v + (inflow ? inflow[i]! : 0));
 				for (const o of module.outflows) {
@@ -141,14 +152,28 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 
 	const routeFlows: Record<number, MonthlySeries> = {};
 	for (const route of network.routes) routeFlows[route.number] = flows.get(route.number) ?? zeroSeries(startYear, endYear);
-	return { mode, startYear, endYear, routeFlows, reservoirStorage, runoff, messages };
+	return { mode, startYear, endYear, routeFlows, reservoirStorage, runoff, ...(Object.keys(virginMarMm3).length > 0 ? { virginMarMm3 } : {}), messages };
 }
 
 function series(startYear: number, values: number[]): MonthlySeries {
 	return { startYear, values, unit: 'Mm3' };
 }
 
-function runRunoff(p: PlacedModule, module: RunoffModule, bundle: NetworkBundle, mode: RunMode, pitman: Partial<PitmanOptions> | undefined) {
+/**
+ * Each SFR child's parent (L.038–L.039 on the parent; a child doesn't name
+ * it, TT 691 §7.4.2). The first parent in module order wins when two claim
+ * one child (validation warns).
+ */
+function sfrParents(bundle: NetworkBundle): Map<number, RunoffModule> {
+	const parents = new Map<number, RunoffModule>();
+	for (const m of bundle.modules) {
+		if (m.kind !== 'RU') continue;
+		for (const child of m.sfrChildren ?? []) if (!parents.has(child)) parents.set(child, m);
+	}
+	return parents;
+}
+
+function runRunoff(p: PlacedModule, module: RunoffModule, bundle: NetworkBundle, mode: RunMode, options: RunNetworkOptions, parent: RunoffModule | null) {
 	const { startYear, endYear } = bundle.network;
 	const messages: RunMessage[] = [];
 	const applied = applyRunMode(module, mode);
@@ -158,7 +183,16 @@ function runRunoff(p: PlacedModule, module: RunoffModule, bundle: NetworkBundle,
 		messages.push({ level: 'warning', module: p.ref, text: `${placedLabel(p)}: paved-area years ${paved[0]!.year}–${paved[paved.length - 1]!.year} don't cover the run ${startYear}–${endYear}; held flat beyond them (TT 689 p.142; OQ-17)` });
 	}
 	const rainfall = lookupFile(bundle.rainfall, module.rainfallFile)!; // validated
-	const result = runRunoffModule(applied, rainfall, { startYear, endYear, ...(pitman ? { pitman } : {}) });
+	const result = runRunoffModule(applied, rainfall, {
+		startYear,
+		endYear,
+		mode,
+		parent: parent ? applyRunMode(parent, mode) : null,
+		...(options.pitman ? { pitman: options.pitman } : {}),
+		...(options.sami ? { sami: options.sami } : {}),
+		...(options.samiParts ? { samiParts: options.samiParts } : {}),
+		...(options.reductions ? { reductions: options.reductions } : {})
+	});
 	return { ...result, messages: [...messages, ...result.messages] };
 }
 

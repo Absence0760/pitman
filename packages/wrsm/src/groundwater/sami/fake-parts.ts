@@ -19,6 +19,7 @@
  */
 
 import { MuskingumRouter } from '../../runoff/lag.js';
+import type { PitmanParameters, SamiParameters } from '../../types.js';
 import type { SamiAquiferOutput, SamiAquiferParams, SamiAquiferState, SamiParts, SamiSoilPass } from './contract.js';
 
 export interface FakeSamiParts extends SamiParts {
@@ -90,5 +91,38 @@ export function fakeSamiParts(options: { readonly rechargeFraction?: number; rea
 			};
 			return { state: { store, tDays: s.tDays, pumping: s.pumping || i.abstraction > 0 }, out };
 		}
+	};
+}
+
+/**
+ * An invented Sami block (RU L.031–L.037) around a module's own Pitman set,
+ * for tests: TT 689 Table 9.1 defaults where they exist, L.035 = `pitman`
+ * with SL raised so interflow has a threshold, and no abstraction.
+ */
+export function syntheticSamiParameters(pitman: PitmanParameters): SamiParameters {
+	return {
+		aquiferThicknessM: 20,
+		storativity: 0.005,
+		initialAquiferStorage: 60,
+		staticWaterLevelMm: 60,
+		unsaturatedStorage: 20,
+		initialUnsaturatedStorage: 10,
+		PPOW: 0.2,
+		GPOW: 3,
+		maxDischarge: 2,
+		gwSwPower: -0.05,
+		HGSL: 0,
+		HGGW: 2,
+		maxHydraulicGradient: 0.001,
+		transmissivity: 10,
+		boreholeDistanceToRiver: 1000,
+		gwEvaporationArea: 1,
+		K2: 0.1,
+		K3: -3,
+		interflowLag: 0,
+		rechargeAveragingMonths: 2,
+		abstractionMode: 0,
+		pitman: { ...pitman, SL: Math.max(pitman.SL, 0.1 * pitman.ST) },
+		abstractions: []
 	};
 }
