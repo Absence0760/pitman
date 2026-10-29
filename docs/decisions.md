@@ -14,16 +14,16 @@ Plan and context: issue #3.
 | D3 | Cape Farm Mapper through its API with an operator-supplied token, used only by the backend proxy; the token never reaches the browser, the repo or an agent | Decided; token pending |
 | D4 | 2025 farm-dam capacity from CFM and/or the DWS register (larger dams) and/or satellite surface area × 3 m; de-duplicated by location; precedence register > CFM > area × 3 m unless the user overrides a dam | Decided; register licence pending (D-3) |
 | D5 | Bias-factor overlap: whole hydrological years from 1981/82 to the `.RAN`'s last year; the user may narrow it | Default |
-| D6 | MAP grid: the finest grid covering the quaternary; where none does, the user types each piece's MAP | Default; national grid licence pending (D-5) |
+| D6 | MAP grid: the finest grid covering the quaternary (WAAS in the SW Cape, else CHELSA v2.1, D-5); the user can still type each piece's MAP | Default |
 
 ## Data access (`docs/data.md`)
 
 | ID | Decision | Status |
 |---|---|---|
-| D-1 | Quaternary boundaries: the operator supplies Pitman's own copy (WR2012 publishes them) once its licence is confirmed; until then the user can upload a boundary | **Needs operator** |
-| D-3 | DWS register of dams: same route as D-1 | **Needs operator** |
+| D-1 | Quaternary boundaries: the operator supplies Pitman's own copy once its licence is confirmed; until then the user can upload a boundary. No source publishes terms: WR2012's download falls under WRC site terms (no public or commercial reuse without permission); DWS's copy is managed by its GI&A unit; the Western Cape Government mirror (`SpatialDataWarehouse/Hydrology/MapServer/7`) states none | **Needs operator** (ask DWS GI&A or the WRC) |
+| D-3 | DWS register of dams: same route as D-1. The Dam Safety Office publishes the list with no stated terms; DWS's general wording is non-commercial | **Needs operator** (ask the Dam Safety Office); until then CFM + satellite |
 | D-4 | WAAS MAP grid: extend IC-WBT's licence decision to Pitman | **Needs operator** |
-| D-5 | National MAP grid: not used until licensed; outside the WAAS area the user types MAPs | Default |
+| D-5 | National MAP grid: **CHELSA v2.1** annual precipitation (30″ ≈ 1 km, 1981–2010, CC0 1.0; cite Karger et al. 2017, doi:10.1038/sdata.2017.122), stored in Pitman's own bucket. Used for the *ratio* between pieces only: D2's common factor rescales the absolute level to the WR2012 MAR, which matters because CHELSA's skill drops above 500 m in southern Africa. Lynch 2004 stays out (contradictory licence, share-alike); WorldClim is excluded (no commercial use) | Default (2026-10-28 licence research) |
 | D-6 | Pitman's AWS resources in `af-south-1`, beside IC-WBT's buckets | Default |
 | D-7 | Dam area: JRC surface-water occurrence ≥ 25 % traced around the dam, × 3 m; Digital Earth Africa waterbodies as a cross-check | Default |
 | D-8 | "Irrigated" comes from the CFM attribute; failing that, the user marks crops | Default; confirm when the token arrives |
