@@ -18,6 +18,8 @@ pnpm dev                     # frontend (7777) + backend (3001) in parallel
 pnpm build                   # build all workspaces
 pnpm check                   # typecheck all
 pnpm test                    # vitest run across workspaces
+pnpm test:coverage           # the same with v8 coverage + a table of what no test reaches (a report, never a gate)
+pnpm test:tools              # node:test suites for scripts/ (the coverage summary)
 pnpm frontend <script>       # run a script in one workspace
 pnpm backend <script>
 ```
@@ -62,7 +64,7 @@ Production deploy (after first-time setup): see `infra/README.md § First-time s
 - `docs/deployment.md` — CI/CD, OIDC, release flow, SOPS secrets workflow
 - `docs/security.md` — risk register, mitigations, incident playbook
 - `infra/README.md` — Terraform module specifics
-- `.github/workflows/` — `ci.yml` (PR + push typecheck/test), two deploy workflows (frontend, backend), `claude.yml` Claude Code automation, `audit.yml` (weekly `pnpm audit`), `dependabot-lockfile.yml` (syncs root `pnpm-lock.yaml` on Dependabot PRs). Dependabot config in `.github/dependabot.yml`.
+- `.github/workflows/` — `ci.yml` (PR + push typecheck/test), two deploy workflows (frontend, backend), `claude.yml` Claude Code automation, `audit.yml` (weekly `pnpm audit`), `dependabot-lockfile.yml` (syncs root `pnpm-lock.yaml` on Dependabot PRs), `gitleaks-sweep.yml` (weekly full-history secret scan, opens a `secret-scan` issue on failure), `coverage.yml` (weekly coverage report), `terraform.yml` (`infra/` fmt + validate + Trivy, credential-free; Terraform version in `infra/.terraform-version`), `pr-mergeable.yml` (flags a conflicted PR that CI never ran on). Dependabot config in `.github/dependabot.yml`.
 
 Prefer reading these over guessing. Update them when behavior changes.
 
