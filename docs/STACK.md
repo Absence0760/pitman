@@ -76,6 +76,7 @@ Prefer reading these over guessing. Update them when behavior changes.
 - **Terraform** — don't run `terraform apply` without explicit user confirmation. `plan` is fine.
 - **Infra changes** — coordinate Terraform edits with workflow changes in `.github/workflows/`.
 - **Svelte 5 runes** — use `$state`, `$derived`, `$effect`, `$props` — not the legacy options API.
+- **Two TypeScript majors, on purpose** — `packages/wrsm`, `packages/wrsm-cli` and `backend` use TypeScript 7 (the native `tsc`; their only consumer of `typescript` is the `check` script). `frontend` stays on TypeScript 6 because TypeScript 7.0 ships no JavaScript compiler API, which `svelte-kit sync` and `svelte-check` load (`@sveltejs/kit` 3.1.0 peers `typescript ^6.0.0`, `svelte-check` 4.7.7 peers `^5 || ^6`). Engine source is therefore typechecked by both: by TS 7 in its own `check`, by TS 6 when svelte-check follows the frontend's imports. Move the frontend to 7 once both tools support it: sveltejs/kit#17537 and sveltejs/language-tools#3063 (both wait on TypeScript 7.1's new API). Don't bump the frontend's `typescript` before then; Dependabot's combined bump breaks `svelte-kit sync`.
 
 ## What not to do
 
