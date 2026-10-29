@@ -35,7 +35,7 @@ import type {
 	SamiSoilParams,
 	SamiSoilPass
 } from './contract.js';
-import { DEFAULT_SAMI_INTERFLOW_OPTIONS, DEFAULT_SAMI_SOIL_OPTIONS, samiRecharge, type SamiInterflowOptions, type SamiSoilOptions } from './soil.js';
+import { DEFAULT_SAMI_INTERFLOW_OPTIONS, DEFAULT_SAMI_SOIL_OPTIONS, samiRecharge, type SamiInterflowOptions, type SamiInterflowRouter, type SamiSoilOptions } from './soil.js';
 
 /**
  * The parts as this composition calls them: the contract's `SamiParts`
@@ -56,6 +56,12 @@ export interface SamiRunParts {
 	readonly aquiferInit: SamiAquiferInitFn;
 	readonly aquiferStep: SamiAquiferStepFn;
 	readonly makeAquiferStep?: (options: SamiAquiferOptions) => SamiAquiferStepFn;
+	/**
+	 * `interflow` one month at a time (`samiInterflowRouter`, `soil.ts`), giving the same numbers.
+	 * The R6-A10 TL cap reads QLAG_i inside the aquifer loop: with the router that costs O(1) a
+	 * month, without it `interflow` is re-run on the prefix (O(n) a month).
+	 */
+	readonly interflowRouter?: (lag: number, options?: SamiInterflowOptions) => SamiInterflowRouter;
 }
 
 /** The provisional choices of the composition, each with its open question in docs/theory/sami.md §8. */
@@ -269,26 +275,40 @@ export function simulateSami(
 	let state = initialAquifer;
 	const inputs: SamiAquiferInput[] = [];
 	const outputs: SamiAquiferOutput[] = [];
+	const aqx: Mm[] = [];
+	const router = parts.interflowRouter?.(input.soil.lag, opt.interflow);
 	for (let i = 0; i < n; i++) {
+		// R6-A10: TL comes out of Qfinal's pre-loss runoff (§5; baseflow is 0 in a TL month). In
+		// reading (a) that holds QLAG_i, which depends on this month's AQX. Without the router,
+		// `interflow` is causal, so its value on the prefix is the final one.
+		const sif = soil.soilInterflow[i]!;
+		const qlagWith = (excess: Mm): Mm =>
+			router ? router.peek(sif, excess) : parts.interflow(soil.soilInterflow.slice(0, i + 1), [...aqx.slice(0, i), excess], input.soil.lag, opt.interflow)[i]!;
+		const runoffForLoss = opt.finalRunoff === 'surfacePlusSami' ? (excess: Mm) => surface[i]! + qlagWith(excess) : () => pitmanTotal[i]!;
 		const aquiferInput: SamiAquiferInput = {
 			aquiferInflow: soil.perc[i]! + soil.exrech[i]!,
 			perc: soil.perc[i]!,
 			percBar: soil.percBar,
 			runoffForHead: opt.headRunoff === 'total' ? pitmanTotal[i]! : surface[i]!, // OQ-S3 (i)/(ii)
+			runoffForLoss,
 			rain: input.pitman.rainfallMm[i]!,
 			petGw: input.petGwMm[i % 12]!,
 			abstraction: input.abstractionMm?.[i] ?? 0
 		};
 		const step = aquiferStep(state, aquiferInput, aquiferParams);
 		state = step.state;
-		inputs.push(aquiferInput);
+		// The kept input drops the callback: it reads the router's state, valid only during the step.
+		const { runoffForLoss: _, ...kept } = aquiferInput;
+		inputs.push(kept);
 		outputs.push(step.out);
+		aqx.push(step.out.excessToInterflow);
+		router?.push(sif, step.out.excessToInterflow);
 	}
 
 	// Interflow: SIF + AQX, lagged by F28_Lag (§3.7).
 	const qlag = parts.interflow(
 		soil.soilInterflow,
-		outputs.map((o) => o.excessToInterflow),
+		aqx,
 		input.soil.lag,
 		opt.interflow
 	);

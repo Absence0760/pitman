@@ -226,12 +226,43 @@ export const samiInterflow: SamiInterflowFn &
 			`Sami interflow: ${soilInterflow.length} months of soil interflow but ${excessToInterflow.length} of aquifer excess`
 		);
 	}
-	const raw = soilInterflow.map((value, i) => value + excessToInterflow[i]!);
-	if (raw.length === 0) return [];
-	const first = options.initialLagState === 'steady' ? raw[0]! : 0;
-	const router = new MuskingumRouter({ k: lag, dt: 1, initial: { inflow: first, outflow: first } });
-	return raw.map((value) => router.step(value));
+	const router = samiInterflowRouter(lag, options);
+	return soilInterflow.map((value, i) => router.push(value, excessToInterflow[i]!));
 };
+
+/** `samiInterflow` one month at a time. */
+export interface SamiInterflowRouter {
+	/** QLAG for the next month's SIF and AQX, without moving on. */
+	peek(soilInterflow: Mm, excessToInterflow: Mm): Mm;
+	/** QLAG for the next month's SIF and AQX; the router moves on to the month after. */
+	push(soilInterflow: Mm, excessToInterflow: Mm): Mm;
+}
+
+/**
+ * `samiInterflow` month by month, the same numbers: the composition reads
+ * QLAG_i inside the aquifer loop, before AQX_i is final, to cap TL (R6-A10).
+ */
+export function samiInterflowRouter(lag: number, options: SamiInterflowOptions = DEFAULT_SAMI_INTERFLOW_OPTIONS): SamiInterflowRouter {
+	let router: MuskingumRouter | undefined;
+	// The steady start (OQ-S17) needs month 0's INTERFLOW, so the router is built on the first month.
+	const start = (raw: number) =>
+		router ?? new MuskingumRouter({ k: lag, dt: 1, initial: options.initialLagState === 'steady' ? { inflow: raw, outflow: raw } : { inflow: 0, outflow: 0 } });
+	return {
+		peek(sif, aqx) {
+			const raw = sif + aqx;
+			if (!router) return start(raw).step(raw);
+			const state = router.state;
+			const out = router.step(raw);
+			router.reset(state);
+			return out;
+		},
+		push(sif, aqx) {
+			const raw = sif + aqx;
+			router = start(raw);
+			return router.step(raw);
+		}
+	};
+}
 
 function assertMonths(months: number): void {
 	if (!(Number.isInteger(months) && months >= 1)) {

@@ -103,6 +103,14 @@ export interface SamiAquiferInput {
 	readonly percBar: Mm;
 	/** Q_i (Pitman core, OQ-S3). */
 	readonly runoffForHead: Mm;
+	/**
+	 * R6-A10: the runoff TL is taken out of, given the AQX this month's step
+	 * spilled (QLAG_i depends on it). TL ≤ max(0, this), so Qfinal ≥ 0: "a
+	 * check that transmission losses cannot exceed runoff" (TT 687 p.12–13).
+	 * The composition passes Qfinal's pre-loss sum (surface + QLAG in OQ-S3
+	 * (a), Q in (b)). Absent = the `runoffForHead` cap only.
+	 */
+	readonly runoffForLoss?: (excessToInterflow: Mm) => Mm;
 	/** RAIN_i. */
 	readonly rain: Mm;
 	/** E_m × APF_m (OQ-S7). */
@@ -122,7 +130,7 @@ export interface SamiAquiferOutput {
 	readonly outflow: Mm;
 	/** GWBF_net_i (after depletion). */
 	readonly baseflow: Mm;
-	/** TL_i (≤ runoffForHead). */
+	/** TL_i (≤ runoffForHead, and ≤ runoffForLoss when given, R6-A10). */
 	readonly transmissionLoss: Mm;
 	readonly depletion: Mm;
 	readonly fromStorage: Mm;

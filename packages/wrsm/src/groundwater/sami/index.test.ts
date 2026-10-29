@@ -14,7 +14,7 @@ import {
 	type SamiOptionsInput
 } from './index.js';
 import { makeSamiAquiferStep, samiAquiferInit, samiAquiferStep } from './aquifer.js';
-import { samiInterflow, samiSoilPass } from './soil.js';
+import { samiInterflow, samiInterflowRouter, samiSoilPass } from './soil.js';
 
 // Synthetic fixtures only (issue #3 rule 2).
 
@@ -112,6 +112,7 @@ describe('simulateSami: order of operations (sami.md §4)', () => {
 				perc: sim.soil.perc[i],
 				percBar: sim.soil.percBar,
 				runoffForHead: sim.pitman.months[i]!.runoff, // OQ-S3 (i), lagged
+				runoffForLoss: expect.any(Function), // R6-A10
 				rain: inp.pitman.rainfallMm[i],
 				petGw: inp.petGwMm[i % 12],
 				abstraction: inp.abstractionMm![i]
@@ -119,6 +120,11 @@ describe('simulateSami: order of operations (sami.md §4)', () => {
 		});
 		expect(seen.aqx).toEqual(sim.months.map((m) => m.aquifer.excessToInterflow));
 		expect(seen.aqx!.some((x) => x > 0)).toBe(true); // the aquifer filled at least once, so the path is exercised
+		// R6-A10: given the month's own AQX, the loss base is Qfinal's pre-loss sum, surface + QLAG (OQ-S3 (a)).
+		sim.months.forEach((m, i) => {
+			const step = seen.steps[i] as { runoffForLoss: (aqx: number) => number };
+			expect(step.runoffForLoss(m.aquifer.excessToInterflow)).toBeCloseTo(m.surface + m.interflow, 12);
+		});
 	});
 
 	it('runs the Pitman core with GW = GL = 0 (TT 691 p.123 §11.2)', () => {
@@ -271,6 +277,58 @@ describe('simulateSami with the real soil and aquifer sides', () => {
 		const parts = { ...real, makeAquiferStep: (o: Parameters<typeof makeSamiAquiferStep>[0]) => (seen.push(o), makeSamiAquiferStep(o)) };
 		simulateSami(input(), parts, { aquifer: { pumpingClock: 'resetWhenIdle' } });
 		expect(seen).toEqual([{ ...DEFAULT_SAMI_OPTIONS.aquifer, pumpingClock: 'resetWhenIdle' }]);
+	});
+});
+
+describe('simulateSami: TL never exceeds the runoff it comes out of (R6-A10)', () => {
+	const real = { soilPass: samiSoilPass, interflow: samiInterflow, aquiferInit: samiAquiferInit, aquiferStep: samiAquiferStep, makeAquiferStep: makeSamiAquiferStep };
+	// HEAD reads Pitman total Q (OQ-S3 (i)) but TL comes out of surface + QLAG (a). A large FT puts most
+	// of Q in the subsurface term Sami swaps out, and an aquifer far below SWL with a big BFMAX makes TL
+	// large: the shape of the reference months that went negative (synthetic).
+	const thirsty = input({
+		pitman: { ...input().pitman, params: { ...pitmanParams, FT: 40 } },
+		soil: { ...soil, FT: 40, lag: 1 },
+		aquifer: { ...aquifer, store0: 10, BFMAX: 15 },
+		abstractionMm: undefined
+	});
+	/** The aquifer step without the R6-A10 cap: the behaviour before it. */
+	const uncapped = {
+		...real,
+		makeAquiferStep: undefined,
+		aquiferStep: ((s, i, p) => {
+			const { runoffForLoss: _, ...rest } = i;
+			return samiAquiferStep(s, rest, p);
+		}) as typeof samiAquiferStep
+	};
+
+	it('the fixture reproduces the negative Qfinal without the cap', () => {
+		expect(simulateSami(thirsty, uncapped).negativeRunoffMonths).toBeGreaterThan(0);
+	});
+
+	it.each(VARIANTS.map((v) => [JSON.stringify(v), v] as const))('keeps Qfinal ≥ 0 and the balance closed: %s', (_name, v) => {
+		const sim = simulateSami(thirsty, real, v);
+		expect(sim.negativeRunoffMonths).toBe(0);
+		expect(sim.months.every((m) => m.runoff >= 0 && m.clampedMm === 0)).toBe(true);
+		const b = samiWaterBalance(sim, thirsty);
+		expect(Math.abs(b.residual)).toBeLessThan(1e-9 * b.rain);
+	});
+
+	it('binds in the default reading: TL = surface + QLAG in some month, Qfinal exactly 0 there', () => {
+		const sim = simulateSami(thirsty, real);
+		const bound = sim.months.filter((m) => m.aquifer.transmissionLoss > 0 && m.aquifer.transmissionLoss === m.surface + m.interflow);
+		expect(bound.length).toBeGreaterThan(0);
+		expect(bound.every((m) => m.runoff === 0)).toBe(true);
+	});
+
+	it('gives the same run with the month-by-month interflow router as with the prefix re-run', () => {
+		const viaPrefix = simulateSami(thirsty, real);
+		const viaRouter = simulateSami(thirsty, { ...real, interflowRouter: samiInterflowRouter });
+		expect(viaRouter.months).toEqual(viaPrefix.months);
+	});
+
+	it('does not keep the per-step callback in the month diagnostics', () => {
+		const sim = simulateSami(thirsty, { ...real, interflowRouter: samiInterflowRouter });
+		expect(sim.months.every((m) => !('runoffForLoss' in m.aquiferInput))).toBe(true);
 	});
 });
 

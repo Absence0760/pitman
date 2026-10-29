@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { samiAquiferStep } from '../groundwater/sami/aquifer.js';
 import { fakeSamiParts } from '../groundwater/sami/fake-parts.js';
-import { samiInterflow, samiSoilPass } from '../groundwater/sami/soil.js';
+import { samiInterflow, samiInterflowRouter, samiSoilPass } from '../groundwater/sami/soil.js';
 import type { ReductionInput, StreamflowReduction } from '../landuse/contract.js';
 import type { Monthly12, PitmanParameters, RainfallSeries, RunoffModule, SamiParameters } from '../types.js';
 import { PitmanRunError, runRunoffModule, simulateModuleRunoff, runoffModuleRainfall } from './pitman.js';
@@ -74,6 +74,7 @@ describe('wiring (src/runoff/wiring.ts)', () => {
 		expect(SAMI_PARTS).not.toBe(SAMI_PARTS_NOT_WIRED);
 		expect(SAMI_PARTS.soilPass).toBe(samiSoilPass);
 		expect(SAMI_PARTS.aquiferStep).toBe(samiAquiferStep);
+		expect(SAMI_PARTS.interflowRouter).toBe(samiInterflowRouter); // R6-A10: O(1) TL cap a month
 		expect(STREAMFLOW_REDUCTIONS).toHaveLength(2);
 		expect(STREAMFLOW_REDUCTIONS[0]).toBe(forestReduction);
 		expect(typeof SFR_TARGETS.alien).toBe('function');
