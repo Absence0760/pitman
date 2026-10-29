@@ -12,8 +12,10 @@ and GitHub Actions for CI/CD:
   with esbuild.
 - `infra/` — Terraform module that provisions all AWS resources (S3, CloudFront,
   Lambda, IAM, Route 53, ACM, GitHub OIDC). Not a workspace package.
-- `.github/workflows/` — two deploy workflows (frontend, backend) that
-  authenticate to AWS via OIDC and deploy on release.
+- `.github/workflows/` — two deploy workflows (frontend, backend) that run on
+  a push to `main` touching their paths (or by hand), authenticate to AWS via
+  OIDC and deploy only after approval in the `production` environment
+  (`docs/deployment.md`). They skip until the operator sets the repo variables.
 
 The two app packages are decoupled. The frontend knows the backend only by its
 URL (`PUBLIC_API_URL`).

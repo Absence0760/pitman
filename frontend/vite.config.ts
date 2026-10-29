@@ -23,7 +23,11 @@ export default defineConfig({
 				base: (process.env.BASE_PATH || '') as '' | `/${string}`
 			},
 			// Kit 3 polls _app/version.json hourly by default; nothing here reads `updated` (as IC-WBT).
-			version: { pollInterval: 0 }
+			version: { pollInterval: 0 },
+			// The CloudFront header allows script-src 'unsafe-inline' because the bootstrap script's hash
+			// changes every build; this meta CSP (hash mode) is enforced on top of it, so only the hashed
+			// bootstrap runs. infra/scripts/check-csp.mjs refuses a build without it (decision R4-I1).
+			csp: { mode: 'hash', directives: { 'script-src': ['self'] } }
 		})
 	]
 });

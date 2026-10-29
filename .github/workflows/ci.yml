@@ -53,6 +53,9 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Run repo tool tests (coverage summary, CSP check, CloudFront functions)
+        run: pnpm test:tools
+
   e2e:
     name: End-to-end (Playwright)
     runs-on: ubuntu-latest
