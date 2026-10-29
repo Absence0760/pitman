@@ -14,6 +14,7 @@ function fakeWorker(run = fakeRun): WorkerLike & { terminated: boolean } {
 		terminated: false,
 		onmessage: null,
 		onerror: null,
+		onmessageerror: null,
 		postMessage(message: RunRequest) {
 			const copy = structuredClone(message);
 			queueMicrotask(() => handleRunRequest(copy, run, (response) => worker.onmessage?.({ data: structuredClone(response) })));
@@ -77,6 +78,22 @@ describe('runInWorker (the page side)', () => {
 		const worker = fakeWorker();
 		worker.postMessage = () => queueMicrotask(() => worker.onerror?.({ message: 'boom' }));
 		await expect(runInWorker(bundle, modes, { createWorker: () => worker })).rejects.toThrow(/The run stopped: boom/);
+		expect(worker.terminated).toBe(true);
+	});
+
+	it('rejects and terminates when the request cannot be posted', async () => {
+		const worker = fakeWorker();
+		worker.postMessage = () => {
+			throw new Error('could not be cloned');
+		};
+		await expect(runInWorker(bundle, modes, { createWorker: () => worker })).rejects.toThrow(/could not start: could not be cloned/);
+		expect(worker.terminated).toBe(true);
+	});
+
+	it('rejects when a result cannot be deserialised', async () => {
+		const worker = fakeWorker();
+		worker.postMessage = () => queueMicrotask(() => worker.onmessageerror?.({}));
+		await expect(runInWorker(bundle, modes, { createWorker: () => worker })).rejects.toThrow(/could not be read/);
 		expect(worker.terminated).toBe(true);
 	});
 

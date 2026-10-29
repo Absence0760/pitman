@@ -7,7 +7,7 @@
  */
 
 import type { BundleFiles } from './engine.js';
-import { decodeFile } from './encoding.js';
+import { decodeFiles } from './encoding.js';
 import { DEFAULT_LIMITS, LimitTracker, LoadError, type LoadLimits } from './limits.js';
 import { unpackZip } from './zip.js';
 
@@ -94,7 +94,7 @@ export async function readSources(sources: readonly SourceFile[], limits: LoadLi
 	}
 	const tracker = new LimitTracker(limits);
 	for (const s of sources) tracker.add(s.path, s.size);
-	const out: Record<string, string> = {};
-	for (const s of sources) out[s.path] = decodeFile(s.path, await s.bytes());
-	return out;
+	const raw: Record<string, Uint8Array> = {};
+	for (const s of sources) raw[s.path] = await s.bytes();
+	return decodeFiles(raw);
 }

@@ -67,8 +67,11 @@ describe('readSources', () => {
 
 	it('reads loose files byte for byte (Latin-1), the sidecar as UTF-8', async () => {
 		const sidecar = new TextEncoder().encode('{"n":"→"}');
-		const sources = [...fromFileList([file('A.RAN', 'x\xe9', 'Net/A.RAN')]), { path: 'Net/pitman.json', size: sidecar.length, bytes: async () => sidecar }];
-		expect(await readSources(sources)).toEqual({ 'Net/A.RAN': 'x\xe9', 'Net/pitman.json': '{"n":"→"}' });
+		const sources = [
+			...fromFileList([file('A.RAN', 'x\xe9', 'Net/A.RAN'), file('A.NET', 'n', 'Net/A.NET')]),
+			{ path: 'Net/pitman.json', size: sidecar.length, bytes: async () => sidecar }
+		];
+		expect(await readSources(sources)).toEqual({ 'Net/A.RAN': 'x\xe9', 'Net/A.NET': 'n', 'Net/pitman.json': '{"n":"→"}' });
 	});
 
 	it('refuses nothing, and too much, with a LoadError', async () => {

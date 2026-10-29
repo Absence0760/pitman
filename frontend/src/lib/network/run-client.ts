@@ -13,6 +13,8 @@ export interface WorkerLike {
 	terminate(): void;
 	onmessage: ((event: { data: RunResponse }) => void) | null;
 	onerror: ((event: { message?: string }) => void) | null;
+	/** A message that couldn't be deserialised. */
+	onmessageerror: ((event: unknown) => void) | null;
 }
 
 export type RunOutcome =
@@ -53,6 +55,7 @@ export function runInWorker(bundle: NetworkBundle, modes: readonly RunMode[], op
 		const finish = () => {
 			worker.onmessage = null;
 			worker.onerror = null;
+			worker.onmessageerror = null;
 			options.signal?.removeEventListener('abort', onAbort);
 			worker.terminate();
 		};
@@ -88,6 +91,16 @@ export function runInWorker(bundle: NetworkBundle, modes: readonly RunMode[], op
 					break;
 			}
 		};
-		worker.postMessage({ type: 'run', id, bundle, modes });
+		worker.onmessageerror = () => {
+			finish();
+			reject(new Error('The run stopped: a result from the worker could not be read'));
+		};
+		try {
+			worker.postMessage({ type: 'run', id, bundle, modes });
+		} catch (error) {
+			// e.g. a DataCloneError: the bundle could not be copied to the worker.
+			finish();
+			reject(new Error(`The run could not start: ${(error as Error).message}`));
+		}
 	});
 }
