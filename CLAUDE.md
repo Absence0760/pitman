@@ -21,11 +21,22 @@ If you find a rule worth applying to *every* future project, propose it for the 
 - **Deploys go through the `production` GitHub environment.** Every repo that ships to a real environment must have a GitHub environment named **`production`** with the operator set as a **required reviewer**, and every deploy job must be gated on `environment: production`. This is the human-in-the-loop that makes the OIDC deploy role load-bearing: the role's trust policy pins the `environment:production` `:sub` claim, so a workflow can only assume it *after* a human approves the run. A deploy path that skips the environment (or an environment with no required reviewer) is a bug — treat it like a missing auth check. See `.github/workflows/deploy.yml.example` (Gate 3) for the pattern; the environment itself is provisioned from the `templates` repo's estate scripts (`new-project-account.sh` for new in-org projects, `backfill-prod-environment.sh` for existing repos).
 - **Pre-commit hooks** — `.pre-commit-config.yaml` runs gitleaks on staged changes. Install once with `pre-commit install`. Don't bypass with `--no-verify`.
 
+## Project rules (pitman)
+
+The plan, ground rules and round structure live in issue #3; specs live in `docs/` (`theory/`, `formats.md`, `data.md`, `decisions.md`, `departures.md`). In short:
+
+1. **Built from the published WRC manuals only** (TT 687/689/690/691). Never disassemble, decompile or copy anything from WRSM2000's executable or DLLs. Cite manual and page for every equation.
+2. **No client data in git.** Reference networks stay on the operator's machine; tests use synthetic fixtures. The reference comparison reads `WRSM_REFERENCE_DIR` and skips only when it is unset. No farm or client names in code, docs, commits, PRs or issues.
+3. **Correctness = documented hydrology + the reference comparison.** Every difference from WRSM2000's output is explained in `docs/departures.md` or is a bug.
+4. **`packages/wrsm` is pure**: no I/O, DOM or Node APIs (the tsconfig and a guard test enforce it).
+5. **Decisions are recorded** in `docs/decisions.md` with their ID (D…, OQ-…, A…, B…, U-…); change a decision there, not silently in code.
+6. Files under `docs/formats/examples/` are byte-exact (CRLF, trailing blanks); don't let an editor or hook normalise them.
+
 ## Working alongside other Claude sessions
 
 More than one Claude session may run in **this one checkout at the same time** — sharing a single working tree *and* a single git index, so a careless `git add` + `git commit` sweeps up another session's in-flight work. The `.claude/hooks/git-scope-guard.py` PreToolUse hook enforces the rules below; if a git command is denied, its message names the scoped alternative — follow it, don't work around it.
 
-- **Commit each piece of work; never push.** Land every logical unit of work as its own path-scoped commit as you finish it — don't leave the tree dirty across tasks or batch unrelated changes into one commit. **Never `git push`** in this repo; publishing is the operator's call. (No `Co-Authored-By`/generated-by trailer — write commits as a human would.)
+- **Commit each piece of work; every change reaches `main` through a PR.** Land every logical unit of work as its own path-scoped commit as you finish it — don't leave the tree dirty across tasks or batch unrelated changes into one commit. Push only your own feature branch, to open or update its PR; **never push to `main`**, and don't merge a PR unless the operator (or the round plan in issue #3) says so. (No `Co-Authored-By`/generated-by trailer — write commits as a human would.)
 - **Commit path-scoped, always:** `git commit -m "…" -- path/to/file ...`. A path-scoped commit records only those paths and ignores anything else staged. Bare `git commit`, `git add -u/-A/.`, `git commit -a`, and `git commit --amend` *with staged changes* are blocked — they snapshot the shared index.
 - **Only touch what your task owns.** Don't stage, edit, delete, or `restore` files outside your task. Before committing, `git status` and confirm every path is yours.
 - **Never whole-tree:** no `git add .`, `checkout/restore .`, `reset --hard`, `git rm .`, `git stash` (without `-- <path>`), or `git clean -f` — each clobbers across the tree.

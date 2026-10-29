@@ -8,7 +8,7 @@
 		"dev": "tsx watch src/server.ts",
 		"build": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/lambda.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
 		"check": "tsc -p tsconfig.json --noEmit",
-		"test": "vitest run",
+		"test": "vitest run --passWithNoTests",
 		"test:watch": "vitest",
 		"start": "node dist/server.js"
 	},

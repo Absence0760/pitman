@@ -1,21 +1,17 @@
 name: CI
 
-## TODO: Uncomment triggers when ready. Keep `paths-ignore` as the exact
-## inverse of ci-gate-docs.yml's `paths` so the required "CI gate" check
-## is always reported (see docs/USING.md "The CI gate"). Re-run
-## new-project-account.sh once this is live to wire CI gate in as the
-## required status check on main.
-# on:
-#   pull_request:
-#     branches: [main]
-#     paths-ignore:
-#       - 'docs/**'
-#       - '**/*.md'
-#       - '.claude/**'
-#   push:
-#     branches: [main, dev]
-#   workflow_dispatch:
-on: workflow_dispatch
+# Keep `paths-ignore` the exact inverse of ci-gate-docs.yml's `paths` so the
+# required "CI gate" check is always reported (docs/USING.md "The CI gate").
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.claude/**'
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}

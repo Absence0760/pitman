@@ -2,5 +2,9 @@ packages:
   - frontend
   - backend
   - packages/*
+# esbuild ships its binary through a postinstall script. pnpm 10 (CI) reads
+# onlyBuiltDependencies; pnpm 11+ reads allowBuilds.
+onlyBuiltDependencies:
+  - esbuild
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true
