@@ -1,12 +1,9 @@
-# Partial backend config — copy to infra/backend.config (gitignored) and fill
-# in the actual bucket name, then run:
+# Partial backend config: copy to infra/backend.config (gitignored), fill in,
+# then `terraform -chdir=infra init -backend-config=backend.config`.
 #
-#   terraform init -backend-config=backend.config
-#
-# The bucket is created by the cross-project bootstrap with the name
-# `<bootstrap-slug>-tfstate-<account-id>`. Look it up either from the
-# bootstrap script's final summary, or:
-#
-#   aws s3 ls --profile <profile> | grep tfstate
+# The estate bootstrap creates the bucket as `<slug>-tfstate-<account-id>` in
+# the region its projects/pitman.tfvars named (us-east-1 unless changed);
+# its final summary prints the name.
 
-bucket = "replace-me-with-tfstate-bucket-name"
+bucket = "pitman-tfstate-<account-id>"
+region = "us-east-1"
