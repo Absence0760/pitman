@@ -48,13 +48,16 @@ export const DEFAULT_RESERVOIR_OPTIONS: ReservoirOptions = {
 };
 
 /**
- * TT 691 p.79: a failure is "minor" below 0.009 million m³ in a month and
+ * TT 691 p.80: a failure is "minor" below 0.009 million m³ in a month and
  * "major" above it (R3-RV10: exactly 0.009 counts as minor).
  */
 export const MAJOR_FAILURE_MM3 = 0.009;
 
 /** Deficits smaller than this are rounding noise, not failures, million m³. */
 const DEFICIT_TOLERANCE_MM3 = 1e-9;
+
+/** Negative flows down to this are rounding noise and read as 0 (R3-RV23), million m³. */
+const NEGATIVE_TOLERANCE_MM3 = 1e-9;
 
 /** Invalid reservoir data or inputs. The message names the module. */
 export class ReservoirRunError extends Error {
@@ -157,6 +160,7 @@ export function runReservoir(module: ReservoirModule, inflows: RouteFlows, ctx: 
 	module.panFactors.forEach((v, m) => {
 		if (!Number.isFinite(v) || v < 0) fail(`pan factor for ${MONTH_NAMES[m]} (L.008) must be non-negative, got ${v}`);
 	});
+	if (new Set(module.inflows.map((c) => c.route)).size !== module.inflows.length) fail('an inflow route is listed twice (L.011)');
 	const outRoutes = new Set(module.outflows.map((o) => o.route));
 	if (outRoutes.size !== module.outflows.length) fail('an outflow route is listed twice (L.013)');
 	if (!outRoutes.has(module.spillRoute)) fail(`spill route ${module.spillRoute} (L.009) is not one of its outflow routes (L.013; TT 689 pp.88–89)`);
@@ -167,15 +171,15 @@ export function runReservoir(module: ReservoirModule, inflows: RouteFlows, ctx: 
 		else if (out.definedFlowFile !== null) fail(`a calculated demand was given for route ${route}, which has a defined flow ('${out.definedFlowFile}')`);
 	}
 
-	const checkSeries = (what: string, s: MonthlySeries, nonNegative: boolean): readonly number[] => {
+	const checkSeries = (what: string, s: MonthlySeries): readonly number[] => {
+		if (s.unit !== 'Mm3' && s.unit !== 'Mm3PerMonth') fail(`${what} is in ${s.unit}, not million m³ per month`);
 		if (s.startYear !== startYear || s.values.length !== n) {
 			fail(`${what} covers ${s.startYear} for ${s.values.length} months; the run is ${startYear}–${endYear} (${n} months)`);
 		}
-		if (nonNegative) {
-			const k = s.values.findIndex((v) => !Number.isFinite(v) || v < 0);
-			if (k >= 0) fail(`${what} is negative or invalid (${s.values[k]}) in ${MONTH_NAMES[k % 12]} ${startYear + Math.floor(k / 12)}`);
-		}
-		return s.values;
+		// R3-RV23: a negative flow is an error; rounding noise above −1e-9 reads as 0.
+		const k = s.values.findIndex((v) => !Number.isFinite(v) || v < -NEGATIVE_TOLERANCE_MM3);
+		if (k >= 0) fail(`${what} is negative or invalid (${s.values[k]}) in ${MONTH_NAMES[k % 12]} ${startYear + Math.floor(k / 12)}`);
+		return s.values.map((v) => (v < 0 ? 0 : v));
 	};
 	const definedFile = (route: number, fileName: string, what: string): readonly number[] => {
 		const file = ctx.flowFile(fileName) ?? fail(`${what} route ${route}: defined-flow file '${fileName}' is not in the network`);
@@ -186,7 +190,7 @@ export function runReservoir(module: ReservoirModule, inflows: RouteFlows, ctx: 
 			return fail(`${what} route ${route}: ${(e as Error).message}`);
 		}
 		for (const m of read.messages) note({ ...m, route });
-		return checkSeries(`${what} route ${route} ('${fileName}')`, read.series, true);
+		return checkSeries(`${what} route ${route} ('${fileName}')`, read.series);
 	};
 
 	// ---- inflow I (§3.1) ----
@@ -196,7 +200,7 @@ export function runReservoir(module: ReservoirModule, inflows: RouteFlows, ctx: 
 		if (conn.definedFlowFile !== null) values = definedFile(conn.route, conn.definedFlowFile, 'inflow');
 		else {
 			const s = inflows[conn.route] ?? fail(`no flow was given for simulated inflow route ${conn.route}`);
-			values = checkSeries(`inflow route ${conn.route}`, s, false);
+			values = checkSeries(`inflow route ${conn.route}`, s);
 		}
 		for (let t = 0; t < n; t++) inflow[t]! += values[t]!;
 	}
@@ -225,7 +229,7 @@ export function runReservoir(module: ReservoirModule, inflows: RouteFlows, ctx: 
 		if (out.definedFlowFile === '*') fail(`route ${out.route}: '*' (monthly defined abstraction) without its L.014 line`);
 		if (out.definedFlowFile !== null) return { out, kind: 'defined' as const, base: definedFile(out.route, out.definedFlowFile, 'outflow') };
 		const given = input.demands?.[out.route];
-		const base = given && !natural ? checkSeries(`calculated demand on route ${out.route}`, given, true) : new Array<number>(n).fill(0);
+		const base = given && !natural ? checkSeries(`calculated demand on route ${out.route}`, given) : new Array<number>(n).fill(0);
 		return { out, kind: 'calculated' as const, base };
 	});
 	const definedIdx = drafts.flatMap((d, k) => (d.kind === 'defined' ? [k] : []));
@@ -321,16 +325,18 @@ export function runReservoir(module: ReservoirModule, inflows: RouteFlows, ctx: 
 
 		// eq. 2.2. A month with a deficit draws all the water there is, so it
 		// ends empty (TT 690 p.9: S₂ = 0); `max` only absorbs rounding.
-		let s2 = alloc.deficitCase === 'none' ? Math.max(0, available - drawn) : 0;
+		// R3-RV11: under float32 the storage is rounded before the spill test,
+		// so it never ends above CAP (the balance then closes to float32 precision).
+		const pre = alloc.deficitCase === 'none' ? Math.max(0, available - drawn) : 0;
+		let s2 = round(pre);
 		let spill = 0;
 		if (s2 > cap.capMm3) {
-			spill = s2 - cap.capMm3; // TT 690 p.9
-			s2 = cap.capMm3;
+			spill = Math.max(0, pre - cap.capMm3); // TT 690 p.9: SPILL = S₂ − CAP
+			s2 = cap.capMm3; //                       and S₂ = CAP
 		}
 		// Net evaporation above S₁ + I (R3-RV3): the water there was
 		// evaporates and no more, so evaporation becomes S₁ + I + rain.
 		if (available < 0) evap = Math.max(0, evap + available);
-		s2 = round(s2);
 
 		out.start[t] = s1;
 		out.storage[t] = s2;

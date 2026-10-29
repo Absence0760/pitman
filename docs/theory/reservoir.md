@@ -160,6 +160,12 @@ route", TT 689 p.88). It normally has a blank file name and so no demand;
 if it has a defined file, the spill is **added** to the defined release on that
 route (TT 689 p.89 and p.169: "spillages are ADDED to the defined releases").
 
+An unbuilt dam (`CAP = 0`) has storage 0, so its `'*'` routes are restricted
+until storage climbs above `Sr` (TT 689 pp.170–171: "monthly defined
+abstractions (if specified) will be reduced by the restriction factor until
+the water in the reservoir has accumulated to more than the defined minimum
+storage level").
+
 The GUI's route codes `N`, `F`, `I` and `M` (TT 689 p.89) map to: blank, a file,
 blank on an irrigation abstraction route, and `'*'`.
 
@@ -398,13 +404,19 @@ Dam): …`) for (R2-2 pattern):
 - a defined-flow file missing from the network or short of the run;
 - `'*'` without its L.014 line; a negative monthly volume, trigger or
   restriction factor;
-- a simulated inflow route with no flow given, or a series of the wrong length;
+- an inflow route listed twice (L.011);
+- a simulated inflow route with no flow given; a series of the wrong length,
+  in a unit other than million m³, or negative (R3-RV23);
 - a calculated demand given for a route that isn't a blank-file outflow route,
   or a negative demand.
 
 A restriction factor above 1 is used as 1 with a warning (TT 689 p.151: "When
 restriction factors of greater than 1.00 are accidentally set, they will
 automatically be reset to 1").
+
+A one-row capacity table is accepted although TT 689 p.91 asks for "at least
+two year – area – volume triplet[s]": one row covering the whole run is
+unambiguous, and in historical mode the coverage rule (R3-RV5) still applies.
 
 ---
 
@@ -424,9 +436,9 @@ pattern).
 | R3-RV6 | 50 % of which year's FSV for the default initial storage | the first simulated year's (present day: the held year's) | TT 691 p.158 says "FSV" only | – |
 | R3-RV7 | L.015 = 0 (U-9) | start empty | U-9 | `zeroInitialStorage: 'empty' \| 'halfFull'` |
 | R3-RV8 | `S` in eqs. 2.4–2.5; `S₁ = Sr` exactly | `S₁` (start of month); `S₁ ≥ Sr` takes the full demand | TT 691 p.158 ("at the beginning of the month"; "above … full", "less than … reduced") | – |
-| R3-RV9 | Defined outflow routes when the reservoir can't supply them | the route carries the reduced supply, shared in proportion to demand | TT 689 pp.16, 17, 170; `.ERR` wording (§3.3) vs TT 689 p.169 | – |
-| R3-RV10 | Minor vs major failure | per month and per class (defined, calculated): shortfall > 0.009 million m³ major, otherwise minor; shortfalls below 1e-9 are rounding, not failures | TT 691 p.79 (`RVFAIL` codes, "< 0.009 per month") | – |
-| R3-RV11 | Arithmetic | float64 | TT 691 declares the state `REAL` (float32) | `precision: 'float64' \| 'float32'` |
+| R3-RV9 | Defined outflow routes when the reservoir can't supply them | the route carries the reduced supply, shared in proportion to demand | TT 689 pp.16, 17, 170; `.ERR` wording (§3.3) vs TT 689 pp.169–170 ("NEVER adjusted downwards", "inviolate"). The reference set can't test it (§8): **for the hydrologist (#21)** | – |
+| R3-RV10 | Minor vs major failure | per month and per class (defined, calculated): shortfall > 0.009 million m³ major, otherwise minor; shortfalls below 1e-9 are rounding, not failures | TT 691 p.80 (`RVFAIL` codes, "< 0.009 per month") | – |
+| R3-RV11 | Arithmetic | float64. Under float32, `S₂` is rounded before the spill test, so it never ends above `CAP` and the balance closes to float32 precision | TT 691 p.79 declares the state `REAL` (float32) | `precision: 'float64' \| 'float32'` |
 | R3-RV12 | Restriction factor outside 0–1 | > 1 → 1 with a warning; < 0 → error | TT 689 p.151 | – |
 | R3-RV13 | A blank-file outflow route that isn't the spill route | carries the calculated demand the caller passes (irrigation abstraction), else 0 | TT 690 p.10 type 1; the contract can't pass it yet (report) | `runReservoir(…, { demands })` |
 | R3-RV14 | Natural mode | dam removed: `CAP = 0`, no drafts, no rain or evaporation, inflow to the spill route | §5 | – |
@@ -434,10 +446,11 @@ pattern).
 | R3-RV16 | Rainfall file coverage and sign | every simulated year required; negative % MAP is an error | R2-2 | – |
 | R3-RV17 | `CAP` falling below the storage | the excess spills in the first month of the year | §3.6; alternative: lost | – |
 | R3-RV18 | Year label of capacity rows | hydrological year (October *Y* to September *Y*+1); `CAP` changes in October | TT 691 p.79 `SFULL` "for the year"; U-19 | – |
-| R3-RV19 | A calculated demand on the spill route | allowed: it is a calculated draft, and the spill is added on top | TT 689 p.89 | – |
+| R3-RV19 | A calculated demand on the spill route, and TT 689 p.169's "Irrigation blocks have preference over outflow and spillage routes" | one proportional class for every calculated and `'*'` draft. Only an irrigation module sets a calculated demand in WRSM2000, so every demand passed in is an irrigation abstraction, and a non-defined outflow or spill route without one has no demand and gets only what is left (the spill). A calculated demand on the spill route is therefore an irrigation abstraction sharing that route, and the spill is added on top. If a later module type sets demands, a third, lower tier is needed | TT 689 pp.89, 169 | – |
 | R3-RV20 | Rounding of proportional shares | none | TT 689 p.170 rounds only in the printed example | – |
 | R3-RV21 | Messages | one warning per deficit month (module, `at`, case, shortfall by class), and an end-of-run "At least one minor/major failure to supply defined/calculated demands" per class, like WRSM2000.ERR | TT 689 p.169; docs/formats.md §14 | – |
 | R3-RV22 | An inflow route with both a defined file and a simulated upstream flow | the file wins | TT 691 p.157 | – |
+| R3-RV23 | A negative simulated inflow or demand (possible upstream under OQ-22's literal Muskingum form) | error, naming the route and month. Values down to −1e-9 are rounding noise and read as 0 | carrying it would need a negative spill or created water; neither is in TT 690 | – |
 
 ---
 

@@ -149,7 +149,7 @@ describe('deficits (spec §4.3, TT 689 ch.8)', () => {
 		expect(result.messages.some((m) => /restriction factor 1\.5 is above 1/.test(m.text))).toBe(true);
 	});
 
-	it('summarises minor and major failures like WRSM2000.ERR (TT 691 p.79)', () => {
+	it('summarises minor and major failures like WRSM2000.ERR (TT 691 p.80)', () => {
 		const { result } = dry();
 		const summary = result.messages.filter((m) => !m.at).map((m) => m.text);
 		expect(summary.some((t) => /At least one major failure to supply calculated demands/.test(t))).toBe(true);
@@ -296,6 +296,9 @@ describe('invalid data throws, naming the module (R2-2 pattern)', () => {
 		['defined file short of the run', go({}, ctx(1990, 1991, { rain: { code: 'SYA', rows: [1990, 1991].map((year) => ({ year, months: flat(1) })) }, files: { 'SYDOM.ABS': { fileName: 'SYDOM.abs', rows: [{ year: 1990, months: flat(1) }], hasTotals: false, hasAverage: false } } }), { 1: S(1990, new Array(24).fill(1)) }), /no row for 1991/],
 		['simulated inflow not given', go({}, ctx(1990, 1990), {}), /no flow was given for simulated inflow route 1/],
 		['inflow of the wrong length', go({}, ctx(1990, 1990), { 1: S(1990, [1, 2]) }), /inflow route 1 covers 1990 for 2 months/],
+		['negative simulated inflow (R3-RV23)', go({}, ctx(1990, 1990), { 1: S(1990, [...twelve(1, -0.5)]) }), /inflow route 1 is negative or invalid \(-0.5\) in Nov 1990/],
+		['inflow in the wrong unit', go({}, ctx(1990, 1990), { 1: { startYear: 1990, values: [...flat(1)], unit: 'mm' } }), /inflow route 1 is in mm/],
+		['inflow route listed twice', go({ inflows: [{ route: 1, definedFlowFile: null }, { route: 1, definedFlowFile: null }] }), /inflow route is listed twice/],
 		['negative pan', go({ panMm: twelve(-1) }), /pan evaporation for Oct/],
 		['negative restriction factor', go({ outflows: [{ route: 10, definedFlowFile: null }, { route: 12, definedFlowFile: '*', monthlyAbstraction: { volumesMm3: flat(1), fullSupplyAboveMm3: 1, restrictionFactor: -0.1 } }] }), /restriction factor/],
 		['* without L.014', go({ outflows: [{ route: 10, definedFlowFile: null }, { route: 12, definedFlowFile: '*' }] }), /without its L.014/],
@@ -306,6 +309,15 @@ describe('invalid data throws, naming the module (R2-2 pattern)', () => {
 	])('%s', (_name, run, message) => {
 		expect(run).toThrow(ReservoirRunError);
 		expect(run).toThrow(message);
+	});
+});
+
+describe('float32 (R3-RV11)', () => {
+	it('never ends a spilling month above CAP', () => {
+		const module = exampleModule({ capacity: [{ year: 1990, fullSupplyVolumeMm3: 0.1, fullSupplyAreaKm2: 0.05 }], initialStorageMm3: 0.1, outflows: [{ route: 10, definedFlowFile: null }] });
+		const { detail } = runReservoir(module, inflow1990(1), ctx(1990, 1990), { options: { precision: 'float32' } });
+		detail.storage.values.forEach((v) => expect(v).toBeLessThanOrEqual(0.1));
+		expect(detail.spill.values[0]).toBeGreaterThan(0.9);
 	});
 });
 
@@ -355,23 +367,25 @@ describe('invariants over random synthetic reservoirs', () => {
 			'IN.DEF': { fileName: 'IN.def', rows: rows(() => between(0, 0.5)), hasTotals: false, hasAverage: false }
 		};
 		const rain: RainfallSeries = { code: 'SYA', rows: rows(() => (rand() < 0.3 ? 0 : between(0, 30))) };
-		const inflows: RouteFlows = { 1: S(startYear, Array.from({ length: n }, () => (rand() < 0.3 ? 0 : between(0, 4) ** 2))) };
+		const inflows: RouteFlows = { 1: S(startYear, Array.from({ length: n }, () => (rand() < 0.3 ? (rand() < 0.5 ? 0 : -1e-12) : between(0, 4) ** 2))) };
 		const demands: RouteFlows = { 13: S(startYear, Array.from({ length: n }, () => between(0, 2))) };
 		return { module, inflows, demands, startYear, endYear, files, rain };
 	}
 
-	it.each(cases)('case %i: mass balance closes, 0 ≤ S ≤ CAP, supply ≤ demand', (k) => {
+	it.each(cases.flatMap((k) => [[k, 'float64'], [k, 'float32']] as const))('case %i (%s): mass balance closes, 0 ≤ S ≤ CAP, supply ≤ demand', (k, precision) => {
 		const c = randomCase(k);
-		const { result, detail } = runReservoir(c.module, c.inflows, ctx(c.startYear, c.endYear, { files: c.files, rain: c.rain }), { demands: c.demands });
+		const { result, detail } = runReservoir(c.module, c.inflows, ctx(c.startYear, c.endYear, { files: c.files, rain: c.rain }), { demands: c.demands, options: { precision } });
+		// float32 rounds S₂ once a month, so the balance closes to float32 precision.
+		const tolerance = precision === 'float64' ? 1e-9 : 1e-6 * Math.max(1, ...detail.capacity.values);
 		const n = detail.storage.values.length;
 		for (let t = 0; t < n; t++) {
 			const s1 = detail.startStorage.values[t]!;
 			const s2 = detail.storage.values[t]!;
 			const drafts = detail.routes.reduce((s, r) => s + r.supply.values[t]!, 0);
 			const balance = s1 + detail.inflow.values[t]! + detail.rainfall.values[t]! - detail.evaporation.values[t]! - detail.spill.values[t]! - drafts;
-			expect(Math.abs(balance - s2)).toBeLessThan(1e-9);
+			expect(Math.abs(balance - s2)).toBeLessThan(tolerance);
 			expect(s2).toBeGreaterThanOrEqual(0);
-			expect(s2).toBeLessThanOrEqual(detail.capacity.values[t]! + 1e-12);
+			expect(s2).toBeLessThanOrEqual(detail.capacity.values[t]!);
 			expect(detail.evaporation.values[t]).toBeGreaterThanOrEqual(0);
 			expect(detail.spill.values[t]).toBeGreaterThanOrEqual(0);
 			if (t > 0) expect(s1).toBe(detail.storage.values[t - 1]);
@@ -395,7 +409,8 @@ describe('invariants over random synthetic reservoirs', () => {
 	it.each(cases.slice(0, 20))('case %i: natural mode is a pass-through to the spill route', (k) => {
 		const c = randomCase(k);
 		const { result, detail } = runReservoir(c.module, c.inflows, ctx(c.startYear, c.endYear, { mode: { kind: 'natural' }, files: c.files, rain: c.rain }), { demands: c.demands });
-		expect(result.outflows[10]!.values).toEqual(c.inflows[1]!.values); // the defined inflow is zero in natural mode (R3-2)
+		// The defined inflow is zero in natural mode (R3-2); rounding-noise negatives read as 0 (R3-RV23).
+		expect(result.outflows[10]!.values).toEqual(c.inflows[1]!.values.map((v) => Math.max(0, v)));
 		for (const r of [11, 12, 13]) expect(result.outflows[r]!.values.every((v) => v === 0)).toBe(true);
 		expect(detail.storage.values.every((v) => v === 0)).toBe(true);
 	});
@@ -405,7 +420,7 @@ describe('invariants over random synthetic reservoirs', () => {
 		const c64 = runReservoir(c.module, c.inflows, ctx(c.startYear, c.endYear, { files: c.files, rain: c.rain }), { demands: c.demands });
 		const c32 = runReservoir(c.module, c.inflows, ctx(c.startYear, c.endYear, { files: c.files, rain: c.rain }), { demands: c.demands, options: { precision: 'float32' } });
 		c32.detail.storage.values.forEach((v, t) => {
-			expect(Math.fround(v)).toBe(v);
+			expect(Math.fround(v) === v || v === c32.detail.capacity.values[t]).toBe(true);
 			expect(Math.abs(v - c64.detail.storage.values[t]!)).toBeLessThan(1e-4 * Math.max(1, c64.detail.capacity.values[t]!));
 		});
 	});

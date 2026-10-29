@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { readAnswer } from '../io/answer.js';
 import { readDemand } from '../io/demand.js';
@@ -40,7 +40,7 @@ interface Fit {
 }
 
 interface Case {
-	run(options?: Partial<ReservoirOptions>): Fit | undefined;
+	run(options?: Partial<ReservoirOptions>): Fit;
 }
 
 function series(file: ReturnType<typeof readAnswer>, startYear: number, endYear: number): MonthlySeries | undefined {
@@ -70,7 +70,7 @@ function collect(root: string): { cases: Case[]; skipped: Record<string, number>
 			continue;
 		}
 		const folder = dirname(netPath);
-		const under = files.filter((f) => f.startsWith(folder));
+		const under = files.filter((f) => f.startsWith(folder + sep));
 		const answers = new Map<number, string>();
 		for (const f of under) {
 			const m = new RegExp(`^${net.code}RQ(\\d+)\\.ANS$`, 'i').exec(basename(f));
@@ -118,12 +118,8 @@ function collect(root: string): { cases: Case[]; skipped: Record<string, number>
 			};
 			cases.push({
 				run(options) {
-					let simulated: readonly number[];
-					try {
-						simulated = runReservoir(rv, inflows as RouteFlows, ctx, { demands, ...(options && { options }) }).result.outflows[rv.spillRoute]!.values;
-					} catch {
-						return undefined;
-					}
+					// Errors propagate: a reservoir that can't run fails the check.
+					const simulated = runReservoir(rv, inflows as RouteFlows, ctx, { demands, ...(options && { options }) }).result.outflows[rv.spillRoute]!.values;
 					const obs = observedSpill.values;
 					const sum = (xs: readonly number[]) => xs.reduce((s, x) => s + x, 0);
 					const mean = sum(obs) / obs.length;
@@ -146,8 +142,7 @@ describe.skipIf(!dir)('reservoir spill route against WRSM2000 (WRSM_REFERENCE_DI
 	const { cases, skipped } = dir ? collect(dir) : { cases: [], skipped: {} };
 
 	function summarise(options?: Partial<ReservoirOptions>) {
-		const results = cases.map((c) => c.run(options));
-		const ok = results.filter((r): r is Fit => r !== undefined);
+		const ok = cases.map((c) => c.run(options));
 		const months = ok.reduce((s, r) => s + r.months, 0);
 		const close = ok.reduce((s, r) => s + r.monthsClose, 0);
 		const absMar = ok.map((r) => Math.abs(r.mar)).sort((a, b) => a - b);
@@ -169,6 +164,12 @@ describe.skipIf(!dir)('reservoir spill route against WRSM2000 (WRSM_REFERENCE_DI
 		const zeroHalf = summarise({ zeroInitialStorage: 'halfFull' });
 		const float32 = summarise({ precision: 'float32' });
 		console.log('reservoir reference check', JSON.stringify({ skipped, defaults, zeroHalf, float32 }));
-		expect(defaults.reservoirs).toBeGreaterThan(0);
+		// docs/theory/reservoir.md §8, confirming R3-RV1 (TT 690's literal order) and the §3.3 calculated-draft rule.
+		for (const s of [defaults, zeroHalf, float32]) {
+			expect(s.reservoirs).toBeGreaterThan(0);
+			expect(s.within1pctMar).toBe(s.reservoirs);
+			expect(s.minNse).toBeGreaterThanOrEqual(0.99);
+			expect(s.pctMonthsWithin0015).toBeGreaterThanOrEqual(99.5);
+		}
 	});
 });
