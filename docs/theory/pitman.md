@@ -579,14 +579,14 @@ Evidence: TT 690 doesn't say. TT 691 keeps `TS_PavedOutflow` separately, and `TS
 
 **OQ-20 Monthly routing (Δt = 1) or per-step routing (Δt = DT).**
 Evidence: "After all months have been processed perform the routing" and "Δt = routing period (normally one month)" (TT 690 pp.5–6). But TT 691's `FG1`/`FI1` ("current groundwater flow / interflow in mm/month") are carried state, which per-step routing would also need.
-**Default: monthly**, as printed. See OQ-22 for the case that would overturn it.
+**Settled (Round 6, R6-R6): per-step.** The printed monthly form was the default until the reference comparison overturned it through OQ-22. `routing: 'monthly'` keeps it selectable; the worked examples in § 4 are worked with it.
 
 **OQ-21 Sign in eq. 1.14.** Erratum in §2.6. **Default: `+ C2 (I2 − I1)`.** It is standard Muskingum (x = 0), and k = 0 gives O = I. The printed `−` gives negative outflow on every rise.
 
 **OQ-22 Negative outflows when k < 0.5 Δt (e.g. the default TL = 0.25).**
 Evidence: with Δt = 1 and k = TL = 0.25, `O2 = −⅓ O1 + ⅔ I1 + ⅔ I2`, so a wet month followed by two dry months goes negative (§4.7). TL = 0.25 is the documented "good average" (TT 689 Table 9.1). TL = 0 and 0.25 both occur in real files.
 Readings: (a) literal: allow it; (b) clamp at 0, which breaks mass balance; (c) route per step (Δt = 0.25), where all coefficients are ≥ 0 for k ≥ 0.125; (d) k = 0 special-cased as no lag.
-**Default: (a) + (d)** for Round 2, with a check: run the reference modules that have TL = 0.25 and GW = 0 (nearly all flow on the TL path) and look for negative or oscillating months. If WRSM2000 never shows them where (a) does, switch to (c) and record it in `docs/departures.md`. Note that with k = 0, (a) already reduces to O = I exactly when the initial states are equal, so (d) only removes a rounding path.
+**Settled (Round 6, R6-R6): (c), per-step routing.** 206 of 210 reference Sami modules have TL < 0.5, the literal form went negative and stopped 29 of 35 networks, and WRSM2000's outputs for them never go negative. Per-step coefficients are all ≥ 0 only for k ≥ 0.125 month (Δt = 0.25): below that a negative month is still possible and is not yet covered by a test (Round 6 wave 2). The Round 2 default was (a) + (d), with this check: run the reference modules that have TL = 0.25 and GW = 0 (nearly all flow on the TL path) and look for negative or oscillating months. If WRSM2000 never shows them where (a) does, switch to (c) and record it in `docs/departures.md`. Note that with k = 0, (a) already reduces to O = I exactly when the initial states are equal, so (d) only removes a rounding path.
 
 **OQ-23 Initial soil moisture.**
 Evidence: nothing in ch.1. There is no initial-S field on L.001–L.020. TT 691 `RU_Reset` (p.60) "recalculate[s] (or reset[s]) all the initial values".

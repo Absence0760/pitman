@@ -48,7 +48,7 @@ All proposed defaults in these specs are **accepted as provisional**, with the e
 Notes:
 
 - **TT 690 misprints** (`pitman.md`): eq. 1.10 is missing its minus sign, eq. 1.14 is coded with `+ C2(I2 − I1)`, eq. 1.4 has lost its Σ, and p.6's "lagged by GW" means GL. Code follows the corrected forms.
-- **OQ-22** (TL below 0.5 month gives negative month-to-month outflow with the printed Muskingum form): keep the literal form; Round 2 checks it against the reference and switches to per-step routing if WRSM2000 doesn't go negative. Recorded in `departures.md` either way.
+- **OQ-22** (TL below 0.5 month gives negative month-to-month outflow with the printed Muskingum form): keep the literal form; Round 2 checks it against the reference and switches to per-step routing if WRSM2000 doesn't go negative. Recorded in `departures.md` either way. **Superseded by R6-R6** (Round 6): per-step routing is the default, taken as WRSM2000's behaviour rather than a departure.
 - **OQ-23** (initial soil moisture ST/2) is a placeholder with no manual basis. #21 (R1) asks the hydrologist to export the "Pitman S" and surface-runoff series from the classic-GW run, which settles it.
 - **OQ-S3** (how final runoff is assembled from Pitman and Sami parts) is the highest-risk Sami default; Round 6's discrepancy hunter tests it first.
 - **Formats:** writers always produce runoff file version 7 and irrigation version 32; demands are written as defined-flow files, never `'*'` monthly abstractions; a negative `.obs` value means missing; a `.RAN` row labelled Y is October Y to September Y+1 (U-19, A1).
