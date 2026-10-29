@@ -146,6 +146,13 @@ export interface Network {
 	readonly inputDirectory: string;
 	/** L.003: output directory as written. */
 	readonly outputDirectory: string;
+	/**
+	 * Round 2 addition: the blank-padded width of the L.002 and L.003 lines
+	 * when it is not WRSM2000's 287 columns (a hand-edited file keeps its old
+	 * padding; docs/formats.md §4, U-6). Absent means 287. The directories
+	 * above are stored without the padding.
+	 */
+	readonly directoryLineWidths?: { readonly input: number; readonly output: number };
 	/** L.004: debug indicator, 'N', 'D' or 'Y' (obsolete, kept for round-trip). */
 	readonly debug: string;
 	/** L.005: debug period in months; present only when `debug` is 'D' or 'Y'. */
@@ -861,6 +868,21 @@ export type SeriesUnit =
 	| 'Mm3' // million m³ (per month for flows)
 	| 'Mm3PerMonth';
 
+/**
+ * Round 2 addition: the text a time-series file was read from. Hand-made
+ * .RAN, .obs and defined-flow files use widths, decimals, flags and trailing
+ * lines that no single layout reproduces (docs/formats.md §11.3–11.4), so a
+ * reader keeps the source and a writer copies every row the caller has not
+ * changed byte for byte; changed or new rows are written in the canonical
+ * layout. Absent on series built in memory.
+ */
+export interface SeriesSource {
+	/** Every physical line, without its line ending. */
+	readonly lines: readonly string[];
+	/** The file ended with a line ending. */
+	readonly finalNewline: boolean;
+}
+
 /** One row of a year-by-month text file (.RAN, .obs, .ANS, defined-flow files). */
 export interface MonthlyRow {
 	readonly year: HydroYear;
@@ -877,6 +899,8 @@ export interface RainfallSeries {
 	readonly code: string;
 	/** Columns 2–14: year and 12 monthly % MAP values. Years ascend without gaps. */
 	readonly rows: readonly MonthlyRow[];
+	/** The file as read, for a byte-identical rewrite (Round 2 addition). */
+	readonly source?: SeriesSource;
 }
 
 /** One row of an observed-flow file. */
@@ -896,6 +920,8 @@ export interface ObservedRow extends MonthlyRow {
  */
 export interface ObservedFlow {
 	readonly rows: readonly ObservedRow[];
+	/** The file as read, for a byte-identical rewrite (Round 2 addition). */
+	readonly source?: SeriesSource;
 }
 
 /** One row of an answer file. */
@@ -953,6 +979,8 @@ export interface DemandSeries {
 	readonly hasTotals: boolean;
 	/** Whether the file ends with an AVERAGE trailer row. */
 	readonly hasAverage: boolean;
+	/** The file as read, for a byte-identical rewrite (Round 2 addition). */
+	readonly source?: SeriesSource;
 }
 
 // ---------------------------------------------------------------------------
