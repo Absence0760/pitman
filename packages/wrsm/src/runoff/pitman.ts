@@ -38,7 +38,7 @@ import {
 } from '../groundwater/sami/index.js';
 import { samiSoilParams } from '../groundwater/sami/soil.js';
 import type { StreamflowReduction } from '../landuse/contract.js';
-import { MuskingumRouter } from './lag.js';
+import { MuskingumRouter, ShiftRouter } from './lag.js';
 import { SAMI_PARTS, SAMI_PARTS_NOT_WIRED, STREAMFLOW_REDUCTIONS } from './wiring.js';
 import { interceptionConstants, sCurveFractions, type SCurveSampling } from './rain.js';
 
@@ -54,8 +54,9 @@ export const NO_SURFACE_RUNOFF_RATE = 999;
  */
 export interface PitmanOptions {
 	/**
-	 * OQ-23: soil moisture S at the start of the run, mm. `halfST` (default,
-	 * a placeholder with no manual basis), `zero`, `SL`, `ST`, or a number.
+	 * OQ-23: soil moisture S at the start of the run, mm. `halfST` (default:
+	 * no manual basis, taken from WRSM2000's first-month outputs, pitman.md
+	 * OQ-23), `zero`, `SL`, `ST`, or a number.
 	 */
 	readonly initialSoilMoisture: 'halfST' | 'zero' | 'SL' | 'ST' | number;
 	/**
@@ -84,11 +85,15 @@ export interface PitmanOptions {
 	 */
 	readonly evaporationAdjustment: 'proportional' | 'subtractive';
 	/**
-	 * OQ-20 / OQ-22: routing interval. `monthly` (default, Δt = 1 month on
-	 * the monthly totals, as printed) or `perStep` (Δt = DT on each step's
-	 * flows, summed per month).
+	 * OQ-20 / OQ-22: how the GL and TL lags are applied. `shift` (default,
+	 * R6-R9): each month's total is delayed by k months, spread uniformly
+	 * over the month, O_t = (1 − f) I_{t−n} + f I_{t−n−1} for k = n + f
+	 * (`ShiftRouter`, `lag.ts`); this is what the reference outputs show.
+	 * `monthly`: the Muskingum form TT 690 eqs. 1.14–1.16 print, Δt = 1
+	 * month on the monthly totals. `perStep`: the same with Δt = DT on each
+	 * step's flows, summed per month (R6-R6, superseded).
 	 */
-	readonly routing: 'monthly' | 'perStep';
+	readonly routing: 'shift' | 'monthly' | 'perStep';
 	/**
 	 * OQ-25: arithmetic. `float64` (default) or `float32`, which rounds the
 	 * soil moisture and the lag reservoirs' outflow state with `Math.fround`
@@ -105,7 +110,7 @@ export const DEFAULT_PITMAN_OPTIONS: PitmanOptions = {
 	interceptionSpread: 'proportional', // OQ-3
 	stepOrder: 'explicit', // OQ-8
 	evaporationAdjustment: 'proportional', // OQ-12
-	routing: 'perStep', // OQ-20, OQ-22 → R6-R6: the reference comparison settles it
+	routing: 'shift', // OQ-20, OQ-22 → R6-R9: the module-level comparison with ncr.MTS (was perStep, R6-R6)
 	precision: 'float64' // OQ-25
 };
 
@@ -348,17 +353,23 @@ export function simulatePitman(input: PitmanInput, options: Partial<PitmanOption
 	const gf = p.FT > 0 ? Math.min(1, p.GW / p.FT) : 0; // GFRACT, OQ-10
 
 	const routeDt = opt.routing === 'perStep' ? DT : 1; // OQ-20
-	const routerOptions = { dt: routeDt, ...(opt.precision === 'float32' ? { round: Math.fround } : {}) };
-	const baseRouter = new MuskingumRouter({ k: p.GL, ...routerOptions });
-	const fastRouter = new MuskingumRouter({ k: p.TL, ...routerOptions });
+	const round32 = opt.precision === 'float32' ? { round: Math.fround } : {};
+	// OQ-22: the time shift (R6-R9) or the printed Muskingum (monthly or per step).
+	const router = (k: number): { step(x: number): number; reset(x: number): void } => {
+		if (opt.routing === 'shift') return new ShiftRouter({ k, ...round32 });
+		const r = new MuskingumRouter({ k, dt: routeDt, ...round32 });
+		return { step: (x) => r.step(x), reset: (x) => r.reset({ inflow: x, outflow: x }) };
+	};
+	const baseRouter = router(p.GL);
+	const fastRouter = router(p.TL);
 	// The FT part of the fast flow, routed alone (it doesn't feed back into the other two).
-	const subRouter = new MuskingumRouter({ k: p.TL, ...routerOptions });
+	const subRouter = router(p.TL);
 	let lagStarted = opt.initialLagState === 'zero'; // OQ-24
 	const route = (base: number, fast: number, sub: number): [number, number, number] => {
 		if (!lagStarted) {
-			baseRouter.reset({ inflow: base, outflow: base });
-			fastRouter.reset({ inflow: fast, outflow: fast });
-			subRouter.reset({ inflow: sub, outflow: sub });
+			baseRouter.reset(base);
+			fastRouter.reset(fast);
+			subRouter.reset(sub);
 			lagStarted = true;
 		}
 		return [baseRouter.step(base), fastRouter.step(fast), subRouter.step(sub)];
@@ -662,7 +673,7 @@ export function simulateModuleRunoff(
 	}
 	const sami = module.sami!; // checked by runRunoffModule
 	const natural = options.mode?.kind === 'natural';
-	let abstractionMm = natural ? new Array<number>(rain.rainfallMm.length).fill(0) : samiAbstractionMm(module, startYear, endYear, options.sami);
+	let abstractionMm = natural ? new Array<number>(rain.rainfallMm.length).fill(0) : samiAbstractionMm(module, startYear, endYear, options.sami, options.activeAreaKm2);
 	if (abstractionMm === null) {
 		messages.push({ level: 'warning', module: ref, text: `RU ${module.number}: Sami abstractions from a time-series file (AbstractionsOn = 2) are not read yet; none applied (OQ-S9, R3-N9)` });
 		abstractionMm = new Array<number>(rain.rainfallMm.length).fill(0);

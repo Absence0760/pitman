@@ -9,8 +9,9 @@ import {
 	resolveSamiOptions,
 	samiDiagnostics,
 	samiWaterBalance,
+	SamiPartError,
 	simulateSami,
-		type SamiInput,
+	type SamiInput,
 	type SamiOptionsInput
 } from './index.js';
 import { makeSamiAquiferStep, samiAquiferInit, samiAquiferStep } from './aquifer.js';
@@ -77,6 +78,7 @@ function input(overrides: Partial<SamiInput> = {}, years = 4): SamiInput {
 
 const VARIANTS: SamiOptionsInput[] = [
 	{},
+	{ finalRunoff: 'surfacePlusSami' },
 	{ finalRunoff: 'totalPlusBaseflow' },
 	{ headRunoff: 'surface' },
 	{ pitmanParts: 'unlagged' },
@@ -103,7 +105,7 @@ describe('simulateSami: order of operations (sami.md §4)', () => {
 			interflow: (sif: readonly number[], aqx: readonly number[], lag: number) => ((seen.aqx = aqx), (seen.lag = lag), base.interflow(sif, aqx, lag))
 		};
 		const inp = input({ soil: { ...soil, lag: 1.5, PMAX: 1 }, aquifer: { ...aquifer, store0: 99.9 } });
-		const sim = simulateSami(inp, parts);
+		const sim = simulateSami(inp, parts, { finalRunoff: 'surfacePlusSami' }); // the reading whose loss base is surface + QLAG
 		expect(seen.S).toEqual(sim.pitman.months.map((m) => m.sEnd)); // OQ-S4 monthEnd
 		expect(seen.lag).toBe(1.5);
 		sim.months.forEach((m, i) => {
@@ -141,6 +143,24 @@ describe('simulateSami: order of operations (sami.md §4)', () => {
 		expect(sim.months[5]!.S).toBeCloseTo(m5.steps.reduce((a, s) => a + s.sEnd, 0) / 4, 12);
 	});
 
+	it('under OQ-S2 (b) the percolating store gets exactly the water drained from S', () => {
+		const parts = { ...fakeSamiParts(), soilPass: samiSoilPass, interflow: samiInterflow };
+		const inp = input({}, 6);
+		const sim = simulateSami(inp, parts, { soilFeedback: 'rechargeDrainsS' });
+		const drained = sim.pitman.months.map((m) => m.drain);
+		expect(sim.soil.re).toEqual(drained);
+		expect(drained.reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+		// What the soil side passed on (PERC + EXRECH + ΔP) is what was drained: nothing created or lost.
+		const passed = sim.soil.perc.reduce((a, b) => a + b, 0) + sim.soil.exrech.reduce((a, b) => a + b, 0) + sim.soil.p[sim.soil.p.length - 1]! - inp.soil.P0;
+		expect(passed).toBeCloseTo(drained.reduce((a, b) => a + b, 0), 9);
+	});
+
+	it('under OQ-S2 (b) refuses a soil part that recomputes RE instead of taking the drained amount', () => {
+		const fake = fakeSamiParts();
+		const ignoring = { ...fake, soilPass: (S: readonly number[], p: SamiSoilParams) => fake.soilPass(S, p) };
+		expect(() => simulateSami(input(), ignoring, { soilFeedback: 'rechargeDrainsS' })).toThrow(SamiPartError);
+	});
+
 	it('drains S by the recharge curve under OQ-S2 (b), and not under (a)', () => {
 		const a = simulateSami(input(), fakeSamiParts());
 		const b = simulateSami(input(), fakeSamiParts(), { soilFeedback: 'rechargeDrainsS' });
@@ -154,8 +174,23 @@ describe('simulateSami: order of operations (sami.md §4)', () => {
 describe('simulateSami: Qfinal per OQ-S3', () => {
 	const inp = input();
 
-	it('(a) default: Pitman surface (FT term excluded) + QLAG + net baseflow − TL', () => {
+	it('(c) default (R6-R10): max(Pitman total Q, net baseflow) − TL, TL ≤ Q', () => {
 		const sim = simulateSami(inp, fakeSamiParts());
+		expect(sim.options.finalRunoff).toBe('totalOrBaseflow');
+		sim.months.forEach((m, i) => {
+			expect(m.pitmanTotal).toBe(sim.pitman.months[i]!.runoff);
+			expect(m.runoff).toBeCloseTo(Math.max(m.pitmanTotal, m.aquifer.baseflow) - m.aquifer.transmissionLoss, 12);
+			expect(m.aquifer.transmissionLoss).toBeLessThanOrEqual(m.pitmanTotal + 1e-12);
+			expect(m.runoff).toBeGreaterThanOrEqual(0);
+		});
+		// Both branches of the max are exercised: baseflow shows only in months where it exceeds Q.
+		expect(sim.months.some((m) => m.aquifer.baseflow > m.pitmanTotal)).toBe(true);
+		expect(sim.months.some((m) => m.aquifer.baseflow > 0 && m.aquifer.baseflow < m.pitmanTotal)).toBe(true);
+		expect(sim.months.some((m) => m.aquifer.transmissionLoss > 0)).toBe(true);
+	});
+
+	it('(a): Pitman surface (FT term excluded) + QLAG + net baseflow − TL', () => {
+		const sim = simulateSami(inp, fakeSamiParts(), { finalRunoff: 'surfacePlusSami' });
 		sim.months.forEach((m, i) => {
 			const pm = sim.pitman.months[i]!;
 			expect(m.pitmanTotal).toBe(pm.runoff);
@@ -302,7 +337,7 @@ describe('simulateSami: TL never exceeds the runoff it comes out of (R6-A10)', (
 	};
 
 	it('the fixture reproduces the negative Qfinal without the cap', () => {
-		expect(simulateSami(thirsty, uncapped).negativeRunoffMonths).toBeGreaterThan(0);
+		expect(simulateSami(thirsty, uncapped, { finalRunoff: 'surfacePlusSami' }).negativeRunoffMonths).toBeGreaterThan(0);
 	});
 
 	it.each(VARIANTS.map((v) => [JSON.stringify(v), v] as const))('keeps Qfinal ≥ 0 and the balance closed: %s', (_name, v) => {
@@ -313,8 +348,8 @@ describe('simulateSami: TL never exceeds the runoff it comes out of (R6-A10)', (
 		expect(Math.abs(b.residual)).toBeLessThan(1e-9 * b.rain);
 	});
 
-	it('binds in the default reading: TL = surface + QLAG in some month, Qfinal exactly 0 there', () => {
-		const sim = simulateSami(thirsty, real);
+	it('binds in reading (a): TL = surface + QLAG in some month, Qfinal exactly 0 there', () => {
+		const sim = simulateSami(thirsty, real, { finalRunoff: 'surfacePlusSami' });
 		const bound = sim.months.filter((m) => m.aquifer.transmissionLoss > 0 && m.aquifer.transmissionLoss === m.surface + m.interflow);
 		expect(bound.length).toBeGreaterThan(0);
 		expect(bound.every((m) => m.runoff === 0)).toBe(true);

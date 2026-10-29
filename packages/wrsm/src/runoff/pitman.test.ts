@@ -354,7 +354,7 @@ describe('invariants over long random synthetic records', () => {
 	}
 
 	it('routed outflow conserves the whole volume once the record drains', () => {
-		for (const routing of ['monthly', 'perStep'] as const) {
+		for (const routing of ['shift', 'monthly', 'perStep'] as const) {
 			const input = randomCase(99);
 			const dry = new Array<number>(12 * 400).fill(0);
 			const params = { ...input.params, TL: 0.5, GL: 2 };
@@ -366,6 +366,32 @@ describe('invariants over long random synthetic records', () => {
 			const unlagged = sum(months.map((m) => m.base + m.fast));
 			expect(routed / unlagged).toBeCloseTo(1, 9);
 		}
+	});
+
+	it('default routing (R6-R9) delays the month’s runoff by TL months: (1 − TL)·F_t + TL·F_{t−1}', () => {
+		const input = randomCase(11);
+		const p = { ...input.params, TL: 0.25, GL: 0, GW: 0 };
+		const { months } = simulatePitman({ ...input, params: p });
+		months.forEach((m, t) => {
+			const before = t > 0 ? months[t - 1]!.fast : 0;
+			expect(m.routedFast).toBeCloseTo(0.75 * m.fast + 0.25 * before, 9);
+			expect(m.routedFast).toBeGreaterThanOrEqual(0);
+		});
+	});
+
+	it('per-step Muskingum (R6-R6) never goes negative for TL ≥ 0.125 (C1 ≤ 1), and can below it', () => {
+		const lowest = (TL: number) => {
+			let min = Infinity;
+			for (let seed = 1; seed <= 12; seed++) {
+				const input = randomCase(seed);
+				const { months } = simulatePitman({ ...input, params: { ...input.params, TL, GL: 0, GW: 0 } }, { routing: 'perStep' });
+				for (const m of months) min = Math.min(min, m.routedFast);
+			}
+			return min;
+		};
+		for (const TL of [0.125, 0.2, 0.25, 0.5, 2]) expect(lowest(TL)).toBeGreaterThanOrEqual(-1e-12);
+		// Below 0.125 month the coefficient on the previous outflow, 1 − C1, is negative (OQ-22): recorded, not hidden.
+		expect(lowest(0.05)).toBeLessThan(0);
 	});
 
 	it('zero rain gives recession only', () => {
@@ -412,7 +438,7 @@ describe('defaults and options', () => {
 			interceptionSpread: 'proportional',
 			stepOrder: 'explicit',
 			evaporationAdjustment: 'proportional',
-			routing: 'perStep', // R6-R6: OQ-22 settled by the reference comparison
+			routing: 'shift', // R6-R9: the ncr.MTS kernel (was perStep, R6-R6)
 			precision: 'float64'
 		});
 		expect(simulatePitman({ params, sPanMm, panFactors, rainfallMm: [0] }).months[0]!.sStart).toBe(100);

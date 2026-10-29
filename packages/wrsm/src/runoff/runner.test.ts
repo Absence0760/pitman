@@ -268,8 +268,18 @@ describe('runRunoffModule: evaporation diagnostics and per-month overrides (R6-V
 			const base = runRunoffModule(m, ran, { ...period, samiParts: fakeSamiParts() });
 			const half = runRunoffModule(m, ran, { ...period, samiParts: fakeSamiParts(), activeAreaKm2: area });
 			expect(half.outflow.values[10]).toBe(base.outflow.values[10]);
-			expect(half.outflow.values[30]).toBeCloseTo(base.outflow.values[30]! / 2, 12);
 			expect(half.diagnostics.pavedFlow!.values[30]).toBeCloseTo(base.diagnostics.pavedFlow!.values[30]! / 2, 12);
+			if (!base.sami) expect(half.outflow.values[30]).toBeCloseTo(base.outflow.values[30]! / 2, 12);
 		}
+	});
+
+	it('keeps a Sami module’s abstracted volume when the area changes per month (L.037 is a volume)', () => {
+		const area = new Array<number>(36).fill(0).map((_, i) => (i < 24 ? 120 : 60));
+		const m = module();
+		const base = runRunoffModule(m, ran, { ...period, samiParts: fakeSamiParts() });
+		const half = runRunoffModule(m, ran, { ...period, samiParts: fakeSamiParts(), activeAreaKm2: area });
+		const volume = (r: typeof base, a: (i: number) => number) => r.sami!.months.map((mo, i) => (mo.aquiferInput.abstraction * a(i)) / 1000);
+		expect(volume(base, () => 120).some((v) => v > 0)).toBe(true);
+		volume(half, (i) => area[i]!).forEach((v, i) => expect(v).toBeCloseTo(volume(base, () => 120)[i]!, 12));
 	});
 });
