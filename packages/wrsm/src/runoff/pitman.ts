@@ -54,8 +54,9 @@ export const NO_SURFACE_RUNOFF_RATE = 999;
  */
 export interface PitmanOptions {
 	/**
-	 * OQ-23: soil moisture S at the start of the run, mm. `halfST` (default,
-	 * a placeholder with no manual basis), `zero`, `SL`, `ST`, or a number.
+	 * OQ-23: soil moisture S at the start of the run, mm. `halfST` (default:
+	 * no manual basis, taken from WRSM2000's first-month outputs, pitman.md
+	 * OQ-23), `zero`, `SL`, `ST`, or a number.
 	 */
 	readonly initialSoilMoisture: 'halfST' | 'zero' | 'SL' | 'ST' | number;
 	/**

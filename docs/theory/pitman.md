@@ -347,7 +347,7 @@ brackets). Quantities per time step are depths in mm over the whole catchment.
 2. `b(m)`, `c(m)` from eqs. 1.18–1.19.
 3. `a`, `b_I` from eqs. 1.6–1.7.
 4. `gf = GFRACT = min(1, GW/FT)` if FT > 0, else 0 [OQ-10].
-5. Initial state: `S = S_init` [OQ-23]; lag states `I_GL = O_GL = I_TL = O_TL = 0` [OQ-24].
+5. Initial state: `S = ST/2` [OQ-23, settled from the reference outputs]; lag states `I_GL = O_GL = I_TL = O_TL = 0` [OQ-24].
 
 **For each month t (hydrological year order, Oct first), calendar month m:**
 
@@ -591,12 +591,12 @@ Readings: (a) literal: allow it; (b) clamp at 0, which breaks mass balance; (c) 
 **OQ-23 Initial soil moisture.**
 Evidence: nothing in ch.1. There is no initial-S field on L.001–L.020. TT 691 `RU_Reset` (p.60) "recalculate[s] (or reset[s]) all the initial values".
 Readings: (a) S0 = 0; (b) S0 = SL; (c) S0 = ST/2; (d) S0 = ST; (e) a warm-up year.
-**Default: (c) ST/2, provisional.** It has no basis in the manuals; it is a mid-range start that the reference comparison should replace. **Resolution:** export "Pitman S" for the classic-GW reference run (Round 0 asks for that run) and read the first month's S. Its effect decays within a year or two for typical ST.
+**Settled (Round 6 wave 2): (c) ST/2, single pass, no warm-up.** The manuals still say nothing; the value is taken from WRSM2000's outputs. In October of the first year almost all of a module's net catchment runoff (`<net>RU<n>ncr.MTS`) is soil interflow draining S0, so the first month measures S0 directly. Run from S0 = f·ST for f = 0, 0.1, …, 1 (Sami modules, the Pitman total as the interflow, OQ-S3 (b)), the best f is ½ for 12 of the 17 free reference modules whose first month is ≥ 0.05 Mm³ and moves by more than 10 % with S0 (`runoff/initial-state.reference.test.ts`; the 3 best at 0 are within 17 % of the reference at ½; 2 are best at 0.8). Over all 96 S0-sensitive modules (SFR members included, run in their networks) 73 are best at ½ (median month-1 error 6 % at ½, ≥ 26 % at any other f). A warm-up year (e) would make month 1 independent of ST and is ruled out by the same fit. Under the default Sami composition (OQ-S3 (a)) no S0 fits month 1 (the best f spreads over 0.6–1, median error ≥ 24 %), which is evidence on OQ-S3, not on S0 (sami.md OQ-S17, evidence). Whole-record effect of S0 is small (median |MAR %| 3.05 at ½ and at 0, 3.21 at ST), the first year's large (median |%| 2.98 at ½, 4.59 at 0, 5.82 at ST); it decays within 2–3 years.
 
 **OQ-24 Initial lag states.**
 Evidence: none beyond `FG1`, `FI1` existing.
 Readings: (a) all zero; (b) `I0 = O0 =` the first month's inflow (steady start).
-**Default: (a) zero.** With GL = 2.5, about ⅓ of the gap decays per month. The first-year flows in the reference outputs will show which applies.
+**Default: (a) zero, kept (Round 6 wave 2).** Under per-step routing (R6-R6) the start barely matters: first-year median |%| difference against the reference ncr.MTS 2.98 (zero) vs 3.02 (steady), whole record 3.05 for both. With the Pitman total in the first month (OQ-S3 (b)) zero fits month 1 better than steady (median error 13 % vs 18 %, at S0 = ST/2): steady at the first *step's* inflow overshoots, because the first step of a recession carries the most water. The unlagged total fits month 1 best (6 %), so the true start may route less than either; that is confounded with OQ-S3 and left until OQ-S3 is settled. All 191 reference Sami modules have TL ≤ 0.5 and most GL = 0, so the classic GL path is not exercised.
 
 **OQ-25 Numeric precision.**
 Evidence: TT 691 declares the state and parameters `REAL` (Lahey Fortran 90, TT 691 p.1), i.e. 32-bit by default.
