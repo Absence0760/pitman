@@ -1,5 +1,9 @@
 import { spawnSync } from 'node:child_process';
+import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { syntheticNetwork, writeNetwork, writeRainfall, writeRunoff } from '@pitman/wrsm';
 import { describe, expect, it } from 'vitest';
 import { EXIT_OK, EXIT_USAGE, USAGE, main } from './main.js';
 
@@ -42,11 +46,17 @@ describe('wrsm bin (smoke)', () => {
 	const runBin = (...args: string[]) =>
 		spawnSync(process.execPath, ['--import', 'tsx', bin, ...args], { encoding: 'utf8' });
 
-	it('runs under tsx: run exits 2 with "not implemented yet"', () => {
-		const result = runBin('run', 'some-dir');
+	it('runs under tsx with the real engine: run writes answer files for a synthetic network', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'wrsm-bin-'));
+		const { network, runoff, rainfall } = syntheticNetwork({ seed: 7, code: 'ZZ', startYear: 1990, years: 5 });
+		await writeFile(join(dir, 'ZZ.NET'), writeNetwork(network));
+		for (const m of runoff) await writeFile(join(dir, `ZZRU${m.number}.DAT`), writeRunoff(m));
+		for (const r of rainfall) await writeFile(join(dir, r.fileName), writeRainfall(r.series));
+		const result = runBin('run', dir);
 		expect(result.error).toBeUndefined();
-		expect(result.status).toBe(2);
-		expect(result.stderr).toContain('not implemented yet');
+		expect(result.stderr).not.toContain('not implemented');
+		expect(result.status).toBe(0);
+		expect((await readdir(join(dir, 'Out.pitman'))).some((f) => /RQ\d+\.ANS$/i.test(f))).toBe(true);
 	});
 
 	it('runs under tsx: help exits 0', () => {

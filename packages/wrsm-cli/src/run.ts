@@ -46,7 +46,7 @@ export async function runCommand(argv: readonly string[], io: Io, engine: Engine
 	try {
 		parsed = parseArgs({
 			args: [...argv],
-			options: { mode: { type: 'string' }, year: { type: 'string' }, out: { type: 'string' } },
+			options: { mode: { type: 'string' }, year: { type: 'string' }, out: { type: 'string' }, net: { type: 'string' } },
 			allowPositionals: true,
 			strict: true
 		});
@@ -91,12 +91,19 @@ export async function runCommand(argv: readonly string[], io: Io, engine: Engine
 		io.err(`warning: --mode ${mode} is Round 3; running historical (development as the files say)\n`);
 	}
 
-	const netFiles = folder.withExtension('.NET');
+	// --net picks one network when a folder holds several (real WR2012 folders often do).
+	const allNetFiles = folder.withExtension('.NET');
+	const netFiles =
+		values.net === undefined ? allNetFiles : allNetFiles.filter((f) => f.toUpperCase() === values.net!.toUpperCase());
+	if (values.net !== undefined && netFiles.length === 0) {
+		io.err(`error: no network file '${values.net}' in the network folder (found ${allNetFiles.join(', ') || 'none'})\n`);
+		return EXIT_FAILED;
+	}
 	if (netFiles.length !== 1) {
 		io.err(
 			netFiles.length === 0
 				? 'error: no .NET file in the network folder\n'
-				: `error: more than one .NET file in the network folder (${netFiles.join(', ')})\n`
+				: `error: more than one .NET file in the network folder (${netFiles.join(', ')}); choose one with --net <file>\n`
 		);
 		return EXIT_FAILED;
 	}

@@ -1,9 +1,7 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { RunoffModule } from '@pitman/wrsm';
-// TODO(integration): import from '@pitman/wrsm' once its index.ts exports synthetic/.
-import { syntheticNetwork, type SyntheticNetwork } from '../../wrsm/src/synthetic/index.js';
+import { syntheticNetwork, type RunoffModule, type SyntheticNetwork } from '@pitman/wrsm';
 
 /** Captured CLI output. */
 export function capture() {

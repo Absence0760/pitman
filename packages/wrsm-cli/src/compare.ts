@@ -1,8 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import type { AnswerFile } from '@pitman/wrsm';
-// TODO(integration): import from '@pitman/wrsm' once its index.ts exports compare/.
 import {
 	EXPECTED_TO_MATCH,
 	MAR_PCT_DIFF_MAX,
@@ -11,8 +9,9 @@ import {
 	meetsThresholds,
 	type ExpectedRoute,
 	type SeriesComparison,
+	type AnswerFile,
 	type YearMonth
-} from '../../wrsm/src/compare/index.js';
+} from '@pitman/wrsm';
 import type { Engine } from './engine.js';
 import { Folder } from './files.js';
 import { EXIT_FAILED, EXIT_OK, EXIT_USAGE, type Io } from './io.js';

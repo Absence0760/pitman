@@ -47,13 +47,9 @@ describe('readChannel / writeChannel: the synthetic example', () => {
 		expect(m.trailingLines).toBeUndefined();
 	});
 
-	it('round-trips, except that L.012 and L.017 start in the real files\' F9.3 column', () => {
-		// Every real CR file writes L.012 as F9.3,5F10.3 and L.017 as
-		// F9.3,2F10.3; the example has F10.3 throughout (one blank more).
-		// The writer follows the real files (docs/formats.md §15: files win).
-		const lines = example.split('\r\n');
-		const expected = lines.map((l, k) => (k === 15 || k === 20 ? l.slice(1) : l)).join('\r\n');
-		expect(writeChannel(readChannel(example, 'SYCR5.DAT'))).toBe(expected);
+	it('round-trips byte for byte', () => {
+		// L.012 is F9.3,5F10.3 and L.017 F9.3,2F10.3, as in every real CR file (docs/formats.md §7).
+		expect(writeChannel(readChannel(example, 'SYCR5.DAT'))).toBe(example);
 	});
 });
 

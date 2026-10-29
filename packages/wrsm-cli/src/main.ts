@@ -1,6 +1,4 @@
-import { RUN_MODE_KINDS } from '@pitman/wrsm';
-// TODO(integration): import from '@pitman/wrsm' once its index.ts exports compare/.
-import type { ExpectedRoute } from '../../wrsm/src/compare/index.js';
+import { RUN_MODE_KINDS, type ExpectedRoute } from '@pitman/wrsm';
 import { compareCommand } from './compare.js';
 import type { Engine } from './engine.js';
 import { EXIT_OK, EXIT_USAGE, type Io } from './io.js';
@@ -12,7 +10,7 @@ export type { Engine } from './engine.js';
 export const USAGE = `Usage: wrsm <command> [options]
 
 Commands:
-  run <networkDir> [--mode <${RUN_MODE_KINDS.join('|')}>] [--year <yyyy>] [--out <dir>]
+  run <networkDir> [--mode <${RUN_MODE_KINDS.join('|')}>] [--year <yyyy>] [--out <dir>] [--net <file.NET>]
       Run a WRSM2000 network folder and write answer files (default --out
       <networkDir>/${DEFAULT_OUT_DIR}). Round 2: runoff modules only, each on its own.
   compare <networkDir> <outDir> [--reference <dir>]

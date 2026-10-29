@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AnswerFile } from '@pitman/wrsm';
@@ -148,6 +148,19 @@ describe('wrsm run', () => {
 		const c = capture();
 		expect(await main(['run', empty.dir], c.io, fakeEngine)).toBe(EXIT_FAILED);
 		expect(c.err.join('')).toBe('error: no .NET file in the network folder\n');
+	});
+
+	it('picks one of several .NET files with --net', async () => {
+		const { dir } = await network();
+		await writeFile(join(dir, 'SX.NET'), await readFile(join(dir, 'SY.NET'), 'utf8'));
+		const c = capture();
+		expect(await main(['run', dir], c.io, fakeEngine)).toBe(EXIT_FAILED);
+		expect(c.err.join('')).toContain('choose one with --net <file>');
+		const d = capture();
+		expect(await main(['run', dir, '--net', 'sy.net'], d.io, fakeEngine)).toBe(EXIT_OK);
+		const e = capture();
+		expect(await main(['run', dir, '--net', 'NONE.NET'], e.io, fakeEngine)).toBe(EXIT_FAILED);
+		expect(e.err.join('')).toContain("no network file 'NONE.NET'");
 	});
 
 	it('prints only relative paths', async () => {
