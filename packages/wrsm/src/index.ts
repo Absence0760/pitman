@@ -51,6 +51,10 @@ export * from './channel/index.js';
 export * from './stats/index.js';
 export * from './run.js';
 
+// Round 6 contracts: the Sami groundwater parts (docs/theory/sami.md § 6) and streamflow reductions.
+export type * from './groundwater/sami/contract.js';
+export type * from './landuse/contract.js';
+
 // Round 4 contract for method A, the CHIRPS extension (docs/theory/extend.md).
 export * from './extend/contract.js';
 export * from './extend/index.js';
