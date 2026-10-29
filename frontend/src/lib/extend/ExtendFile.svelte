@@ -1,0 +1,699 @@
+<!--
+	Extending one .RAN with CHIRPS (method A, docs/theory/extend.md): upload
+	the area, fetch CHIRPS, look at the overlap fit, edit the 12 factors,
+	preview the appended years, apply. Every step's logic is in the .ts
+	modules beside this file (tested there); this component holds the state.
+-->
+<script lang="ts">
+	import { tick } from 'svelte';
+	import type { ChirpsMonthly, ExtensionFit, ExtensionResult, RainfallSeries } from '@pitman/wrsm';
+	import { calendarYear, formatNumber, hydroYearLabel } from '#lib/results/format.js';
+	import { parseArea, parseQuaternaries, type ParsedArea } from './area.js';
+	import { isoDate } from './apply.js';
+	import { annualChart, meansChart, scatterChart, scatterPoints } from './charts.js';
+	import { monthlyBias, summaryStats } from './diagnostics.js';
+	import type { ExtensionEngine } from './engine.js';
+	import {
+		MONTH_NAMES,
+		blockingMessages,
+		factorNotes,
+		factorRows,
+		factorsForDisplay,
+		factorsInUse,
+		initialEdits,
+		resetEdit,
+		type FactorEdit
+	} from './factors.js';
+	import type { RainfallFileEntry } from './files.js';
+	import FactorTable from './FactorTable.svelte';
+	import FitChart from './FitChart.svelte';
+	import { chirpsFacts, fitFacts, previousExtension } from './provenance.js';
+	import { checkWindow, fitExtension, missingInOverlap, partialYear, previewExtension, rowTotal, windowYears, type YearRange } from './session.js';
+
+	let {
+		entry,
+		series,
+		engine,
+		fetchChirps,
+		onapplied,
+		onclose
+	}: {
+		entry: RainfallFileEntry;
+		/** The original record to fit and extend (`originalSeries`). */
+		series: RainfallSeries;
+		engine: ExtensionEngine;
+		fetchChirps: (area: ParsedArea['geometry'], signal: AbortSignal) => Promise<ChirpsMonthly>;
+		onapplied: (result: ExtensionResult, summary: string) => void;
+		onclose: () => void;
+	} = $props();
+
+	const p = $derived(`extend-${entry.key.replace(/[^A-Za-z0-9]+/g, '-')}`);
+
+	let area = $state.raw<ParsedArea | undefined>();
+	let areaName = $state('');
+	let areaError = $state<string | undefined>();
+	let quaternaryText = $state('');
+	const quaternaries = $derived(parseQuaternaries(quaternaryText));
+
+	type FetchState = 'idle' | 'fetching' | 'done' | 'failed';
+	let fetchState = $state<FetchState>('idle');
+	let fetchError = $state<string | undefined>();
+	let chirps = $state.raw<ChirpsMonthly | undefined>();
+	let accessed = $state('');
+	let controller: AbortController | undefined;
+
+	let fit = $state.raw<ExtensionFit | undefined>();
+	let fitError = $state<string | undefined>();
+	let whole = $state.raw<YearRange | undefined>();
+	let windowStart = $state(0);
+	let windowEnd = $state(0);
+	let windowError = $state<string | undefined>();
+
+	let edits = $state<FactorEdit[]>([]);
+	let corrected = $state(false);
+	let scatterMonth = $state<number | 'all'>('all');
+	let applyError = $state<string | undefined>();
+	let showBlocking = $state(false);
+
+	const rows = $derived(fit ? factorRows(fit, edits, engine.check) : []);
+	const display = $derived(fit ? factorsForDisplay(rows) : undefined);
+	const inUse = $derived(factorsInUse(rows));
+	const blocking = $derived(blockingMessages(rows));
+	const provenance = $derived({
+		file: entry.name,
+		quaternaries: quaternaries.codes,
+		accessed,
+		factorNotes: factorNotes(rows)
+	});
+	const preview = $derived(
+		fit && chirps && inUse && fit.appendable ? previewExtension(engine, series, chirps, fit, inUse, provenance) : undefined
+	);
+	const points = $derived(fit && display ? scatterPoints(fit, series, display, corrected).filter((pt) => scatterMonth === 'all' || pt.month === scatterMonth) : []);
+	const scatter = $derived(fit && display ? scatterChart(fit, series, display, corrected, scatterMonth === 'all' ? null : scatterMonth) : undefined);
+	const means = $derived(fit && display ? meansChart(fit, display) : undefined);
+	const annual = $derived(fit && display ? annualChart(fit, series, display) : undefined);
+	const partial = $derived(chirps ? partialYear(chirps) : null);
+	const missing = $derived(fit ? missingInOverlap(fit) : []);
+
+	async function focusById(id: string) {
+		await tick();
+		document.getElementById(id)?.focus();
+	}
+
+	async function readArea(event: Event & { currentTarget: HTMLInputElement }) {
+		const file = event.currentTarget.files?.[0];
+		resetFetch();
+		area = undefined;
+		areaError = undefined;
+		if (!file) return;
+		areaName = file.name;
+		let text: string;
+		try {
+			text = await file.text();
+		} catch {
+			areaError = `${file.name} could not be read.`;
+			void focusById(`${p}-area`);
+			return;
+		}
+		const parsed = parseArea(text);
+		if (parsed.ok) area = parsed;
+		else {
+			areaError = parsed.error;
+			void focusById(`${p}-area`);
+		}
+	}
+
+	function resetFetch() {
+		controller?.abort();
+		controller = undefined;
+		fetchState = 'idle';
+		fetchError = undefined;
+		chirps = undefined;
+		fit = undefined;
+		fitError = undefined;
+		whole = undefined;
+		applyError = undefined;
+		showBlocking = false;
+	}
+
+	async function fetchSeries() {
+		if (!area) return;
+		resetFetch();
+		fetchState = 'fetching';
+		controller = new AbortController();
+		const signal = controller.signal;
+		try {
+			const result = await fetchChirps(area.geometry, signal);
+			if (signal.aborted) return;
+			chirps = result;
+			accessed = isoDate();
+			fetchState = 'done';
+			runFit(undefined, true);
+		} catch (error) {
+			if ((error as Error).name === 'AbortError') {
+				fetchState = 'idle';
+				return;
+			}
+			fetchState = 'failed';
+			fetchError = (error as Error).message;
+			void focusById(`${p}-fetch-error`);
+		} finally {
+			controller = undefined;
+		}
+	}
+
+	function runFit(window: YearRange | undefined, first = false) {
+		if (!chirps) return;
+		const outcome = fitExtension(engine, series, chirps, window);
+		if (!outcome.ok) {
+			fitError = outcome.error;
+			if (first) fit = undefined;
+			void focusById(`${p}-fit-error`);
+			return;
+		}
+		fitError = undefined;
+		const next = outcome.value;
+		if (first || !whole) {
+			whole = { startYear: next.overlap.startYear, endYear: next.overlap.endYear };
+			edits = initialEdits(next);
+		} else {
+			// Keep what the user typed; untouched months follow the new computed factors.
+			edits = next.factors.map((f, i) => (edits[i]?.typed ? (edits[i] as FactorEdit) : resetEdit(f)));
+		}
+		windowStart = next.overlap.startYear;
+		windowEnd = next.overlap.endYear;
+		fit = next;
+	}
+
+	function applyWindow() {
+		if (!whole) return;
+		const checked = checkWindow(windowStart, windowEnd, whole);
+		if (!checked.ok) {
+			windowError = checked.error;
+			void focusById(`${p}-window-start`);
+			return;
+		}
+		windowError = undefined;
+		runFit(checked.value);
+	}
+
+	function resetWindow() {
+		windowError = undefined;
+		runFit(undefined);
+	}
+
+	function edit(index: number, next: FactorEdit) {
+		edits[index] = next;
+		applyError = undefined;
+	}
+
+	function reset(index: number) {
+		if (!fit) return;
+		edits[index] = resetEdit(fit.factors[index] as ExtensionFit['factors'][number]);
+		void focusById(`factor-${index}`);
+	}
+
+	function apply() {
+		applyError = undefined;
+		if (!fit || !fit.appendable) return;
+		if (blocking.length > 0 || !inUse) {
+			showBlocking = true;
+			const first = rows.find((r) => r.blocking);
+			if (first) void focusById(first.check === 'confirmZero' && first.inUse === 0 ? `factor-${first.index}-zero` : `factor-${first.index}`);
+			return;
+		}
+		if (!preview || !preview.ok) {
+			applyError = preview && !preview.ok ? preview.error : 'The extension could not be computed.';
+			void focusById(`${p}-apply-error`);
+			return;
+		}
+		const n = preview.value.appended.length;
+		onapplied(
+			preview.value.result,
+			`${entry.name} now runs to ${hydroYearLabel(fit.appendable.lastYear)}: ${n} CHIRPS-derived year${n === 1 ? '' : 's'} appended.`
+		);
+	}
+
+	$effect(() => () => controller?.abort());
+</script>
+
+<section class="file" aria-labelledby={`${p}-h`} data-file={entry.key}>
+	<div class="head">
+		<h3 id={`${p}-h`} tabindex="-1">Extend {entry.name}</h3>
+		<button type="button" onclick={onclose}>Close</button>
+	</div>
+	<p class="note">
+		Zone {entry.code}, {hydroYearLabel(series.rows[0]?.year ?? entry.firstYear)} to {hydroYearLabel(series.rows[series.rows.length - 1]?.year ?? entry.lastYear)}
+		{#if entry.extension}(the original record){/if}.
+	</p>
+	{#if entry.extension}
+		<p class="note">{previousExtension(entry.extension)}</p>
+	{/if}
+
+	<h4>1. The area this file represents</h4>
+	<p>
+		Upload the boundary the rainfall file stands for (usually its quaternaries) as GeoJSON in longitude/latitude: a Polygon, a MultiPolygon, or a
+		FeatureCollection of them. Only the shape is sent to Pitman’s rainfall service, never the network’s files.
+	</p>
+	<div class="field">
+		<label for={`${p}-area`}>Boundary file (GeoJSON)</label>
+		<input
+			id={`${p}-area`}
+			type="file"
+			accept=".geojson,.json,application/geo+json,application/json"
+			aria-invalid={areaError ? 'true' : undefined}
+			aria-describedby={areaError ? `${p}-area-error` : undefined}
+			onchange={readArea}
+			disabled={fetchState === 'fetching'}
+		/>
+	</div>
+	{#if areaError}
+		<p id={`${p}-area-error`} class="error" role="alert">{areaName ? `${areaName}: ` : ''}{areaError}</p>
+	{/if}
+	{#if area}
+		<dl class="facts" aria-label="The uploaded area">
+			<div><dt>File</dt><dd>{areaName}</dd></div>
+			<div><dt>Area</dt><dd data-value="area-km2">{formatNumber(area.areaKm2, 1)} km² (on the sphere; the service’s geodesic figure follows)</dd></div>
+			<div><dt>Shape</dt><dd>{area.polygons} polygon{area.polygons === 1 ? '' : 's'}{area.holes ? `, ${area.holes} hole${area.holes === 1 ? '' : 's'}` : ''}, {area.vertices.toLocaleString('en-ZA')} vertices</dd></div>
+			<div>
+				<dt>Extent</dt>
+				<dd>{formatNumber(area.bbox.west, 3)}° to {formatNumber(area.bbox.east, 3)}° E, {formatNumber(-area.bbox.north, 3)}° to {formatNumber(-area.bbox.south, 3)}° S</dd>
+			</div>
+		</dl>
+		{#each area.warnings as warning (warning)}
+			<p class="warn"><strong>Check:</strong> {warning}</p>
+		{/each}
+		<div class="field">
+			<label for={`${p}-quaternaries`}>Quaternaries this area covers (optional, recorded with the extension)</label>
+			<input
+				id={`${p}-quaternaries`}
+				type="text"
+				autocomplete="off"
+				spellcheck="false"
+				placeholder="e.g. H80A, H80B"
+				bind:value={quaternaryText}
+				aria-describedby={quaternaries.invalid.length ? `${p}-quaternaries-error` : undefined}
+			/>
+		</div>
+		{#if quaternaries.invalid.length > 0}
+			<p id={`${p}-quaternaries-error`} class="warn">
+				<strong>Check:</strong> not a quaternary code (a letter, two digits, a letter): {quaternaries.invalid.join(', ')}. Only valid codes are recorded.
+			</p>
+		{/if}
+
+		<h4>2. CHIRPS over the area</h4>
+		<div class="actions">
+			<button type="button" class="primary" onclick={fetchSeries} disabled={fetchState === 'fetching'}>
+				{chirps ? 'Fetch CHIRPS again' : 'Fetch CHIRPS for this area'}
+			</button>
+			{#if fetchState === 'fetching'}
+				<button type="button" onclick={() => controller?.abort()}>Cancel</button>
+				<p class="note" role="status">Fetching the monthly CHIRPS record (1981 to the latest final month)…</p>
+			{/if}
+		</div>
+		{#if fetchError}
+			<p id={`${p}-fetch-error`} class="error" role="alert" tabindex="-1">The CHIRPS series could not be fetched: {fetchError}</p>
+		{/if}
+	{/if}
+
+	{#if chirps}
+		<dl class="facts provenance" aria-label="Where the CHIRPS numbers come from" data-provenance="chirps">
+			{#each chirpsFacts(chirps, accessed) as fact (fact.label)}
+				<div><dt>{fact.label}</dt><dd>{fact.value}</dd></div>
+			{/each}
+		</dl>
+		{#if partial}
+			<p class="note">
+				CHIRPS holds {partial.months} month{partial.months === 1 ? '' : 's'} of {hydroYearLabel(partial.year)}; a partial hydrological year is never appended.
+			</p>
+		{/if}
+	{/if}
+
+	{#if fitError}
+		<p id={`${p}-fit-error`} class="error" role="alert" tabindex="-1">{fitError}</p>
+	{/if}
+
+	{#if fit && chirps && whole && display && scatter && means && annual}
+		<h4>3. The overlap fit</h4>
+		<dl class="facts provenance" aria-label="The fit" data-provenance="fit">
+			{#each fitFacts(fit) as fact (fact.label)}
+				<div><dt>{fact.label}</dt><dd>{fact.value}</dd></div>
+			{/each}
+		</dl>
+		{#if fit.messages.length > 0}
+			<ul class="messages" aria-label="About the fit">
+				{#each fit.messages as message, i (i)}
+					<li class={message.level}>
+						<strong>{message.level === 'error' ? 'Problem:' : message.level === 'warning' ? 'Warning:' : 'Note:'}</strong>
+						{message.text}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+		{#if missing.length > 0}
+			<p class="note">
+				CHIRPS months missing inside the overlap (each leaves that year out of its month’s factor only):
+				{missing.map((m) => `${MONTH_NAMES[m.month]} ${calendarYear(m.year, m.month)}`).join(', ')}.
+			</p>
+		{/if}
+
+		<fieldset class="window">
+			<legend>Overlap window (decision D5)</legend>
+			<p class="note">
+				The factors are fitted on the whole overlap, {hydroYearLabel(whole.startYear)} to {hydroYearLabel(whole.endYear)}, unless you narrow it.
+			</p>
+			<div class="window-row">
+				<div class="field">
+					<label for={`${p}-window-start`}>First year</label>
+					<select id={`${p}-window-start`} bind:value={windowStart} aria-describedby={windowError ? `${p}-window-error` : undefined}>
+						{#each windowYears(whole) as y (y)}<option value={y}>{hydroYearLabel(y)}</option>{/each}
+					</select>
+				</div>
+				<div class="field">
+					<label for={`${p}-window-end`}>Last year</label>
+					<select id={`${p}-window-end`} bind:value={windowEnd} aria-describedby={windowError ? `${p}-window-error` : undefined}>
+						{#each windowYears(whole) as y (y)}<option value={y}>{hydroYearLabel(y)}</option>{/each}
+					</select>
+				</div>
+			</div>
+			<div class="actions">
+				<button type="button" onclick={applyWindow}>Fit on this window</button>
+				<button type="button" onclick={resetWindow} disabled={fit.overlap.window === 'default'}>Reset to the whole overlap</button>
+			</div>
+			{#if windowError}
+				<p id={`${p}-window-error`} class="error" role="alert">{windowError}</p>
+			{/if}
+		</fieldset>
+
+		<FitChart spec={scatter} {points}>
+			{#snippet controls()}
+				<div class="toggle">
+					<input type="checkbox" id={`${p}-corrected`} bind:checked={corrected} />
+					<label for={`${p}-corrected`}>Show corrected CHIRPS (f × p) instead of p</label>
+				</div>
+				<div class="field inline">
+					<label for={`${p}-month`}>Months shown</label>
+					<select id={`${p}-month`} bind:value={scatterMonth}>
+						<option value="all">All months</option>
+						{#each MONTH_NAMES as name, k (name)}<option value={k}>{name}</option>{/each}
+					</select>
+				</div>
+			{/snippet}
+		</FitChart>
+		<FitChart spec={means} />
+		<FitChart spec={annual} />
+
+		<div class="scroll">
+			<table class="stats" data-table="fit-statistics">
+				<caption>Fit over the overlap, before (p) and after (f × p, computed factors)</caption>
+				<thead><tr><th scope="col">Measure</th><th scope="col">Before</th><th scope="col">After</th></tr></thead>
+				<tbody>
+					{#each summaryStats(fit) as row (row.label)}
+						<tr><th scope="row">{row.label}</th><td>{row.before}</td><td>{row.after}</td></tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+		<div class="scroll">
+			<table class="stats" data-table="monthly-bias">
+				<caption>Bias by month, 100 × (Σ CHIRPS − Σ file) / Σ file</caption>
+				<thead>
+					<tr><th scope="col">Month</th><th scope="col">Before</th><th scope="col">After, computed factors</th><th scope="col">With the factors in use</th></tr>
+				</thead>
+				<tbody>
+					{#each monthlyBias(fit, rows) as row (row.month)}
+						<tr><th scope="row">{row.month}</th><td>{row.before}</td><td>{row.afterComputed}</td><td>{row.inUse}</td></tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+		<p class="note">
+			A computed factor reproduces the file’s mean for its month over the overlap exactly, so its bias after correction is 0 by construction; R² barely moves under
+			a per-month scaling, so NSE is the more telling “after” number.
+		</p>
+
+		<h4>4. The 12 factors</h4>
+		<p>Each factor multiplies CHIRPS’ % of its MAP for that month. Type a value to override it (0 to 5), or reset it to the computed one.</p>
+		<FactorTable {rows} onedit={edit} onreset={reset} />
+
+		<h4>5. The appended years</h4>
+		{#if !fit.appendable}
+			<p class="note" data-appendable="none">Nothing to append: {entry.name} already reaches the last complete CHIRPS hydrological year. The fit is shown for information.</p>
+		{:else}
+			<p>
+				With these factors, {hydroYearLabel(fit.appendable.firstYear)} to {hydroYearLabel(fit.appendable.lastYear)} would be appended ({fit.appendable.lastYear -
+					fit.appendable.firstYear +
+					1} years, % of MAP, two decimals as the file holds them).
+			</p>
+		{/if}
+		{#if fit.stoppedAt}
+			<p class="warn">
+				<strong>Stops early:</strong> CHIRPS has no value for {MONTH_NAMES[fit.stoppedAt.month]}
+				{calendarYear(fit.stoppedAt.year, fit.stoppedAt.month)} ({hydroYearLabel(fit.stoppedAt.year)}), so the extension stops before that year. Years are appended
+				without gaps.
+			</p>
+		{/if}
+		{#if fit.appendable && preview?.ok}
+			<div class="scroll">
+				<table class="stats preview" data-table="preview">
+					<caption>Preview: the rows the apply adds to {entry.name}</caption>
+					<thead>
+						<tr>
+							<th scope="col">Year</th>
+							{#each MONTH_NAMES as name (name)}<th scope="col">{name.slice(0, 3)}</th>{/each}
+							<th scope="col">Total</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each preview.value.appended as row (row.year)}
+							<tr>
+								<th scope="row">{hydroYearLabel(row.year)}</th>
+								{#each row.months as v, k (k)}<td>{formatNumber(v, 2)}</td>{/each}
+								<td>{formatNumber(rowTotal(row), 2)}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{:else if fit.appendable && preview && !preview.ok}
+			<p class="error">The preview could not be computed: {preview.error}</p>
+		{:else if fit.appendable && !inUse}
+			<p class="note">The preview appears once every factor can be used.</p>
+		{/if}
+
+		{#if fit.appendable}
+			<h4>6. Apply</h4>
+			<p>
+				Applying replaces {entry.name} in this browser’s working copy (the original rows stay as they are) and records the CHIRPS product, revision, cells, area,
+				overlap and factors in <code>pitman.json</code>. Save the zip to keep it.
+			</p>
+			{#if showBlocking && blocking.length > 0}
+				<div class="blocking" role="alert">
+					<p><strong>Fix these before applying:</strong></p>
+					<ul>
+						{#each blocking as b (b.index)}<li>{b.text}</li>{/each}
+					</ul>
+				</div>
+			{/if}
+			<div class="actions">
+				<button type="button" class="primary" onclick={apply}>Apply: append {fit.appendable.lastYear - fit.appendable.firstYear + 1} years to {entry.name}</button>
+			</div>
+			{#if applyError}
+				<p id={`${p}-apply-error`} class="error" role="alert" tabindex="-1">The extension could not be applied: {applyError}</p>
+			{/if}
+		{/if}
+	{/if}
+</section>
+
+<style>
+	.file {
+		border-top: 2px solid var(--border);
+		margin-top: 1.5rem;
+		padding-top: 0.5rem;
+	}
+	.head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+	h3 {
+		margin: 0.5rem 0;
+		font-size: 1.2rem;
+		overflow-wrap: anywhere;
+	}
+	h4 {
+		font-size: 1.05rem;
+		margin: 1.5rem 0 0.5rem;
+	}
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		margin: 0.5rem 0;
+	}
+	.field.inline {
+		flex-direction: row;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0;
+	}
+	input[type='text'],
+	select {
+		font: inherit;
+		min-height: 2.75rem;
+		padding: 0 0.5rem;
+		border: 1px solid var(--border-strong);
+		border-radius: 0.375rem;
+		background: var(--bg);
+		color: var(--text);
+		max-width: 100%;
+	}
+	input[type='file'] {
+		font: inherit;
+		max-width: 100%;
+	}
+	input[aria-invalid='true'] {
+		outline: 2px solid var(--danger);
+	}
+	.toggle {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+		min-height: 2.75rem;
+	}
+	.toggle input {
+		width: 1.25rem;
+		height: 1.25rem;
+	}
+	.facts {
+		display: grid;
+		gap: 0.3rem;
+		margin: 0.75rem 0;
+		font-size: 0.925rem;
+	}
+	.facts div {
+		display: grid;
+		grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr);
+		gap: 0.75rem;
+	}
+	.facts dt {
+		color: var(--text-muted);
+	}
+	.facts dd {
+		margin: 0;
+		overflow-wrap: anywhere;
+	}
+	@media (max-width: 30rem) {
+		.facts div {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 0;
+		}
+	}
+	.provenance {
+		border-left: 4px solid var(--accent);
+		padding-left: 0.75rem;
+	}
+	.window {
+		border: 1px solid var(--border);
+		border-radius: 0.5rem;
+		margin: 1rem 0;
+	}
+	.window-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+	}
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+		align-items: center;
+		margin: 0.75rem 0;
+	}
+	.actions p {
+		margin: 0;
+	}
+	button {
+		font: inherit;
+		min-height: 2.75rem;
+		padding: 0 1rem;
+		border-radius: 0.375rem;
+		border: 1px solid var(--border-strong);
+		background: var(--surface);
+		color: var(--text);
+		cursor: pointer;
+	}
+	button.primary {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: var(--on-accent);
+		font-weight: 600;
+	}
+	button:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+	.note {
+		color: var(--text-muted);
+	}
+	.warn {
+		border-left: 4px solid var(--warning);
+		padding-left: 0.75rem;
+	}
+	.error {
+		color: var(--danger);
+		font-weight: 600;
+	}
+	.messages {
+		padding-left: 1.25rem;
+	}
+	.messages li.warning,
+	.messages li.error {
+		border-left: 4px solid var(--warning);
+		padding-left: 0.5rem;
+		list-style: none;
+		margin-left: -1.25rem;
+	}
+	.messages li.error {
+		border-left-color: var(--danger);
+	}
+	.blocking {
+		border: 2px solid var(--danger);
+		border-radius: 0.5rem;
+		padding: 0.25rem 1rem;
+	}
+	.scroll {
+		overflow-x: auto;
+		margin: 0.75rem 0;
+	}
+	.stats {
+		border-collapse: collapse;
+		font-size: 0.875rem;
+		font-variant-numeric: tabular-nums;
+	}
+	.stats th,
+	.stats td {
+		padding: 0.2rem 0.6rem;
+		border-bottom: 1px solid var(--border);
+		text-align: right;
+		white-space: nowrap;
+	}
+	.stats tbody th,
+	.stats thead th:first-child {
+		text-align: left;
+		font-weight: normal;
+	}
+	.stats caption {
+		text-align: left;
+		font-weight: 600;
+		padding: 0.25rem 0;
+	}
+	.preview {
+		font-size: 0.8rem;
+	}
+	code {
+		font-family: ui-monospace, monospace;
+	}
+</style>
