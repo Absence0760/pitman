@@ -1,9 +1,56 @@
 :root {
 	font-family: system-ui, sans-serif;
+	line-height: 1.5;
+	color-scheme: light dark;
+
+	--bg: #fbfaf7;
+	--surface: #ffffff;
+	--text: #1d2421;
+	--text-muted: #4f5a55;
+	--border: #d5d9d4;
+	--border-strong: #8a948f;
+	--accent: #1f5f8b;
+	--accent-soft: #e3eef6;
+	--on-accent: #ffffff;
+	--danger: #a4262c;
+	--warning: #b06a00;
+	--focus: #1f5f8b;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #141816;
+		--surface: #1d2321;
+		--text: #e7ebe8;
+		--text-muted: #a9b3ae;
+		--border: #38413d;
+		--border-strong: #6d7873;
+		--accent: #7cb7e0;
+		--accent-soft: #1b3445;
+		--on-accent: #0c1a24;
+		--danger: #f08a8f;
+		--warning: #e3a64a;
+		--focus: #7cb7e0;
+	}
 }
 
 *,
 *::before,
 *::after {
 	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+}
+
+:focus-visible {
+	outline: 3px solid var(--focus);
+	outline-offset: 2px;
+}
+
+a {
+	color: var(--accent);
 }

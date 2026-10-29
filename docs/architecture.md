@@ -32,7 +32,9 @@ pitman/
 │   └── src/
 │       ├── app.css           Base styles
 │       ├── app.html
-│       └── routes/
+│       ├── lib/network/      Load, validate, store, run (worker), save (§ App flow)
+│       ├── lib/results/      Results and plots
+│       └── routes/           +page.svelte: the app shell
 ├── backend/
 │   ├── package.json          Build script runs esbuild → dist/lambda.mjs
 │   ├── tsconfig.json
@@ -63,6 +65,58 @@ pitman/
 SvelteKit with `adapter-static`. Every route can prerender to static HTML.
 The build emits `.html` files per route, uploaded to S3. CloudFront sits in
 front for caching and TLS termination. No server-side rendering at runtime.
+
+## App flow: load → validate → store → run → save
+
+The app is one static page (`frontend/src/routes/+page.svelte`). Everything
+happens in the browser; no network file is ever uploaded (issue #3 rule 7).
+The page holds the state; the logic is in `frontend/src/lib/network/*.ts`,
+each with a vitest test beside it.
+
+1. **Load** (`sources.ts`, `zip.ts`). A zip (`<input type="file">`), a
+   folder (`<input webkitdirectory>`) or either dropped on the drop area
+   (`webkitGetAsEntry`, folders walked recursively) becomes a list of files.
+   A single `.zip` is unpacked with fflate. Size limits (`limits.ts`: 20,000
+   files, 64 MB per file, 256 MB in all, checked against a zip's declared
+   sizes before it is inflated) stop a zip bomb exhausting the tab.
+2. **Decode** (`encoding.ts`). Every file is decoded as **Latin-1** (one
+   character per byte, so a non-ASCII byte or a binary `.pdf` survives),
+   except a `pitman.json` beside a `.NET`, which is strict UTF-8 (invalid
+   bytes are a load error; a byte-order mark is kept) (docs/formats.md
+   §1.1). A zip entry whose CRC-32 doesn't match is refused as damaged.
+3. **Validate** (`open.ts` → `readBundle` in `packages/wrsm/src/io/bundle.ts`).
+   The engine finds the `.NET` (or asks which one when the folder holds
+   several), reads every module file it lists and every rainfall, observed
+   and defined-flow file they name, case-insensitively within the `.NET`'s
+   folder (a name matched only by its base name gets a warning), plus the
+   `pitman.json` sidecar. Every file's error is collected
+   and shown with its file, line, column and field (`IssueList.svelte`,
+   focus moves to the list). Files no reader uses (`Out/`, diagrams, a second
+   `.NET`) are kept.
+4. **Store** (`storage.ts`). The loaded network's files (`writeBundle`
+   output, not the parsed objects, so a stored copy goes back through
+   validation) and the chosen run modes go into IndexedDB (`pitman` /
+   `working-copy` / `current`). A reload restores it; **Forget the working
+   copy** deletes it. The user's own copy is the saved zip.
+5. **Run** (`modes.ts`, `run-client.ts`, `run.worker.ts`, `run-protocol.ts`).
+   The mode picker offers present day (year default 2025), natural and
+   historical (decision D1); several run in one go so results compare. The
+   run happens in a module Web Worker: one request (the bundle without its
+   file index, and the modes), then per mode a `progress` and a `result` or
+   an `error`, then `done`. A failing mode doesn't lose the others; Cancel
+   terminates the worker. The results section carries
+   `data-run-state` (`idle`, `running`, `done`, `failed`) and
+   `data-ready="true"` once a run has finished, for end-to-end tests, and
+   renders `frontend/src/lib/results/Results.svelte` with the successful runs.
+6. **Save** (`save.ts`). `writeBundle` writes every file back: an unchanged
+   file byte for byte, a changed one in WRSM2000's standard layout
+   (decision R2-4), plus every kept file. The sidecar is stamped with
+   `writtenBy` (the frontend package version) and `savedAt` and written as
+   `pitman.json` beside the `.NET`. The zip is offered as a download.
+
+`synthetic.ts` builds a synthetic network (the engine's `syntheticNetwork()`
+plus its channel reach) as files or a zip, for tests: load it, run every
+mode, save, reload the saved zip and compare.
 
 ## Backend
 
