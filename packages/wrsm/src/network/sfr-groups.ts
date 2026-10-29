@@ -8,7 +8,18 @@
  * docs/theory/network.md §2.3.
  */
 
-import { runSfrGroup, type ChildTargetModel, type SfrGroupResult, type SfrOptions, type SfrRun, type SfrSimulator } from '../landuse/sfr.js';
+import { activeAreaPavedFraction, pavedFractionByMonth } from '../landuse/paved.js';
+import {
+	activeAreaByYear,
+	activeAreaTable,
+	runSfrGroup,
+	sfrKind,
+	type ChildTargetModel,
+	type SfrGroupResult,
+	type SfrOptions,
+	type SfrRun,
+	type SfrSimulator
+} from '../landuse/sfr.js';
 import { runRunoffModule, type RunRunoffOptions } from '../runoff/pitman.js';
 import type { HydroYear, MonthlySeries, NetworkBundle, RainfallSeries, RunMode, RunoffDiagnostics, RunoffModule } from '../types.js';
 import { lookupFile } from './modules.js';
@@ -39,15 +50,36 @@ export function bareModule(module: RunoffModule): RunoffModule {
 	return next;
 }
 
-/** The runoff model `runSfrGroup` drives: classic, Hughes or Sami, generated runoff before RTIN and the L.020 split, no reductions. */
+/**
+ * A Sami block run on `areaKm2` instead of the area it was written for:
+ * the groundwater evaporation area keeps its share of the catchment
+ * (B28_GWEvapAreaFactor = EVAREA/AREA, TT 691 p.49), so a child or a
+ * reduced parent doesn't get the whole parent's riparian strip (R6-R5).
+ */
+export function samiOnArea(module: RunoffModule, ownerAreaKm2: number): RunoffModule {
+	if (!module.sami || !(ownerAreaKm2 > 0) || module.areaKm2 === ownerAreaKm2) return module;
+	return { ...module, sami: { ...module.sami, gwEvaporationArea: (module.sami.gwEvaporationArea * module.areaKm2) / ownerAreaKm2 } };
+}
+
+/**
+ * The runoff model `runSfrGroup` drives: classic, Hughes or Sami, generated
+ * runoff before RTIN and the L.020 split, no reductions. Every member of a
+ * group carries the parent's Sami block (`inheritFromParent`), written for
+ * `ownerAreaKm2` (R6-R5). `parentImpervious`, when given, is the parent's
+ * own AI per run month on the area it runs on (R6-P1); a child's paved data
+ * was already dropped (`inheritFromParent`, R6-P2).
+ */
 export function sfrSimulator(
 	rainfall: (fileName: string) => RainfallSeries | undefined,
-	options: Omit<RunRunoffOptions, 'reductions' | 'parent'>
+	options: Omit<RunRunoffOptions, 'reductions' | 'parent'>,
+	group?: { readonly parentNumber: number; readonly ownerAreaKm2: number; readonly parentImpervious?: readonly number[] }
 ): SfrSimulator {
 	return (module) => {
 		const ran = rainfall(module.rainfallFile);
 		if (!ran) throw new Error(`RU ${module.number}: rainfall file ${module.rainfallFile} is not in the network`);
-		const result = runRunoffModule(bareModule(module), ran, { ...options, reductions: [] });
+		const run = group ? samiOnArea(module, group.ownerAreaKm2) : module;
+		const impervious = group && module.number === group.parentNumber ? group.parentImpervious : undefined;
+		const result = runRunoffModule(bareModule(run), ran, { ...options, reductions: [], ...(impervious ? { imperviousFraction: impervious } : {}) });
 		return { outflow: result.outflow, diagnostics: result.diagnostics, messages: result.messages };
 	};
 }
@@ -123,9 +155,22 @@ export function runGroup(
 		.map((n) => bundle.modules.find((m): m is RunoffModule => m.kind === 'RU' && m.number === n))
 		.filter((m): m is RunoffModule => m !== undefined)
 		.map((m) => applyRunMode(m, mode));
-	const simulate = sfrSimulator((f) => lookupFile(bundle.rainfall, f), { ...runoff, startYear, endYear, mode });
+	const appliedParent = applyRunMode(parent, mode);
+	// R6-P1: the parent's AI is of its whole AREA; on the area left after the children's active areas it is min(1, AI·AREA/active).
+	const active = activeAreaByYear([], mode, startYear, endYear).map((_, y) => {
+		let a = parent.areaKm2;
+		for (const c of children) a -= activeAreaByYear(activeAreaTable(c, sfrKind(c)), mode, startYear, endYear)[y]!;
+		return Math.max(0, a);
+	});
+	const paved = pavedFractionByMonth(appliedParent, mode, startYear, endYear);
+	const parentImpervious = paved.fraction.map((ai, i) => activeAreaPavedFraction(ai, parent.areaKm2, active[Math.floor(i / 12)]!));
+	const simulate = sfrSimulator((f) => lookupFile(bundle.rainfall, f), { ...runoff, startYear, endYear, mode }, {
+		parentNumber: parent.number,
+		ownerAreaKm2: parent.areaKm2,
+		parentImpervious
+	});
 	const result = runSfrGroup(
-		{ parent: applyRunMode(parent, mode), children, mode, startYear, endYear, simulate, ...(sfr.targets ? { targets: sfr.targets } : {}) },
+		{ parent: appliedParent, children, mode, startYear, endYear, simulate, ...(sfr.targets ? { targets: sfr.targets } : {}) },
 		sfr.options
 	);
 	const members = new Map<number, { outflow: MonthlySeries; diagnostics: RunoffDiagnostics }>();
@@ -133,5 +178,5 @@ export function runGroup(
 	const childComponents = result.children.map((c) => ({ run: c.run, areaKm2ByYear: c.areaKm2ByYear }));
 	members.set(parent.number, { outflow: result.outflowMm3, diagnostics: groupDiagnostics([parentComponent, ...childComponents], result.outflowMm3) });
 	result.children.forEach((c, i) => members.set(c.number, { outflow: c.outflowMm3, diagnostics: groupDiagnostics([childComponents[i]!], c.outflowMm3) }));
-	return { result, members };
+	return { result: paved.messages.length > 0 ? { ...result, messages: [...paved.messages, ...result.messages] } : result, members };
 }

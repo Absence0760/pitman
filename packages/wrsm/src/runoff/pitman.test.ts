@@ -482,12 +482,14 @@ describe('runRunoffModule guards', () => {
 			period
 		);
 		const texts = land.messages.map((m) => m.text);
-		expect(land.messages.every((m) => m.level === 'warning')).toBe(true);
-		expect(texts).toEqual([
-			expect.stringMatching(/SFR children are run with their parent by the network runner/),
-			expect.stringMatching(/CSIR afforestation in a free module is not modelled.*R6-F3/),
-			expect.stringMatching(/alien vegetation not modelled yet/)
-		]);
+		expect(texts).toEqual(
+			expect.arrayContaining([
+				expect.stringMatching(/SFR children are run with their parent by the network runner/),
+				expect.stringMatching(/CSIR afforestation in a free module is not modelled.*R6-F3/), // forestReduction
+				expect.stringMatching(/alien vegetation has no class split or ages/) // alienVegetationReduction
+			])
+		);
+		expect(land.messages.every((m) => m.module?.number === 1)).toBe(true);
 		expect(land.outflow.values).toEqual(base.outflow.values);
 	});
 

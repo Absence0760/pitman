@@ -543,6 +543,17 @@ export interface RunRunoffOptions {
 	readonly reductions?: readonly StreamflowReduction[];
 	/** The SFR parent when this module is a child (R3-N11, OQ-S18), else `null`. Passed to the reductions. */
 	readonly parent?: RunoffModule | null;
+	/**
+	 * Impervious fraction AI per run month, replacing the module's L.016–L.018
+	 * table (R6-P1: an SFR parent's `activeAreaPavedFraction` on its reduced
+	 * active area). Same length as the run.
+	 */
+	readonly imperviousFraction?: readonly number[];
+	/**
+	 * Area per run month, km², for the depth → volume conversion, replacing
+	 * L.002 (an area that changes through the run, R6-P1). Same length as the run.
+	 */
+	readonly activeAreaKm2?: readonly number[];
 }
 
 /**
@@ -606,9 +617,18 @@ export function simulateModuleRunoff(
 	const ref = { type: 'RU', number: module.number } as const;
 	const { startYear, endYear } = options;
 	const messages: RunMessage[] = [];
-	const toMm3 = (depthMm: number) => (depthMm * module.areaKm2) / 1000; // TT 690 p.6
+	const areaAt = (i: number) => options.activeAreaKm2?.[i] ?? module.areaKm2;
+	const toMm3 = (depthMm: number, i: number) => (depthMm * areaAt(i)) / 1000; // TT 690 p.6
 	const series = (values: number[], unit: MonthlySeries['unit']): MonthlySeries => ({ startYear, values, unit });
 	const gwModel = module.groundwaterModel ?? 0;
+	// R6-V10: evaporation for the riparian alien-vegetation deduction. PE = FF·S-pan·pan factor of the active set.
+	const evaporation = (pitman: PitmanSimulation, FF: number): Pick<RunoffDiagnostics, 'actualEvaporationMm' | 'potentialEvaporationMm'> => {
+		const pe = potentialEvaporation(module.sPanMm, module.panFactors, FF);
+		return {
+			actualEvaporationMm: series(pitman.months.map((mo) => mo.E + mo.interception), 'mm'),
+			potentialEvaporationMm: series(pitman.months.map((_, t) => pe[t % 12]!), 'mm')
+		};
+	};
 
 	if (gwModel === 0) {
 		const pitman = simulatePitman(
@@ -626,8 +646,9 @@ export function simulateModuleRunoff(
 				netRunoff: outflow,
 				surfaceRunoff: outflow,
 				groundwaterOutflow: series(pitman.months.map(() => 0), 'Mm3'),
-				pavedFlow: series(pitman.months.map((mo) => toMm3(mo.paved)), 'Mm3'),
-				soilMoistureMm: series(pitman.months.map((mo) => mo.sEnd), 'mm')
+				pavedFlow: series(pitman.months.map((mo, i) => toMm3(mo.paved, i)), 'Mm3'),
+				soilMoistureMm: series(pitman.months.map((mo) => mo.sEnd), 'mm'),
+				...evaporation(pitman, module.pitman.FF)
 			}
 		};
 	}
@@ -679,7 +700,7 @@ export function simulateModuleRunoff(
 			text: `RU ${module.number}: Sami runoff is negative in ${sim.negativeRunoffMonths} month(s): transmission loss exceeded surface runoff + interflow + baseflow (OQ-S3); ${sim.options.negativeRunoff === 'clamp' ? 'raised to 0' : 'kept'} (R6-R3)`
 		});
 	}
-	return { runoffMm: sim.months.map((m) => m.runoff), pitman: sim.pitman, sami: sim, messages, diagnostics: samiDiagnostics(sim, module.areaKm2, startYear) };
+	return { runoffMm: sim.months.map((m) => m.runoff), pitman: sim.pitman, sami: sim, messages, diagnostics: { ...samiDiagnostics(sim, options.activeAreaKm2 ?? module.areaKm2, startYear), ...evaporation(sim.pitman, sami.pitman.FF) } };
 }
 
 /**
@@ -727,6 +748,15 @@ export function runRunoffModule(module: RunoffModule, rainfall: RainfallSeries, 
 	let rain: ReturnType<typeof runoffModuleRainfall>;
 	try {
 		rain = runoffModuleRainfall(module, rainfall, startYear, endYear);
+		for (const [name, series] of [['imperviousFraction', options.imperviousFraction], ['activeAreaKm2', options.activeAreaKm2]] as const) {
+			if (series && series.length !== rain.rainfallMm.length) fail(`RU ${module.number}: ${name} has ${series.length} months; the run has ${rain.rainfallMm.length}`);
+		}
+		if (options.imperviousFraction) {
+			options.imperviousFraction.forEach((ai, i) => {
+				if (!(ai >= 0 && ai <= 1)) fail(`RU ${module.number}: impervious fraction ${ai} in month ${i} is outside 0–1`);
+			});
+			rain = { ...rain, imperviousFraction: [...options.imperviousFraction] };
+		}
 	} catch (error) {
 		if (error instanceof PitmanRunError) throw new PitmanRunError([...messages, ...error.messages]);
 		throw error;
@@ -748,7 +778,7 @@ export function runRunoffModule(module: RunoffModule, rainfall: RainfallSeries, 
 		});
 	}
 
-	const toMm3 = (depthMm: number) => (depthMm * module.areaKm2) / 1000; // TT 690 p.6
+	const toMm3 = (depthMm: number, i: number) => (depthMm * (options.activeAreaKm2?.[i] ?? module.areaKm2)) / 1000; // TT 690 p.6
 	const unreduced: MonthlySeries = { startYear, values: result.runoffMm.map(toMm3), unit: 'Mm3' };
 	if (reductions.length === 0) {
 		return { outflow: unreduced, diagnostics: result.diagnostics, messages, ...(result.sami ? { sami: result.sami } : {}) };
@@ -760,7 +790,18 @@ export function runRunoffModule(module: RunoffModule, rainfall: RainfallSeries, 
 	const reduction = new Array<number>(n).fill(0);
 	let virginMarMm3: number | undefined;
 	for (const reduce of reductions) {
-		const out = reduce({ module, parent: options.parent ?? null, mode, startYear, endYear, unreducedRunoffMm3: unreduced, rainfallMm: rain.rainfallMm });
+		// `evaporation` is beyond the contract's ReductionInput: alien vegetation's riparian deduction reads it (R6-V10); others ignore it.
+		const reductionInput = {
+			module,
+			parent: options.parent ?? null,
+			mode,
+			startYear,
+			endYear,
+			unreducedRunoffMm3: unreduced,
+			rainfallMm: rain.rainfallMm,
+			evaporation: { potentialMm: result.diagnostics.potentialEvaporationMm!.values, actualMm: result.diagnostics.actualEvaporationMm!.values }
+		};
+		const out = reduce(reductionInput);
 		messages.push(...out.messages.map((m) => (m.module ? m : { ...m, module: ref })));
 		if (out.reductionMm3.values.length !== n) fail(`RU ${module.number}: a streamflow reduction returned ${out.reductionMm3.values.length} months; the run has ${n}`);
 		out.reductionMm3.values.forEach((v, i) => {

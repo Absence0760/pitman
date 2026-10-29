@@ -408,12 +408,13 @@ export function samiAbstractionMm(
  * runoff (its surface part), groundwater outflow (GWBF_net + QLAG, TT 689
  * p.181–182 "groundwater outflows" = baseflow + interflow), paved flow,
  * Pitman S, aquifer storage, aquifer recharge (AQRECH) and interflow
- * (QLAG). Flows in million m³/month; `RunoffDiagnostics` has no slot for
+ * (QLAG). `areaKm2` is L.002, or the area per month when it changes
+ * (R6-P1). Flows in million m³/month; `RunoffDiagnostics` has no slot for
  * baseflow or transmission loss alone (R6-R2): they stay in `SamiSimulation`.
  */
-export function samiDiagnostics(sim: SamiSimulation, areaKm2: number, startYear: HydroYear): RunoffDiagnostics {
-	const toMm3 = (mm: number) => (mm * areaKm2) / 1000;
-	const mm3 = (f: (m: SamiMonth, i: number) => number): MonthlySeries => ({ startYear, values: sim.months.map((m, i) => toMm3(f(m, i))), unit: 'Mm3' });
+export function samiDiagnostics(sim: SamiSimulation, areaKm2: number | readonly number[], startYear: HydroYear): RunoffDiagnostics {
+	const toMm3 = (mm: number, i: number) => (mm * (typeof areaKm2 === 'number' ? areaKm2 : areaKm2[i]!)) / 1000;
+	const mm3 = (f: (m: SamiMonth, i: number) => number): MonthlySeries => ({ startYear, values: sim.months.map((m, i) => toMm3(f(m, i), i)), unit: 'Mm3' });
 	const mm = (f: (m: SamiMonth) => number): MonthlySeries => ({ startYear, values: sim.months.map(f), unit: 'mm' });
 	return {
 		netRunoff: mm3((m) => m.runoff),

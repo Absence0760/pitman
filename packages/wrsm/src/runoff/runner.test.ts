@@ -5,7 +5,7 @@ import type { ReductionInput, StreamflowReduction } from '../landuse/contract.js
 import type { Monthly12, PitmanParameters, RainfallSeries, RunoffModule, SamiParameters } from '../types.js';
 import { PitmanRunError, runRunoffModule, simulateModuleRunoff, runoffModuleRainfall } from './pitman.js';
 import { forestReduction } from '../landuse/forest.js';
-import { ALIEN_REDUCTION_NOT_WIRED, SAMI_PARTS, SAMI_PARTS_NOT_WIRED, SFR_TARGETS, STREAMFLOW_REDUCTIONS } from './wiring.js';
+import { SAMI_PARTS, SAMI_PARTS_NOT_WIRED, SFR_TARGETS, STREAMFLOW_REDUCTIONS } from './wiring.js';
 
 // runRunoffModule with Sami (groundwater model 2) and streamflow reductions.
 // Synthetic fixtures only (issue #3 rule 2).
@@ -69,10 +69,11 @@ const ran: RainfallSeries = {
 const period = { startYear: 2001, endYear: 2003 };
 
 describe('wiring (src/runoff/wiring.ts)', () => {
-	it('ships with Sami not wired, afforestation wired and alien vegetation a placeholder until integration', () => {
+	it('ships with Sami not wired until integration, and both land-use models wired', () => {
 		expect(SAMI_PARTS).toBe(SAMI_PARTS_NOT_WIRED);
-		expect(STREAMFLOW_REDUCTIONS).toEqual([forestReduction, ALIEN_REDUCTION_NOT_WIRED]);
-		expect(SFR_TARGETS).toEqual({});
+		expect(STREAMFLOW_REDUCTIONS).toHaveLength(2);
+		expect(STREAMFLOW_REDUCTIONS[0]).toBe(forestReduction);
+		expect(typeof SFR_TARGETS.alien).toBe('function');
 		expect(() => SAMI_PARTS_NOT_WIRED.aquiferInit({} as never)).toThrow(/not wired/);
 	});
 
@@ -220,3 +221,45 @@ describe('simulateModuleRunoff (the re-run hook for land-use models)', () => {
 	});
 });
 
+
+describe('runRunoffModule: evaporation diagnostics and per-month overrides (R6-V10, R6-P1)', () => {
+	it('reports actual (E + interception) and potential (FF·S-pan·pan factor) evaporation, classic and Sami', () => {
+		for (const m of [module({ groundwaterModel: 0 }), module()]) {
+			const r = runRunoffModule(m, ran, { ...period, samiParts: fakeSamiParts() });
+			const pitman = r.sami ? r.sami.pitman : null;
+			const FF = m.groundwaterModel === 2 ? samiSet.FF : classic.FF;
+			expect(r.diagnostics.potentialEvaporationMm!.values[13]).toBeCloseTo(FF * (120 + 10) * 0.9, 12);
+			if (pitman) expect(r.diagnostics.actualEvaporationMm!.values[5]).toBe(pitman.months[5]!.E + pitman.months[5]!.interception);
+			expect(r.diagnostics.actualEvaporationMm!.values).toHaveLength(36);
+		}
+	});
+
+	it('hands the reductions the run evaporation', () => {
+		let seen: unknown;
+		const peek: StreamflowReduction = (inp) => ((seen = (inp as { evaporation?: unknown }).evaporation), { reductionMm3: { ...inp.unreducedRunoffMm3, values: inp.unreducedRunoffMm3.values.map(() => 0) }, messages: [] });
+		const r = runRunoffModule(module({ groundwaterModel: 0 }), ran, { ...period, reductions: [peek] });
+		expect(seen).toEqual({ potentialMm: r.diagnostics.potentialEvaporationMm!.values, actualMm: r.diagnostics.actualEvaporationMm!.values });
+	});
+
+	it('takes a per-month impervious fraction instead of the paved table', () => {
+		const ai = new Array<number>(36).fill(0).map((_, i) => (i < 12 ? 0 : 0.25));
+		const withTable = module({ groundwaterModel: 0, paved: { fraction: [{ year: 2001, value: 0.9 }] } });
+		const r = runRunoffModule(withTable, ran, { ...period, imperviousFraction: ai });
+		const pm3 = r.diagnostics.pavedFlow!.values;
+		expect(pm3[3]).toBe(0);
+		expect(pm3[15]).toBeCloseTo((0.25 * (ran.rows[1]!.months[3] / 100) * 700 * 120) / 1000, 12);
+		expect(() => runRunoffModule(withTable, ran, { ...period, imperviousFraction: [0.1] })).toThrow(/imperviousFraction has 1 months; the run has 36/);
+		expect(() => runRunoffModule(withTable, ran, { ...period, imperviousFraction: ai.map(() => 1.5) })).toThrow(/outside 0–1/);
+	});
+
+	it('converts depth to volume on a per-month area', () => {
+		const area = new Array<number>(36).fill(0).map((_, i) => (i < 24 ? 120 : 60));
+		for (const m of [module({ groundwaterModel: 0 }), module()]) {
+			const base = runRunoffModule(m, ran, { ...period, samiParts: fakeSamiParts() });
+			const half = runRunoffModule(m, ran, { ...period, samiParts: fakeSamiParts(), activeAreaKm2: area });
+			expect(half.outflow.values[10]).toBe(base.outflow.values[10]);
+			expect(half.outflow.values[30]).toBeCloseTo(base.outflow.values[30]! / 2, 12);
+			expect(half.diagnostics.pavedFlow!.values[30]).toBeCloseTo(base.diagnostics.pavedFlow!.values[30]! / 2, 12);
+		}
+	});
+});

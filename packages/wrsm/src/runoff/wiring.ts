@@ -3,15 +3,14 @@
  *
  * `runRunoffModule` (and through it `runNetwork` and `run`) uses these
  * defaults when its caller injects nothing. At integration the orchestrator
- * swaps the marked lines below for the real parts:
+ * swaps the Sami line below for the real parts:
  *
  *   SAMI_PARTS           → { soilPass: samiSoilPass, interflow: samiInterflow,
  *                            aquiferInit: samiAquiferInit, aquiferStep: samiAquiferStep,
  *                            makeAquiferStep: makeSamiAquiferStep }
  *                          (`groundwater/sami/soil.ts`, agent 6.1; `aquifer.ts`, agent 6.2)
- *   STREAMFLOW_REDUCTIONS → [forestReduction (wired), alien free-module reduction]
- *                          (`landuse/forest.ts`, agent 6.3; `landuse/alien.ts`, agent 6.4)
- *   SFR_TARGETS          → { alien: <alien ChildTargetModel> } (agent 6.4)
+ *   STREAMFLOW_REDUCTIONS   [forestReduction, alienVegetationReduction]  (wired)
+ *   SFR_TARGETS             { alien: alienTargetModel() }                (wired)
  *
  * Nothing else needs to change: tests that want fakes inject their own.
  */
@@ -19,6 +18,7 @@
 import type { SamiRunParts } from '../groundwater/sami/index.js';
 import type { StreamflowReduction } from '../landuse/contract.js';
 import { forestReduction } from '../landuse/forest.js';
+import { alienTargetModel, alienVegetationReduction } from '../landuse/alien.js';
 import type { ChildTargetModel } from '../landuse/sfr.js';
 
 function notWired(part: string): never {
@@ -42,23 +42,17 @@ export const SAMI_PARTS_NOT_WIRED: SamiRunParts = Object.freeze({
 /** The Sami parts a run uses when none are injected. */
 export const SAMI_PARTS: SamiRunParts = SAMI_PARTS_NOT_WIRED;
 
+// Lambdas, not the functions themselves: alien.ts and this file are in an import cycle through
+// runoff/pitman.ts, so nothing here may touch an alien.ts binding while modules load.
+const alienReduction: StreamflowReduction = (input) => alienVegetationReduction(input);
+const alienChildTargets: ChildTargetModel = (input) => alienTargetModel()(input);
+
 /**
- * Placeholder for the free-module alien-vegetation reduction (agent 6.4):
- * no reduction, and a warning when the module has alien vegetation in a mode
- * that keeps it.
+ * The streamflow reductions a free module (not in an SFR group) gets when
+ * none are injected: afforestation (agent 6.3) and alien vegetation (6.4,
+ * TT 689 p.140; it reads the run's evaporation, R6-V10).
  */
-export const ALIEN_REDUCTION_NOT_WIRED: StreamflowReduction = ({ module, mode, unreducedRunoffMm3 }) => ({
-	reductionMm3: { ...unreducedRunoffMm3, values: unreducedRunoffMm3.values.map(() => 0) },
-	messages:
-		mode.kind !== 'natural' && module.alienVegetation && module.alienVegetation.areaKm2.length > 0
-			? [{ level: 'warning', module: { type: 'RU', number: module.number }, text: `RU ${module.number}: alien vegetation not modelled yet (Round 6 integration); ignored` }]
-			: []
-});
+export const STREAMFLOW_REDUCTIONS: readonly StreamflowReduction[] = [forestReduction, alienReduction];
 
-// WIRING POINT (reductions): replace ALIEN_REDUCTION_NOT_WIRED with agent 6.4's free-module reduction.
-/** The streamflow reductions a free module (not in an SFR group) gets when none are injected. */
-export const STREAMFLOW_REDUCTIONS: readonly StreamflowReduction[] = [forestReduction, ALIEN_REDUCTION_NOT_WIRED];
-
-// WIRING POINT (SFR alien children): add `alien: <6.4's ChildTargetModel>`.
 /** Child target models for the SFR mechanism (`runSfrGroup`); afforestation defaults inside `landuse/sfr.ts`. */
-export const SFR_TARGETS: { readonly forest?: ChildTargetModel; readonly alien?: ChildTargetModel } = {};
+export const SFR_TARGETS: { readonly forest?: ChildTargetModel; readonly alien?: ChildTargetModel } = { alien: alienChildTargets };

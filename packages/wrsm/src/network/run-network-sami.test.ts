@@ -4,6 +4,7 @@ import type { ReductionInput, StreamflowReduction } from '../landuse/contract.js
 import type { Module, NetworkBundle, RunMode, RunoffModule } from '../types.js';
 import { fakeSimulators } from './fake-simulators.js';
 import { runNetwork } from './run-network.js';
+import { samiOnArea } from './sfr-groups.js';
 import { syntheticBundle } from './synthetic-bundle.js';
 
 // The network runner with Sami modules and streamflow reductions (Round 6
@@ -90,5 +91,27 @@ describe('runNetwork with SFR groups (landuse/sfr.ts)', () => {
 		result.routeFlows[3]!.values.forEach((v, i) => expect(v).toBeCloseTo(free.routeFlows[3]!.values[i]!, 9));
 		const s = result.runoff![3]!.soilMoistureMm!.values;
 		s.forEach((v, i) => expect(v).toBeCloseTo(free.runoff![3]!.soilMoistureMm!.values[i]!, 9));
+	});
+});
+
+describe('the SFR simulator (network/sfr-groups.ts)', () => {
+	it('keeps the groundwater evaporation area a share of the catchment on a smaller area (R6-R5)', () => {
+		const bundle = syntheticBundle();
+		const m = { ...asSami(ru(bundle, 3)), areaKm2: 25 };
+		const scaled = samiOnArea(m, 100);
+		expect(scaled.sami!.gwEvaporationArea).toBeCloseTo((m.sami!.gwEvaporationArea * 25) / 100, 12);
+		expect(samiOnArea({ ...m, areaKm2: 100 }, 100)).toEqual({ ...m, areaKm2: 100 });
+		expect(samiOnArea(ru(bundle, 3), 100)).toBe(ru(bundle, 3));
+	});
+
+	it("runs a paved parent on its active area with AI·AREA/active (R6-P1)", () => {
+		const bundle = syntheticBundle();
+		const parent: RunoffModule = { ...ru(bundle, 3), sfrChildren: [1], paved: { fraction: [{ year: 1990, value: 0.1 }] } };
+		const child: RunoffModule = { ...ru(bundle, 1), afforestation: { algorithm: 4, algorithmInFile: true, areaKm2: [{ year: 1990, value: parent.areaKm2 / 2 }] } };
+		const result = runNetwork(replace(bundle, parent, child), { kind: 'historical' }, { ...fakeSimulators(), sfr: { targets: { forest: () => ({ targets: null, label: 'test', messages: [] }) } } });
+		// Paved km² are conserved: 0.1·AREA over the remaining half of the area is AI 0.2 there, and the child has none.
+		const pavedMm3 = result.runoff![3]!.pavedFlow!.values;
+		const rainMm = (bundle.rainfall[parent.rainfallFile.toUpperCase()] ?? Object.values(bundle.rainfall)[0]!).rows[0]!.months[2] / 100 * parent.mapMm;
+		expect(pavedMm3[2]).toBeCloseTo((0.1 * parent.areaKm2 * rainMm) / 1000, 9);
 	});
 });
