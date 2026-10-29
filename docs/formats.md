@@ -251,7 +251,7 @@ The read and write formats are the widths WRSM2000 writes, measured over all 244
 | L.008 | NYRF > 0 | NYRF × afforested area | `NYRF(1X,F0.1)` | km² |
 | L.009 | NYRF > 0 and v ≥ 1 | %pine, rotation, %eucalyptus, rotation, %wattle, rotation | `F6.2,I4,F7.2,I4,F7.2,I4` | %; years |
 | L.010 | NYRF > 0 and v ≥ 1 | optimal %; user SFR on MAR; user SFR on low flows | `F7.2,F8.2,F8.2` (**all three always written** [F]) | %. The manual says vars 2–3 exist only for a user-defined child (D-3) |
-| L.011 | v ≥ 1 | NYRA; VEGETATIONALG; riparian area | `2I4,F7.2` | Algorithm 0 none, 1 CSIR, 2 riparian. Riparian area as written in the file, units not stated **[U]** U-21 |
+| L.011 | v ≥ 1 | NYRA; VEGETATIONALG; riparian area | `2I4,F7.2` | Algorithm 0 none, 1 CSIR, 2 riparian. Riparian area: % of the alien vegetation area in the riparian zone (U-21, resolved Round 6) |
 | L.012 | NYRA > 0 | NYRA × year | `NYRA(1X,I4)` | |
 | L.013 | NYRA > 0 | NYRA × alien area | `NYRA(1X,F0.1)` | km² |
 | L.014 | NYRA > 0 | %tall trees, age, %medium trees, age, %tall shrubs, age | `F6.2,5F7.2` | %; years |
@@ -789,7 +789,7 @@ Each unknown has a best guess and the evidence for it. Later rounds resolve thes
 | U-18 | Lahey F-format rounding at ties, negative zero, float32 vs float64 at print | Half away from zero on the float32 value; `0.00` | Not testable without the program; affects `.ANS` byte-identity only |
 | U-19 | Hydrological-year label (row *Y* = Oct *Y* to Sep *Y*+1) | As stated, high confidence | [§10.1](#101-hydrological-year-convention) |
 | U-20 | `.MTS` series codes other than `ncr`/`dfl`; the annual column in `RV*.ANS` | Short codes per series; sum as for flows | Only `ncr` observed; `dfl` in TT 689 p.198 |
-| U-21 | Units of RU L.011 riparian area | km² | Values 0.00–0.60 alongside alien areas of a few km² |
+| U-21 | Units of RU L.011 riparian area | **Resolved (Round 6):** % of the alien vegetation area (TT 691 §7.4.2 RipVegAreaPerc; `docs/theory/alien.md`) | Values 0.00–0.60 alongside alien areas of a few km² |
 | U-22 | Whether WRSM2000 accepts LF-only files | Probably (Fortran formatted reads usually tolerate both) | All files are CRLF; we always write CRLF, so this doesn't matter for output |
 | U-23 | How WRSM2000 reads a `.RAN` field with no decimal point | As `F7.0` (`12` = 12 %), provisional | TT 689 gives no read format; one hand-made reference file is affected |
 

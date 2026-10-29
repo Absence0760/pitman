@@ -281,9 +281,9 @@ export interface AlienVegetation {
 	/** L.011 v2: algorithm. */
 	readonly algorithm: AlienVegetationAlgorithm;
 	/**
-	 * L.011 v3: "area of catchment covered by riparian vegetation" (F7.2).
-	 * Unit not stated: TT 691 §7.4.2 calls the matching variable
-	 * RipVegAreaPerc, which suggests a percentage of the alien area.
+	 * L.011 v3: "area of catchment covered by riparian vegetation" (F7.2):
+	 * the **% of the alien vegetation area** in the riparian zone (TT 691
+	 * §7.4.2 RipVegAreaPerc; U-21 resolved in Round 6, docs/theory/alien.md).
 	 */
 	readonly riparianArea: number;
 	/** L.011 v1 (NYRA) + L.012 years + L.013 alien vegetation area, km² (unit inferred from the afforestation analogue). */
@@ -1063,6 +1063,10 @@ export interface RunoffDiagnostics {
 	readonly pavedFlow?: MonthlySeries;
 	/** Pitman S, soil moisture storage, mm. */
 	readonly soilMoistureMm?: MonthlySeries;
+	/** Actual evaporation (interception + soil evaporation), mm/month: the riparian deduction needs it (TT 690 eqs. 12.10–12.12, R6-V10). */
+	readonly actualEvaporationMm?: MonthlySeries;
+	/** Potential evaporation (PE = FF·S-pan·pan factor), mm/month. */
+	readonly potentialEvaporationMm?: MonthlySeries;
 	/** Sami aquifer storage, mm. */
 	readonly aquiferStorageMm?: MonthlySeries;
 	/** Aquifer recharge, mm. */
