@@ -42,6 +42,18 @@ export function initialEdits(fit: ExtensionFit): FactorEdit[] {
 }
 
 /**
+ * Edits that start from saved factors (re-extending, R4-E2): a month whose
+ * saved factor differs from the computed one starts as typed, with its note.
+ */
+export function editsFromSaved(fit: ExtensionFit, used: readonly number[], notes: readonly string[] = []): FactorEdit[] {
+	return fit.factors.map((f, k) => {
+		const value = used[k];
+		if (value === undefined || value === f.computed) return resetEdit(f);
+		return { text: formatFactor(value), typed: true, confirmedZero: value === 0, note: notes[k] ?? '' };
+	});
+}
+
+/**
  * A typed factor as a number: a decimal point or a decimal comma (as South
  * African locales write it), optional spaces; `NaN` for anything else.
  */
@@ -66,8 +78,6 @@ export interface FactorRow {
 	readonly message: string;
 	/** The apply is blocked by this month until the user acts. */
 	readonly blocking: boolean;
-	/** Overlap bias with the value in use, `100·(f·p̄ − r̄)/r̄`; `null` when `r̄` is 0 or the value is unusable. */
-	readonly biasInUsePct: number | null;
 }
 
 /** Why a computed factor is what it is, when the engine says nothing itself. */
@@ -99,7 +109,9 @@ export function factorRows(fit: ExtensionFit, edits: readonly FactorEdit[], chec
 		let message = '';
 		let blocking = false;
 		if (!usable) {
-			message = Number.isFinite(value) ? 'Not allowed: a factor must be from 0 to 5.' : 'Type a number from 0 to 5.';
+			// R4-E1: a computed factor above the limit is never capped; the user edits it or narrows the overlap.
+			if (!edit.typed) message = 'The computed factor is above 5, which the engine won’t accept: type a value, or narrow the overlap.';
+			else message = Number.isFinite(value) ? 'Not allowed: a factor must be from 0 to 5.' : 'Type a number from 0 to 5.';
 			blocking = true;
 		} else if (verdict === 'confirmZero') {
 			message = `Every appended ${month} will have no rain.`;
@@ -111,7 +123,6 @@ export function factorRows(fit: ExtensionFit, edits: readonly FactorEdit[], chec
 			message = 'The overlap is too short to compute this factor: type a value, or widen the overlap.';
 			blocking = true;
 		}
-		const biasInUsePct = inUse !== null && f.meanFilePct > 0 ? (100 * (inUse * f.meanChirpsPct - f.meanFilePct)) / f.meanFilePct : null;
 		return {
 			index,
 			month,
@@ -121,8 +132,7 @@ export function factorRows(fit: ExtensionFit, edits: readonly FactorEdit[], chec
 			check: verdict,
 			edited: inUse !== null && inUse !== f.computed,
 			message,
-			blocking,
-			biasInUsePct
+			blocking
 		};
 	});
 }

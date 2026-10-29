@@ -1,7 +1,7 @@
 import type { NetworkBundle } from '@pitman/wrsm';
 import { describe, expect, it } from 'vitest';
 import { syntheticBundle } from '#lib/network/synthetic.js';
-import { originalSeries, rainfallFiles, usersLabel } from './files.js';
+import { rainfallFiles, usersLabel } from './files.js';
 import { extensionOf } from './fixtures.test-helper.js';
 
 
@@ -27,16 +27,5 @@ describe('rainfallFiles', () => {
 		const sya = rainfallFiles(bundle)[0];
 		expect(sya?.extension?.originalEndYear).toBe(1995);
 		expect(sya?.originalEndYear).toBe(1995);
-	});
-});
-
-describe('originalSeries', () => {
-	it('cuts an extended file back to its original record, keeping its source', () => {
-		const series = syntheticBundle().rainfall['SYA.RAN']!;
-		const withSource = { ...series, source: { lines: ['x'], finalNewline: true } };
-		const cut = originalSeries(withSource, 1995);
-		expect(cut.rows.map((r) => r.year)).toEqual([1990, 1991, 1992, 1993, 1994, 1995]);
-		expect(cut.source).toBe(withSource.source);
-		expect(originalSeries(series, 1999)).toBe(series);
 	});
 });

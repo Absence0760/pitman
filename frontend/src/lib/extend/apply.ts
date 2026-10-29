@@ -12,10 +12,11 @@ import { rainfallFiles } from './files.js';
 /** Most years a network may simulate (TT 691 §12.6, L.012). */
 export const MAX_RUN_YEARS = 150;
 
-/** The bundle with `key`'s series replaced and the extension recorded in the sidecar. */
-export function withExtension<B extends NetworkBundle>(bundle: B, key: string, result: ExtensionResult): B {
+/** The bundle with `key`'s series replaced and the extension recorded in the sidecar, stamped `createdAt` (the engine reads no clock). */
+export function withExtension<B extends NetworkBundle>(bundle: B, key: string, result: ExtensionResult, now: Date = new Date()): B {
 	const base: Sidecar = bundle.sidecar ?? { schema: 'pitman-sidecar', schemaVersion: 1 };
-	const sidecar: Sidecar = { ...base, rainfallExtensions: { ...(base.rainfallExtensions ?? {}), [key]: result.extension } };
+	const extension = { ...result.extension, createdAt: now.toISOString() };
+	const sidecar: Sidecar = { ...base, rainfallExtensions: { ...(base.rainfallExtensions ?? {}), [key]: extension } };
 	return { ...bundle, rainfall: { ...bundle.rainfall, [key]: result.series }, sidecar };
 }
 

@@ -23,7 +23,7 @@ describe('scatterPoints', () => {
 	});
 
 	it('leaves out a missing CHIRPS month', () => {
-		const withGap = workedFit({ chirpsPct: fit.chirpsPct.map((y) => (y.year === 1982 ? { ...y, months: y.months.map((v, k) => (k === 4 ? null : v)) as typeof y.months } : y)) });
+		const withGap = workedFit({ chirpsPct: fit.chirpsPct.map((y) => (y.year === 1982 ? { ...y, months: y.months.map((v, k) => (k === 4 ? null : v)) as unknown as typeof y.months } : y)) });
 		expect(scatterPoints(withGap, WORKED_RAN, computed, false)).toHaveLength(47);
 	});
 });

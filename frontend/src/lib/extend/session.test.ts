@@ -1,7 +1,7 @@
 import type { FitOptions, Monthly12 } from '@pitman/wrsm';
 import { describe, expect, it } from 'vitest';
-import { EngineUnavailableError, extensionEngine } from './engine.js';
-import { WORKED_CHIRPS, WORKED_RAN, fakeEngine, workedFit } from './fixtures.test-helper.js';
+import { extensionEngine } from './engine.js';
+import { CHIRPS_MAP_MM, WORKED_CHIRPS, WORKED_RAN, fakeEngine, workedFit } from './fixtures.test-helper.js';
 import { checkWindow, fitExtension, missingInOverlap, partialYear, previewExtension, rowTotal, windowYears } from './session.js';
 
 const whole = { startYear: 1981, endYear: 2009 };
@@ -21,10 +21,14 @@ describe('fitExtension', () => {
 		expect(fitExtension(engine, WORKED_RAN, WORKED_CHIRPS)).toEqual({ ok: false, error: 'The file ends before 1981/82: there is no overlap with CHIRPS.' });
 	});
 
-	it('says plainly when the method is not in this build (the placeholder engine)', () => {
-		expect(extensionEngine.available).toBe(false);
+	it('is wired to the engine: the worked example fits with a 4-year overlap, too short to compute factors', () => {
 		const outcome = fitExtension(extensionEngine, WORKED_RAN, WORKED_CHIRPS);
-		expect(outcome).toEqual({ ok: false, error: new EngineUnavailableError().message });
+		if (!outcome.ok) throw new Error(outcome.error);
+		expect(outcome.value.overlap).toEqual({ startYear: 1981, endYear: 1984, window: 'default' });
+		expect(outcome.value.chirpsMapMm).toBeCloseTo(CHIRPS_MAP_MM, 1);
+		expect(outcome.value.factors.every((f) => f.flag === 'shortOverlap')).toBe(true);
+		expect(outcome.value.appendable).toEqual({ firstYear: 1985, lastYear: 1985 });
+		expect(outcome.value.stoppedAt).toEqual({ year: 1986, month: 4 });
 	});
 });
 

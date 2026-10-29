@@ -5,11 +5,11 @@
  * functions; it does no fitting of its own.
  */
 
+import { HYDRO_MONTHS, applyRainfallExtension, checkFactor, stripExtension } from '@pitman/wrsm';
 import type {
 	ChirpsMonth,
 	ChirpsMonthly,
 	ExtensionFit,
-	FactorCheck,
 	FactorFit,
 	FitOptions,
 	Monthly12,
@@ -135,61 +135,53 @@ export function workedFit(overrides: Partial<ExtensionFit> = {}): ExtensionFit {
 	};
 }
 
-/** extend.md § Step 6, for the fake. */
-export function fakeCheck(value: number): FactorCheck {
-	if (!Number.isFinite(value) || value < 0 || value > 5) return 'refused';
-	if (value === 0) return 'confirmZero';
-	if (value < 0.5 || value > 2) return 'warn';
-	return 'ok';
-}
+/** The engine's own check (extend.md § Step 6). */
+export const fakeCheck = checkFactor;
 
-const round2 = (v: number) => Math.sign(v) * Math.round(Math.abs(v) * 100) / 100;
-
-/** A fake engine: `fit` returns `fit` (narrowed to the window when given), `apply` appends `round(f·p, 2)` for the appendable years. */
+/**
+ * An engine whose `fit` returns `fit` (narrowed to the window when given) and
+ * whose `statistics` returns `fit.after`; `apply`, `check` and `refit`'s strip
+ * are the engine's own.
+ */
 export function fakeEngine(fit: ExtensionFit = workedFit(), calls: { fit: (FitOptions | undefined)[] } = { fit: [] }): ExtensionEngine {
 	return {
-		available: true,
-		check: fakeCheck,
+		check: checkFactor,
 		fit: (_ran, _chirps, options) => {
 			calls.fit.push(options);
 			return options?.overlap ? { ...fit, overlap: { ...options.overlap, window: 'user' } } : fit;
 		},
-		apply: (ran, _chirps, f, factors, provenance) => {
-			const appended = [];
-			for (let y = f.appendable?.firstYear ?? 1; y <= (f.appendable?.lastYear ?? 0); y++) {
-				const p = f.chirpsPct.find((r) => r.year === y)?.months;
-				if (!p) break;
-				appended.push({ year: y, months: twelve((k) => round2(factors[k] * (p[k] ?? 0))) as Monthly12 });
-			}
-			const last = ran.rows[ran.rows.length - 1]?.year ?? 0;
-			return {
-				series: { ...ran, rows: [...ran.rows, ...appended] },
-				extension: {
-					file: provenance.file.toUpperCase(),
-					quaternary: provenance.quaternaries.join(','),
-					chirps: { dataset: 'CHIRPS v3 rnl (final)', firstMonth: '1981-10', lastMonth: '1986-09', chirpsMapMm: f.chirpsMapMm, fetchedOn: provenance.accessed },
-					overlap: { startYear: f.overlap.startYear, endYear: f.overlap.endYear },
-					computedFactors: f.factors.map((x) => x.computed) as unknown as Monthly12,
-					appliedFactors: factors,
-					...(provenance.factorNotes && Object.keys(provenance.factorNotes).length > 0 && { factorNotes: provenance.factorNotes }),
-					appendedYears: { first: last + 1, last: last + appended.length },
-					originalEndYear: last
-				}
-			};
-		}
+		apply: applyRainfallExtension,
+		statistics: () => fit.after,
+		refit: (series, _chirps, extension) => ({
+			ran: stripExtension(series, extension),
+			fit,
+			factors: extension.factors.map((f) => f.used) as unknown as Monthly12
+		})
 	};
 }
 
-/** A sidecar entry for a file Pitman extended before. */
+/** A sidecar entry for a file Pitman extended before, from `originalEndYear + 1` to `last`; February's factor was edited. */
 export function extensionOf(file: string, originalEndYear: number, last: number): RainfallExtension {
 	return {
+		method: 'extend-1',
 		file,
-		quaternary: '',
-		chirps: { dataset: 'CHIRPS v3 rnl (final)', firstMonth: '1981-10', lastMonth: '2025-09', chirpsMapMm: 452.8, fetchedOn: '2026-10-28' },
-		overlap: { startYear: 1990, endYear: originalEndYear },
-		computedFactors: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-		appliedFactors: [1, 1, 1, 1, 1, 1, 1, 1.2, 1, 1, 1, 1],
-		appendedYears: { first: originalEndYear + 1, last },
-		originalEndYear
+		area: { quaternaries: [], areaKm2: 812.4, cells: 41, weightRemovedPct: 0 },
+		chirps: {
+			product: 'CHIRPS v3 rnl (final)',
+			copy: 'local synthetic copy',
+			manifestRevision: 17,
+			finalThrough: '2026-09-30',
+			doi: '10.15780/G2JQ0P',
+			accessed: '2026-10-28'
+		},
+		chirpsMap: { mm: 452.8, years: [1981, 2025] },
+		overlap: { from: 1990, to: originalEndYear, window: 'default' },
+		factors: twelve((k) => {
+			const entry = { month: HYDRO_MONTHS[k] as string, computed: 1, used: k === 4 ? 1.2 : 1, note: k === 4 ? 'checked against a gauge' : '' };
+			return k === 4 ? { ...entry, edited: true as const } : entry;
+		}),
+		appended: { from: originalEndYear + 1, to: last, rows: last - originalEndYear },
+		originalEndYear,
+		stoppedAt: null
 	};
 }

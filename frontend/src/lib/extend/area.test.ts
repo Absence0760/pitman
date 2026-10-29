@@ -88,7 +88,7 @@ describe('parseArea', () => {
 		['an empty collection', { type: 'FeatureCollection', features: [] }, /no features/],
 		['an open ring', poly([[20, -30], [21, -30], [21, -29], [20, -29]]), /not closed/],
 		['a ring of three positions', poly([[20, -30], [21, -30], [20, -30]]), /at least 4 positions/],
-		['a non-number', poly([[20, -30], [21, 'x'], [21, -29], [20, -30]]), /position 2: a position must be \[longitude, latitude\]/],
+		['a non-number', { type: 'Polygon', coordinates: [[[20, -30], [21, 'x'], [21, -29], [20, -30]]] }, /position 2: a position must be \[longitude, latitude\]/],
 		['projected coordinates', poly(rect(500000, 6600000, 510000, 6610000)), /look projected/],
 		['swapped longitude and latitude', poly(rect(-30, 20, -29, 21)), /look swapped/],
 		['outside the copy', poly(rect(42, -30, 43, -29)), /outside the CHIRPS copy/],
@@ -105,7 +105,7 @@ describe('parseArea', () => {
 
 	it('refuses more vertices than it sends', () => {
 		const n = MAX_AREA_VERTICES + 10;
-		const ring = Array.from({ length: n }, (_, i) => [20 + 0.5 * Math.cos((2 * Math.PI * i) / n), -30 + 0.5 * Math.sin((2 * Math.PI * i) / n)]);
+		const ring: number[][] = Array.from({ length: n }, (_, i) => [20 + 0.5 * Math.cos((2 * Math.PI * i) / n), -30 + 0.5 * Math.sin((2 * Math.PI * i) / n)]);
 		ring.push(ring[0] as number[]);
 		expect(refused(poly(ring))).toMatch(/vertices; at most/);
 	});

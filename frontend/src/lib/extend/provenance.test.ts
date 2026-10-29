@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { WORKED_CHIRPS, extensionOf, workedFit } from './fixtures.test-helper.js';
-import { chirpsFacts, extensionLabel, fitFacts, previousExtension } from './provenance.js';
+import { chirpsFacts, extensionLabel, fitFacts, previousExtension, revisionNote } from './provenance.js';
 
 describe('provenance (rule 8)', () => {
 	it('names the product, revision, final day, cells, weight removed, area and fetch date', () => {
@@ -29,6 +29,8 @@ describe('provenance (rule 8)', () => {
 	it('describes an earlier extension', () => {
 		const ext = extensionOf('SYA.RAN', 1999, 2004);
 		expect(extensionLabel(ext)).toBe('Extended to 2004/05 (CHIRPS v3 rnl (final), fetched 2026-10-28)');
-		expect(previousExtension(ext)).toMatch(/2000\/01 to 2004\/05 .* 1 factor edited\)\. The original record ends 1999\/00/);
+		expect(previousExtension(ext)).toMatch(/2000\/01 to 2004\/05 .*revision 17.* 1 factor edited\)\. The original record ends 1999\/00/);
+		expect(revisionNote(ext, { ...WORKED_CHIRPS, revision: 17 })).toBe('');
+		expect(revisionNote(ext, { ...WORKED_CHIRPS, revision: 18 })).toMatch(/revision 18; the earlier extension used revision 17/);
 	});
 });

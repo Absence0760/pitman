@@ -79,15 +79,3 @@ export function usersLabel(users: readonly RainfallUser[]): string {
 	if (users.length === 0) return 'no module';
 	return users.map((u) => `${u.type} ${u.number}${u.name ? ` (${u.name})` : ''}`).join(', ');
 }
-
-/**
- * The series to fit and extend: the original record. A file Pitman extended
- * before is cut back to its original last year, so the appended CHIRPS years
- * never count as the model's own rainfall in a new fit (extending again
- * replaces the old extension). The file's `source` is kept so its original
- * rows are still written back byte for byte.
- */
-export function originalSeries(series: RainfallSeries, originalEndYear: HydroYear): RainfallSeries {
-	if (!series.rows.some((r) => r.year > originalEndYear)) return series;
-	return { ...series, rows: series.rows.filter((r) => r.year <= originalEndYear) };
-}

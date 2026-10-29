@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	blockingMessages,
+	editsFromSaved,
 	factorNotes,
 	factorRows,
 	factorsForDisplay,
@@ -49,14 +50,27 @@ describe('factorRows', () => {
 		expect(rows[0]?.edited).toBe(false);
 	});
 
-	it('uses an edited value and gives its bias', () => {
+	it('uses an edited value', () => {
 		const rows = factorRows(fit, typed(initialEdits(fit), 9, '1,5'), fakeCheck);
 		const jul = rows[9];
 		expect([jul?.inUse, jul?.edited, jul?.check, jul?.message]).toEqual([1.5, true, 'ok', '']);
-		// July: the file's mean is 0.225 and CHIRPS' 0: corrected is 0, so the bias is −100 %.
-		expect(jul?.biasInUsePct).toBeCloseTo(-100, 9);
-		const oct = factorRows(fit, typed(initialEdits(fit), 0, '1'), fakeCheck)[0];
-		expect(oct?.biasInUsePct).toBeCloseTo((100 * (7.233 - 6.025)) / 6.025, 9);
+	});
+
+	it('blocks a computed factor above 5 until it is edited (R4-E1)', () => {
+		const high = workedFit({ factors: fit.factors.map((f, k) => (k === 8 ? { ...f, computed: 6.2 } : f)) as unknown as typeof fit.factors });
+		const rows = factorRows(high, initialEdits(high), fakeCheck);
+		expect([rows[8]?.check, rows[8]?.blocking]).toEqual(['refused', true]);
+		expect(rows[8]?.message).toMatch(/computed factor is above 5.*narrow the overlap/);
+		expect(factorRows(high, typed(initialEdits(high), 8, '2'), fakeCheck)[8]?.blocking).toBe(false);
+	});
+
+	it('starts from saved factors when re-extending (R4-E2)', () => {
+		const used = fit.factors.map((f, k) => (k === 4 ? 1.2 : f.computed));
+		const edits = editsFromSaved(fit, used, ['', '', '', '', 'checked against a gauge']);
+		expect(edits[4]).toEqual({ text: '1.2000', typed: true, confirmedZero: false, note: 'checked against a gauge' });
+		expect(edits[0]?.typed).toBe(false);
+		const rows = factorRows(fit, edits, fakeCheck);
+		expect([rows[4]?.inUse, rows[4]?.edited]).toEqual([1.2, true]);
 	});
 
 	it('refuses what checkFactor refuses, and blocks the apply', () => {

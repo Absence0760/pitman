@@ -15,7 +15,7 @@
 	import { runPeriodOffer, withEndYear, withExtension } from './apply.js';
 	import { extensionEngine, type ExtensionEngine } from './engine.js';
 	import ExtendFile from './ExtendFile.svelte';
-	import { originalSeries, rainfallFiles, usersLabel } from './files.js';
+	import { rainfallFiles, usersLabel } from './files.js';
 	import { extensionLabel, previousExtension } from './provenance.js';
 
 	let {
@@ -41,7 +41,7 @@
 	const files = $derived(rainfallFiles(bundle));
 	let selected = $state<string | undefined>();
 	const entry = $derived(files.find((f) => f.key === selected));
-	const series = $derived(entry ? originalSeries(bundle.rainfall[entry.key] as LoadedBundle['rainfall'][string], entry.originalEndYear) : undefined);
+	const series = $derived(entry ? bundle.rainfall[entry.key] : undefined);
 	let applied = $state<string | undefined>();
 	const offer = $derived(runPeriodOffer(bundle));
 
@@ -77,16 +77,13 @@
 	}
 </script>
 
-<section aria-labelledby="extend-h" class="extend" data-engine={engine.available ? 'ready' : 'unavailable'}>
+<section aria-labelledby="extend-h" class="extend">
 	<h2 id="extend-h">Extend rainfall with CHIRPS</h2>
 	<p>
 		Bring a rainfall file (<code>.RAN</code>, % of MAP) up to the last complete hydrological year: Pitman averages CHIRPS over the area the file represents,
 		fits 12 monthly factors over the years both cover, and appends the corrected CHIRPS years. You see the fit and can change every factor before anything is
 		applied (docs: method A).
 	</p>
-	{#if !engine.available}
-		<p class="warn"><strong>Not yet available:</strong> the extension method is not in this build of Pitman yet. You can upload an area and fetch CHIRPS; the fit follows in a later build.</p>
-	{/if}
 
 	{#if files.length === 0}
 		<p class="note">This network has no rainfall files.</p>
@@ -220,10 +217,6 @@
 	}
 	.note {
 		color: var(--text-muted);
-	}
-	.warn {
-		border-left: 4px solid var(--warning);
-		padding-left: 0.75rem;
 	}
 	code {
 		font-family: ui-monospace, monospace;

@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
 	import { tick } from 'svelte';
-	import type { ChirpsMonthly, ExtensionFit, ExtensionResult, RainfallSeries } from '@pitman/wrsm';
+	import { stripExtension, type ChirpsMonthly, type ExtensionFit, type ExtensionResult, type FitStatistics, type RainfallSeries } from '@pitman/wrsm';
 	import { calendarYear, formatNumber, hydroYearLabel } from '#lib/results/format.js';
 	import { parseArea, parseQuaternaries, type ParsedArea } from './area.js';
 	import { isoDate } from './apply.js';
@@ -20,6 +20,7 @@
 		factorRows,
 		factorsForDisplay,
 		factorsInUse,
+		editsFromSaved,
 		initialEdits,
 		resetEdit,
 		type FactorEdit
@@ -27,7 +28,7 @@
 	import type { RainfallFileEntry } from './files.js';
 	import FactorTable from './FactorTable.svelte';
 	import FitChart from './FitChart.svelte';
-	import { chirpsFacts, fitFacts, previousExtension } from './provenance.js';
+	import { chirpsFacts, fitFacts, previousExtension, revisionNote } from './provenance.js';
 	import { checkWindow, fitExtension, missingInOverlap, partialYear, previewExtension, rowTotal, windowYears, type YearRange } from './session.js';
 
 	let {
@@ -39,7 +40,7 @@
 		onclose
 	}: {
 		entry: RainfallFileEntry;
-		/** The original record to fit and extend (`originalSeries`). */
+		/** The file as it is in the working copy (an earlier extension's rows included; they are stripped before fitting). */
 		series: RainfallSeries;
 		engine: ExtensionEngine;
 		fetchChirps: (area: ParsedArea['geometry'], signal: AbortSignal) => Promise<ChirpsMonthly>;
@@ -47,6 +48,8 @@
 		onclose: () => void;
 	} = $props();
 
+	/** The original record: what is fitted and extended (R4-E2). */
+	const ran = $derived(entry.extension ? stripExtension(series, entry.extension) : series);
 	const p = $derived(`extend-${entry.key.replace(/[^A-Za-z0-9]+/g, '-')}`);
 
 	let area = $state.raw<ParsedArea | undefined>();
@@ -86,14 +89,24 @@
 		factorNotes: factorNotes(rows)
 	});
 	const preview = $derived(
-		fit && chirps && inUse && fit.appendable ? previewExtension(engine, series, chirps, fit, inUse, provenance) : undefined
+		fit && chirps && inUse && fit.appendable ? previewExtension(engine, ran, chirps, fit, inUse, provenance) : undefined
 	);
-	const points = $derived(fit && display ? scatterPoints(fit, series, display, corrected).filter((pt) => scatterMonth === 'all' || pt.month === scatterMonth) : []);
-	const scatter = $derived(fit && display ? scatterChart(fit, series, display, corrected, scatterMonth === 'all' ? null : scatterMonth) : undefined);
+	const points = $derived(fit && display ? scatterPoints(fit, ran, display, corrected).filter((pt) => scatterMonth === 'all' || pt.month === scatterMonth) : []);
+	const scatter = $derived(fit && display ? scatterChart(fit, ran, display, corrected, scatterMonth === 'all' ? null : scatterMonth) : undefined);
 	const means = $derived(fit && display ? meansChart(fit, display) : undefined);
-	const annual = $derived(fit && display ? annualChart(fit, series, display) : undefined);
+	const annual = $derived(fit && display ? annualChart(fit, ran, display) : undefined);
 	const partial = $derived(chirps ? partialYear(chirps) : null);
 	const missing = $derived(fit ? missingInOverlap(fit) : []);
+	/** The engine's statistics with the factors in use, when any is edited (the fit's own `after` uses the computed ones). */
+	const inUseStats = $derived.by((): FitStatistics | null => {
+		if (!fit || !display || !rows.some((r) => r.edited)) return null;
+		try {
+			return engine.statistics(ran, fit, display);
+		} catch {
+			return null;
+		}
+	});
+	const revision = $derived(entry.extension && chirps ? revisionNote(entry.extension, chirps) : '');
 
 	async function focusById(id: string) {
 		await tick();
@@ -164,18 +177,32 @@
 
 	function runFit(window: YearRange | undefined, first = false) {
 		if (!chirps) return;
-		const outcome = fitExtension(engine, series, chirps, window);
-		if (!outcome.ok) {
-			fitError = outcome.error;
+		let next: ExtensionFit;
+		let saved: { used: number[]; notes: string[] } | undefined;
+		try {
+			if (first && entry.extension) {
+				// Re-extending (R4-E2): the recorded overlap, MAP_c and factors.
+				const refit = engine.refit(series, chirps, entry.extension);
+				next = refit.fit;
+				saved = { used: [...refit.factors], notes: entry.extension.factors.map((f) => (f.edited ? f.note : '')) };
+			} else {
+				const outcome = fitExtension(engine, ran, chirps, window);
+				if (!outcome.ok) throw new Error(outcome.error);
+				next = outcome.value;
+			}
+		} catch (error) {
+			fitError = (error as Error).message || 'The fit failed without saying why.';
 			if (first) fit = undefined;
 			void focusById(`${p}-fit-error`);
 			return;
 		}
 		fitError = undefined;
-		const next = outcome.value;
 		if (first || !whole) {
-			whole = { startYear: next.overlap.startYear, endYear: next.overlap.endYear };
-			edits = initialEdits(next);
+			// The window's choices: the whole overlap of a fresh fit (a refit may be on a narrowed, recorded window).
+			const fresh = first && entry.extension ? fitExtension(engine, ran, chirps) : undefined;
+			const wholeFit = fresh?.ok ? fresh.value : next;
+			whole = { startYear: wholeFit.overlap.startYear, endYear: wholeFit.overlap.endYear };
+			edits = saved ? editsFromSaved(next, saved.used, saved.notes) : initialEdits(next);
 		} else {
 			// Keep what the user typed; untouched months follow the new computed factors.
 			edits = next.factors.map((f, i) => (edits[i]?.typed ? (edits[i] as FactorEdit) : resetEdit(f)));
@@ -243,7 +270,7 @@
 		<button type="button" onclick={onclose}>Close</button>
 	</div>
 	<p class="note">
-		Zone {entry.code}, {hydroYearLabel(series.rows[0]?.year ?? entry.firstYear)} to {hydroYearLabel(series.rows[series.rows.length - 1]?.year ?? entry.lastYear)}
+		Zone {entry.code}, {hydroYearLabel(ran.rows[0]?.year ?? entry.firstYear)} to {hydroYearLabel(ran.rows[ran.rows.length - 1]?.year ?? entry.lastYear)}
 		{#if entry.extension}(the original record){/if}.
 	</p>
 	{#if entry.extension}
@@ -322,6 +349,9 @@
 				<div><dt>{fact.label}</dt><dd>{fact.value}</dd></div>
 			{/each}
 		</dl>
+		{#if revision}
+			<p class="warn"><strong>Check:</strong> {revision}</p>
+		{/if}
 		{#if partial}
 			<p class="note">
 				CHIRPS holds {partial.months} month{partial.months === 1 ? '' : 's'} of {hydroYearLabel(partial.year)}; a partial hydrological year is never appended.
@@ -405,11 +435,19 @@
 
 		<div class="scroll">
 			<table class="stats" data-table="fit-statistics">
-				<caption>Fit over the overlap, before (p) and after (f × p, computed factors)</caption>
-				<thead><tr><th scope="col">Measure</th><th scope="col">Before</th><th scope="col">After</th></tr></thead>
+				<caption>Fit over the overlap, before (p) and after (f × p)</caption>
+				<thead>
+					<tr>
+						<th scope="col">Measure</th><th scope="col">Before</th><th scope="col">After, computed factors</th>
+						{#if inUseStats}<th scope="col">With the factors in use</th>{/if}
+					</tr>
+				</thead>
 				<tbody>
-					{#each summaryStats(fit) as row (row.label)}
-						<tr><th scope="row">{row.label}</th><td>{row.before}</td><td>{row.after}</td></tr>
+					{#each summaryStats(fit, inUseStats) as row (row.label)}
+						<tr data-statistic={row.label}>
+							<th scope="row">{row.label}</th><td>{row.before}</td><td>{row.after}</td>
+							{#if inUseStats}<td>{row.inUse}</td>{/if}
+						</tr>
 					{/each}
 				</tbody>
 			</table>
@@ -421,7 +459,7 @@
 					<tr><th scope="col">Month</th><th scope="col">Before</th><th scope="col">After, computed factors</th><th scope="col">With the factors in use</th></tr>
 				</thead>
 				<tbody>
-					{#each monthlyBias(fit, rows) as row (row.month)}
+					{#each monthlyBias(fit, rows, inUseStats) as row (row.month)}
 						<tr><th scope="row">{row.month}</th><td>{row.before}</td><td>{row.afterComputed}</td><td>{row.inUse}</td></tr>
 					{/each}
 				</tbody>

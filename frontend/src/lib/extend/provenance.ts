@@ -5,7 +5,7 @@
  * these beside every chart and table, and the sidecar keeps them.
  */
 
-import type { ChirpsMonthly, ExtensionFit, RainfallExtension } from '@pitman/wrsm';
+import { CHIRPS3_DOI, type ChirpsMonthly, type ExtensionFit, type RainfallExtension } from '@pitman/wrsm';
 import { formatNumber, hydroYearLabel } from '#lib/results/format.js';
 
 export interface Fact {
@@ -29,7 +29,7 @@ export function chirpsFacts(chirps: ChirpsMonthly, accessed: string): Fact[] {
 		{ label: 'Cells', value: `${plural(chirps.cells, 'CHIRPS cell')} (0.05°), area-weighted` },
 		{ label: 'Weight removed (sea or no data)', value: `${formatNumber(chirps.weightRemovedPct, 1)} %` },
 		{ label: 'Fetched', value: accessed },
-		{ label: 'Citation', value: 'Funk et al., CHIRPS, doi:10.15780/G2JQ0P' }
+		{ label: 'Citation', value: `CHIRPS (Climate Hazards Center, UC Santa Barbara), doi:${CHIRPS3_DOI}` }
 	];
 }
 
@@ -50,15 +50,21 @@ export function fitFacts(fit: ExtensionFit): Fact[] {
 
 /** A file's earlier extension, from the sidecar, in one sentence. */
 export function previousExtension(ext: RainfallExtension): string {
-	const edited = ext.appliedFactors.filter((f, k) => f !== ext.computedFactors[k]).length;
+	const edited = ext.factors.filter((f) => f.edited).length;
 	return (
-		`Extended by Pitman from ${hydroYearLabel(ext.appendedYears.first)} to ${hydroYearLabel(ext.appendedYears.last)} with ${ext.chirps.dataset}` +
-		` (fetched ${ext.chirps.fetchedOn}; overlap ${hydroYearLabel(ext.overlap.startYear)} to ${hydroYearLabel(ext.overlap.endYear)}` +
+		`Extended by Pitman from ${hydroYearLabel(ext.appended.from)} to ${hydroYearLabel(ext.appended.to)} with ${ext.chirps.product}` +
+		` (${ext.chirps.copy}, revision ${ext.chirps.manifestRevision}, fetched ${ext.chirps.accessed}; overlap ${hydroYearLabel(ext.overlap.from)} to ${hydroYearLabel(ext.overlap.to)}` +
 		`${edited > 0 ? `; ${plural(edited, 'factor')} edited` : ''}). The original record ends ${hydroYearLabel(ext.originalEndYear)}; extending again replaces the appended years.`
 	);
 }
 
 /** The same, short, for the file list. */
 export function extensionLabel(ext: RainfallExtension): string {
-	return `Extended to ${hydroYearLabel(ext.appendedYears.last)} (${ext.chirps.dataset}, fetched ${ext.chirps.fetchedOn})`;
+	return `Extended to ${hydroYearLabel(ext.appended.to)} (${ext.chirps.product}, fetched ${ext.chirps.accessed})`;
+}
+
+/** A newer copy than the one an earlier extension used (extend.md § Edge cases: the screen offers to recompute). */
+export function revisionNote(ext: RainfallExtension, chirps: ChirpsMonthly): string {
+	if (chirps.revision === ext.chirps.manifestRevision) return '';
+	return `The CHIRPS copy is at revision ${chirps.revision}; the earlier extension used revision ${ext.chirps.manifestRevision}, so some values may have changed. Nothing changes until you apply.`;
 }
