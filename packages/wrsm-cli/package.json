@@ -19,10 +19,10 @@
 		"@pitman/wrsm": "workspace:*"
 	},
 	"devDependencies": {
-		"@types/node": "25.6.0",
-		"@vitest/coverage-v8": "5.0.4",
+		"@types/node": "26.6.5",
+		"@vitest/coverage-v8": "5.0.5",
 		"tsx": "4.23.15",
 		"typescript": "6.0.2",
-		"vitest": "5.0.4"
+		"vitest": "5.0.5"
 	}
 }

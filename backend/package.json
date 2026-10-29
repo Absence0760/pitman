@@ -14,17 +14,21 @@
 		"start": "node dist/server.js"
 	},
 	"dependencies": {
+		"@aws-sdk/client-s3": "3.1154.0",
+		"@pitman/wrsm": "workspace:*",
+		"@zarrita/storage": "0.2.0",
 		"dotenv": "^17.4.1",
-		"hono": "4.13.14"
+		"hono": "4.13.14",
+		"zarrita": "0.7.5"
 	},
 	"devDependencies": {
 		"@hono/node-server": "1.19.13",
 		"@types/aws-lambda": "8.10.164",
-		"@types/node": "25.6.0",
-		"@vitest/coverage-v8": "5.0.4",
+		"@types/node": "26.6.5",
+		"@vitest/coverage-v8": "5.0.5",
 		"esbuild": "0.28.2",
 		"tsx": "4.23.15",
 		"typescript": "6.0.2",
-		"vitest": "5.0.4"
+		"vitest": "5.0.5"
 	}
 }
