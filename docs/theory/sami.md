@@ -165,8 +165,10 @@ EXRECH_i = max(0, P − PMAX);   P ← P − EXRECH_i            (excess dumped 
 PERC_i  = REx_i · (P/PMAX)^PPOW · (REx_i / REbar)           TT 690 p.84 eq. 8.5; TT 687 p.8 eq. 3
 PERC_i  = min(PERC_i, P);      P ← P − PERC_i               (Fig 8.2 "PERC ≤ P")
 ```
-If REbar = 0 then PERC = 0. Whether P in eq. 8.5 is taken before or after adding RE_i is OQ-S8. The
-proposed order is the one above, after adding RE and removing EXRECH.
+If REbar = 0 then PERC = 0. If PMAX = 0 there is no percolating store: every RE_i leaves as EXRECH_i
+and PERC = 0 (R6-S1; eq. 8.5's P/PMAX is otherwise 0/0). A P₀ above PMAX leaves as EXRECH in month 1.
+Whether P in eq. 8.5 is taken before or after adding RE_i is OQ-S8. The proposed order is the one
+above, after adding RE and removing EXRECH.
 
 ### 3.6 Aquifer recharge and excess to interflow
 
@@ -230,6 +232,16 @@ without bound for HEAD < 0, but TT 690 Fig 8.8 shows an odd-symmetric curve that
 ±BFMAX (OQ-S12). `Q_i/AREA` in the manual is the runoff volume over the catchment area, which is
 simply Q_i in mm.
 
+Three provisional details of this step (Round 6, `aquifer.ts`; §8):
+
+- The curve uses `−|BPOW|`, so a positive BPOW cannot turn the saturating curve into an unbounded
+  one (R6-A6; TT 689 p.44: BPOW "should always be −0.05").
+- A negative Q_i (the literal Muskingum lag can produce one, OQ-22) counts as 0 in HEAD and in the
+  TL cap, so `0 ≤ TL ≤ Q` holds (R6-A5).
+- TL is added to STORE with no capacity cap (TT 690 p.87), so STORE can end the month above CAP. The
+  surplus then spills as AQX at the start of the next month, and that month's AQRECH can be negative
+  (R6-A2, switchable).
+
 ### 3.11 Abstraction (ABSON ≠ 0, never in natural mode)
 
 Monthly demand `ABS_i` (mm) comes from the interpolated annual value or the time series (OQ-S9). With
@@ -252,6 +264,20 @@ GWBaseflow, the excess is removed from groundwater storage" (TT 690 p.91). t cou
 started. The rule for when it starts and resets is OQ-S14. TT 687 §2.13 eq. 14 also adds borehole-yield
 curtailment (EXTINCT, SUPPLY). It has no field in the v7 file format (OQ-S15), so it is **off** by
 default.
+
+Eqs. 8.14 and 8.15 are one expression, `t_i = max(0, t_{i−1} + (1 − ratio_i)·30)`. TT 690 p.91 prints
+eq. 8.15's condition as "> 1, t 13", a garbled fragment; nothing in it changes the reading. With
+`ratio > 1` and a small %GW (late in pumping), eq. 8.16 gives DEP > ABS, and `STORE −= ABS − DEP`
+adds the difference to STORE. That is the "rewatering" TT 690 p.91 describes ("allows the portion of
+recharge above the mean monthly value to replenish the accumulated aquifer storage deficit"), so the
+literal form is kept (R6-A1, switchable to DEP ≤ ABS). The output `fromStorage` is everything the
+abstraction takes from STORE, `(ABS − DEP) + max(0, DEP − GWBF_gross)`, so
+`ABS = fromStorage + (GWBF_gross − GWBF_net)` (R6-A3). It is negative in a rewatering month.
+
+The clock already moves in the first month with ABS > 0: t goes from 0 to `max(0, (1 − ratio)·30)`
+before %GW is computed (OQ-S14 as implemented; the §7 example cannot tell the readings apart because
+its first pumping month has ratio > 1). Nothing floors STORE: heavy abstraction can take it below 0
+(R6-A7). Below SWL, OUT turns negative and TL grows, so the aquifer then draws water in.
 
 ### 3.12 Module outputs
 
@@ -317,14 +343,25 @@ already-computed GWBaseflow.
 
 - **Aquifer mass balance**, every month:
   `ΔSTORE = PERC + EXRECH − AQX − ET − OUT − GWBF_gross + TL − (ABS − DEP) − max(0, DEP − GWBF_gross)`.
+  Because `GWBF_gross + max(0, DEP − GWBF_gross) = GWBF_net + DEP`, this is also
+  `ΔSTORE = AQRECH − ET − OUT − GWBF_net + TL − ABS`: depletion only moves water from baseflow to
+  the abstraction.
 - **Percolating store balance:** `ΔP = RE − EXRECH − PERC`, with `0 ≤ P ≤ PMAX`.
 - **Soil/aquifer accounting:** `Σ RE = Σ (PERC + EXRECH) + ΔP`;
   total recharge `= AQRECH + INTERFLOW` (TT 689 p.182).
 - `0 ≤ TL_i ≤ Q_i`; `0 ≤ GWBF_i ≤ BFMAX`; `ET_i ≥ 0`; `STORE ≤ CAP` after step 1.
 - With no abstraction and HGRAD ≥ 0, every loss term goes to 0 as STORE → SWL, so STORE should stay
-  ≥ SWL once above it. This is a **soft** check, not an invariant: the baseflow step alone cannot
-  overshoot only if `BFMAX·|BPOW| ≤ 1`, and ET and outflow are taken before it in the same month.
-  Assert it only for parameter sets that satisfy that condition. Otherwise log any undershoot.
+  ≥ SWL once above it. This is a **soft** check, not an invariant. Each of the three loss steps is
+  linear or sub-linear in `STORE − SWL` and can overshoot on its own:
+  - ET cannot overshoot only if `(PETgw − RAIN)⁺·EVAREA/AREA ≤ CAP − SWL`;
+  - OUT cannot overshoot only if `T·HGRAD·Δt·W/(AREA·10⁶)·1000 ≤ CAP − SWL` (OUT at HG = HGRAD);
+  - baseflow cannot overshoot only if `BFMAX·|BPOW| ≤ 1`, since `1 − e^{−b·H} ≤ b·H` gives
+    `GWBF ≤ HEAD ≤ STORE − SWL`.
+
+  Assert it only for parameter sets that satisfy all three. Otherwise log any undershoot. (Corrected
+  in Round 6: the earlier text named only the baseflow condition, but ET and OUT are taken first and
+  each can overshoot alone.)
+- `STORE ≥ 0` is **not** an invariant under abstraction (R6-A7).
 - Zero rain (S below both SL and HGSL) ⇒ RE = SIF = 0, and the aquifer only recedes towards SWL.
 - Natural mode ⇒ ABS ≡ 0.
 
@@ -428,7 +465,7 @@ Parameters (TT 690 Fig 8.13): AREA = 406 km², THICK = 17 m, Sy = 0.009 ⇒ CAP 
 SWL = 126, PMAX = 9, P₀ = 5, MMA = 2, FT = 4.2, POW = 3, SL = 180, ST = 800, HGGW = 4.5, GPOW = 1,
 BFMAX = 2, BPOW = −0.05, HGRAD = 0.001, T = 10 m²/d, x = 20 m, EVAREA = 12 km², k2 = 0.1, k3 = −3,
 LAG = 0. Assumed: HGSL = SL = 180 (the 2005 spreadsheet had one SL), PPOW = 0.2 (TT 689 default; not
-shown in Fig 8.13). REbar = 19.337/12 = 1.6115 mm ("Est Recharge 19.34 mm/a", Fig 8.13). PERCbar =
+shown in Fig 8.13). REbar = 19.337/12 = 1.61142 mm ("Est Recharge 19.34 mm/a", Fig 8.13). PERCbar =
 18.58/12 = 1.5483 mm (virgin aquifer recharge, Fig 8.17). W = 4√A = 80 598 m, Δt = 30 d.
 
 Invented inputs:
@@ -448,20 +485,26 @@ Soil side (`soil.ts`):
 
 | m | RE | SIF | REx | EXRECH | PERC | P end |
 |---|---|---|---|---|---|---|
-| 1 | 2.4677 | 0.6926 | 2.4677 | 0 | 3.6406 | 3.8272 |
-| 2 | 3.1210 | 1.4011 | 2.7944 | 0 | 4.6012 | 2.3469 |
-| 3 | 3.7016 | 2.3377 | 3.4113 | 0 | 6.0485 (capped at P) | 0 |
+| 1 | 2.4677 | 0.6926 | 2.4677 | 0 | 3.6407 | 3.8271 |
+| 2 | 3.1210 | 1.4011 | 2.7944 | 0 | 4.6013 | 2.3468 |
+| 3 | 3.7016 | 2.3377 | 3.4113 | 0 | 6.0484 (capped at P) | 0 |
 | 4 | 3.3387 | 1.7153 | 3.5202 | 0 | 3.3387 (cap) | 0 |
 | 5 | 1.7419 | 0.2436 | 2.5403 | 0 | 1.7419 (cap) | 0 |
 | 6 | 1.4516 | 0.1410 | 1.5968 | 0 | 1.0985 | 0.3531 |
 
 Month 1 by hand:
 
-- RE = 4.5·(340/620)¹ = 2.4677.
+- RE = 4.5·(340/620)¹ = 2.46774.
 - SIF = 4.2·(340/620)³ = 0.6926.
-- P = 5 + 2.4677 = 7.4677 < 9, so EXRECH = 0.
-- PERC = 2.4677·(7.4677/9)^0.2·(2.4677/1.6115) = 2.4677·0.96339·1.53132 = 3.6406.
-- P = 3.8272.
+- P = 5 + 2.46774 = 7.46774 < 9, so EXRECH = 0.
+- PERC = 2.46774·(7.46774/9)^0.2·(2.46774/1.61142) = 2.46774·0.96336·1.53141 = 3.6407.
+- P = 3.8271.
+
+(Round 6.1 recomputed this table at full precision. An earlier version rounded REbar to 1.6115 and
+carried 4-dp intermediates, giving PERC 3.6406, 4.6012, 6.0485 and P 3.8272, 2.3469 in months 1–3;
+the error was at most 1.3e‑4 mm. The aquifer table below still takes those earlier PERC values as
+its inflow, so it is self-consistent but its months 1–3 inflows differ from the soil table by that
+much.)
 
 Aquifer side (`aquifer.ts`):
 
@@ -508,7 +551,8 @@ Final runoff (LAG = 0, so QLAG = INTERFLOW):
 | 5 | 0.2436 | 1.1576 | 0 | 5.1576 |
 | 6 | 0.1410 | 0 | 0 | 2.0000 |
 
-The mass balance (§5) closes to < 1e‑4 mm each month. For a regression check against the source, the
+The mass balance (§5) closes to < 1e‑4 mm each month. `aquifer.test.ts` reproduces every column of
+the aquifer table from the rounded `aquiferInflow` column to the printed precision. For a regression check against the source, the
 B82B virgin balance in TT 690 Fig 8.17 has an exact aquifer identity: aquifer recharge 18.58 + TL 0.38
 = GW baseflow 9.79 + ET 8.67 + outflow 0.50 (+ Δstorage −0.01) = 18.96 mm/a. That is the §5 balance
 in annual form. Treat it as a structural check, not a number to reproduce, because the 1922–1996 S
@@ -547,12 +591,15 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   *Readings:* end-of-month S; mean of the four sub-step values.
   *Default:* end-of-month S, the value written to the "Pitman S" time series.
 - **OQ-S5. One SL or two?** TT 690 eq. 8.3 uses SL for recharge. TT 687 Table 2 and the file use HGSL.
-  *Default:* recharge uses HGSL (L.032 v6), interflow uses SL (L.035 v2).
+  *Default:* recharge uses HGSL (L.032 v6), interflow uses SL (L.035 v2). Switch:
+  `SamiSoilOptions.rechargeThreshold` (`HGSL` | `SL`), `groundwater/sami/soil.ts`.
 - **OQ-S6. REbar and REx details.** Is REbar the mean over all months or per calendar month? Is the
   REx window trailing or centred, and what happens in the first x − 1 months?
   *Default:* REbar = mean of RE over the whole run (per the three-pass note). REx is the trailing mean
   including month i, over the available months at the start. A centred window would need future S,
-  which a monthly spreadsheet can do but the text never suggests.
+  which a monthly spreadsheet can do but the text never suggests. Switch:
+  `SamiSoilOptions.rechargeAverageStart` (`available` | `zeroPadded`, the latter dividing the first
+  windows by MMA as if the months before the run had no recharge).
 - **OQ-S7. Groundwater PET.** TT 690 builds it from MAE·MDIST·CROP (A-pan). WRSM2000 stores S-pan
   monthly evaporation (L.004) and A-pan factors (L.040), and converts S→A "internally" without saying
   how (TT 689 p.34–35).
@@ -561,6 +608,8 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   (%MAP × MAP). 6.5 to verify.
 - **OQ-S8. P in eq. 8.5: before or after RE?**
   *Default:* after adding RE_i and removing EXRECH_i, then cap PERC at P (§3.5). Alternative: P_{i−1}.
+  Switch: `SamiSoilOptions.percolationStorage` (`afterRecharge` | `previous`); either way PERC is
+  capped at the month's store after EXRECH.
 - **OQ-S9. Abstraction inputs.** Is the annual value (Mm³/a) spread evenly (/12), or by a monthly
   pattern? `AD35_GWAbstraction(12)` exists in the record but no Sami line holds 12 values. For
   ABSON = 2, where is the time-series filename and what is its unit? TT 691 §11.21 also reports WR2005
@@ -609,16 +658,48 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   gives ≈ 95 % from storage at t' = 0.
 - **OQ-S17. Initial states and warm-up.** Is there a warm-up run like Hughes? Nothing says so. The
   reference files set STORE₀ = SWL and P₀ = ½ PMAX.
-  *Default:* single pass from STORE₀ and P₀ as read. QLAG₀ = INTERFLOW₀.
+  *Default:* single pass from STORE₀ and P₀ as read. QLAG₀ = INTERFLOW₀, i.e. the lag reservoir
+  starts in steady state at the first month's interflow. Switch (lag only):
+  `SamiInterflowOptions.initialLagState` (`steady` | `zero`, the classic OQ-24 dry start).
 - **OQ-S18. SFR parent/child.** WRSM2000 computes Sami for parent and child modules separately
   (TT 689 p.182), and `TS_AvGWStorage` is the area-weighted parent storage (TT 691 p.51). How a child's
   land-use reduction interacts with its Sami flows is ch.11/12 territory.
   *Default:* run Sami per module on that module's own area and parameters. Round 6.3/6.4 own the
   reduction coupling.
+- **R6-A1. Depletion above the abstraction** (§3.11). Eq. 8.16 lets DEP exceed ABS when ratio > 1
+  and %GW is small. *Default:* literal, with the surplus returned to STORE (TT 690 p.91 "rewater").
+  *Option:* `depletionCap: 'abstraction'` (DEP ≤ ABS).
+- **R6-A2. TL above capacity** (§3.10). TT 690 p.87 adds TL to STORE with no cap. *Default:* literal
+  (TL ≤ Q only), and the surplus spills as next month's AQX. *Option:*
+  `transmissionLossCap: 'runoffAndCapacity'` (TL ≤ min(Q, CAP − STORE)).
+- **R6-A3. Meaning of `fromStorage`.** Not defined by the manuals. *Default:* everything the abstraction
+  takes from STORE, `(ABS − DEP) + max(0, DEP − GWBF_gross)`; `%GW` is reported as `pctFromGw`, and
+  is 0 before pumping starts.
+- **R6-A4. Missing CAP ≤ SWL guard.** The storage factor divides by CAP − SWL; WRSM2000 refuses
+  CAP ≤ SWL (TT 691 p.209 item 83). *Default:* `samiAquiferInit` and the step throw a `RangeError`.
+- **R6-A5. Negative runoff for the head** (§3.10). *Default:* `max(0, Q)` in HEAD and in the TL cap.
+- **R6-A6. Sign of BPOW** (§3.10). *Default:* the curve uses `−|BPOW|`. No option: the file value is
+  −0.05 everywhere the manuals mention it.
+- **R6-A7. STORE below zero.** TT 690 p.91 takes `ABS − DEP` and any excess depletion from STORE with
+  no lower bound. TT 687 eq. 14's curtailment is the only limit in the manuals, and OQ-S15 turns it
+  off. TT 691 p.209 item 78 ("Aquifer storages have no zeroes unlike before which incorrectly showed
+  negatives") hints that WRSM2000's storages can go negative but doesn't settle it. *Default:* no
+  floor (literal). *Alternative:* clamp at 0 and report the unmet abstraction, which needs a contract
+  output field. 6.5 to check any abstraction network.
+- **R6-A8. Input guards.** Beyond R6-A4, the step throws a `RangeError` for storativity ≤ 0 or
+  borehole distance ≤ 0 (eq. 8.13 divides by x²·S), for an evaporation area outside [0, AREA], and
+  for a negative or non-finite ABS (a demand, never a supply).
 - **OQ-S19. Table 8.1 typography.** The Table 8.1 caption (TT 690 p.92) says method-2-only parameters
   are in italics and method-1-only ones underlined. At 100 and 140 dpi renders, no row is visibly
   italic or underlined. So the method split here comes from the prose and TT 691's per-method variable
   comments, not the typography. Nothing to decide unless a better scan disagrees.
+
+- **R6-S1. PMAX = 0.** Eq. 8.5 divides by PMAX. *Default:* no percolating store; all RE goes to the
+  aquifer as EXRECH and PERC = 0 (the limit of the dump rule). PMAX < 0 or P₀ < 0 is an invalid
+  parameter and the soil pass throws (R2-2).
+- **R6-S2. Reading MMA.** L.034 v4 is F7.2 but means a whole number of months (TT 690 p.84 "1–120
+  months"). *Default:* the nearest integer; a value below 1 after rounding makes the soil pass throw
+  (R2-2) rather than being silently raised to 1.
 
 ## 9. Method 1 (hydrograph separation), for reference
 

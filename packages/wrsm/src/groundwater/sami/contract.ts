@@ -63,6 +63,8 @@ export type SamiInterflowFn = (soilInterflow: readonly Mm[], excessToInterflow: 
 // ---- aquifer.ts (agent 6.2) ------------------------------------------------
 
 export interface SamiAquiferParams {
+	/** RU catchment area (L.002 v1; the child area for an SFR child), km²: ET (EVAREA/AREA) and the outflow need it. */
+	readonly areaKm2: number;
 	/** CAP = thicknessM × storativity × 1000 (mm). */
 	readonly thicknessM: number;
 	readonly storativity: number;

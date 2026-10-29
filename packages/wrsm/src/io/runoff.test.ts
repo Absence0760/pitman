@@ -67,7 +67,7 @@ describe('readRunoff fields', () => {
 			aquiferThicknessM: 50,
 			storativity: 0.005,
 			initialAquiferStorage: 120,
-			staticWaterLevelM: 110,
+			staticWaterLevelMm: 110,
 			unsaturatedStorage: 20,
 			initialUnsaturatedStorage: 10,
 			PPOW: 0.2,

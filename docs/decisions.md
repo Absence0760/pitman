@@ -112,3 +112,23 @@ Round 3 reference checks (local, `WRSM_REFERENCE_DIR`): 34 of 35 `.NET` files va
 | R4-U4 | Applying an extension clears the previous run results (they describe the old rainfall) | Decided |
 | R4-U5 | Re-extending (R4-E2): the first fit reuses the recorded `MAP_c`; narrowing the window afterwards refits with a fresh `MAP_c` | Provisional |
 | R4-U6 | No "undo extension": extending again replaces the appended years; the original is the user's saved zip | Provisional |
+
+## Round 6 (2026-10-29)
+
+| ID | Decision | Status |
+|---|---|---|
+| R6-S0 | Sami soil-side open questions are switchable (`SamiSoilOptions`, `SamiInterflowOptions` in `groundwater/sami/soil.ts`): OQ-S5 recharge threshold `HGSL` (alt. `SL`); OQ-S6 moving-average start `available` (alt. `zeroPadded`); OQ-S8 eq. 8.5 uses P `afterRecharge` (alt. `previous`); OQ-S10 standard Muskingum as `runoff/lag.ts` (k = 0 no routing); OQ-S17 lag starts `steady` (alt. `zero`). The reference comparison picks the winners | Provisional |
+| R6-S1 | PMAX = 0 means no percolating store: all recharge is EXRECH, PERC = 0. PMAX < 0, P₀ < 0, MMA < 1 or non-finite S are errors (R2-2) | Decided |
+| R6-S2 | MMA (F7.2 in the file) is read as the nearest integer; below 1 is an error, never raised to 1 | Provisional |
+| R6-A0 | Sami aquifer switches (`SamiAquiferOptions` in `groundwater/sami/aquifer.ts`): R6-A1 depletion may exceed ABS and the surplus returns to STORE ("rewatering", TT 690 p.91; alt. `depletionCap: 'abstraction'`); R6-A2 transmission losses are not capped at CAP, the surplus spills to interflow next month (alt. `transmissionLossCap: 'runoffAndCapacity'`); OQ-S14 the pumping clock never resets (alt. `pumpingClock: 'resetWhenIdle'`) | Provisional; reference comparison |
+| R6-A3 | `fromStorage` is all the abstraction takes from STORE; `pctFromGw` is 0 until pumping starts | Provisional |
+| R6-A4 | CAP ≤ SWL is an error (TT 691 p.209) | Decided |
+| R6-A5 | **Changes eq. 8.9's literal HEAD:** a negative runoff counts as 0 in HEAD and in the TL cap | Provisional |
+| R6-A6 | **Changes OQ-S12's default:** the baseflow curve uses −\|BPOW\| | Provisional |
+| R6-A7 | STORE has no floor (heavy abstraction can take it below 0); a clamp would need an unmet-abstraction output | Provisional |
+| R6-A8 | The aquifer step rejects storativity ≤ 0, borehole distance ≤ 0, an evaporation area outside [0, AREA], a negative or non-finite abstraction (R2-2) | Decided |
+| R6-A9 | `SamiAquiferParams` carries `areaKm2` (contract change); `SamiParameters.staticWaterLevelM` renamed `staticWaterLevelMm`: the value is mm (TT 689 p.43) | Decided |
+| R6-F0 | **SFR children are calibrated, not reduced** (TT 690 p.126 eqs. 11.2–11.3; TT 689 pp.138–140): a child inherits its parent's climate, parameters and groundwater model, runs unreduced ("virgin") over its afforested area, and PI, FF, SL, ST (and HGSL) are adjusted until its runoff shows the target MAR and low-flow reductions (within 1 %, closing error loosened after 10 iterations, 40 in all). The parent runs on its area less its children's, year by year, and adds their flows. `landuse/sfr.ts` `runSfrGroup` takes the runoff model as an injected function; the `StreamflowReduction` contract fits free modules only (`forestReduction`) | Decided |
+| R6-F1 … R6-F17 | Afforestation and SFR open questions (`docs/theory/afforestation.md` § open questions): Smoothed Gush (eq. 11.1, Table 11.1) and user-defined targets implemented; CSIR (Scott & Smith 1997) and Van der Zel aren't printed in the manuals, so a CSIR child uses Smoothed Gush targets and CSIR / Van der Zel / LUT Gush in a free module give no reduction, each with a warning (R6-F2 … F5) | Provisional |
+| R6-F6 … F9 | The child-calibration step rules (ΔPI = 34·ΔFF; the SL step factor 0.7 then 0.35; SL < 0 ⇒ SL = 0 and ST += 2 × overshoot; the closing-error ladder) are **not in the manuals**. They are inferred from the iteration traces WRSM2000 printed in the public WR2012 archive's `WRSM2000.ERR` files: observed program *output*, never its code (rule 1). Marked as inferred in the spec; the operator confirms they may stay as defaults | Provisional; operator to confirm |
+| R6-F18 | Whether Scott & Smith (1997, Water SA 23(2), named by TT 691 p.61 as the CSIR source) may be transcribed for the CSIR afforestation curves | Open: operator / `za-legal-researcher`; no reference module uses CSIR afforestation |

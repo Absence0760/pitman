@@ -372,7 +372,7 @@ export function readRunoff(text: string, fileName: string): RunoffModule {
 			aquiferThicknessM: a[0]!,
 			storativity: a[1]!,
 			initialAquiferStorage: a[2]!,
-			staticWaterLevelM: a[3]!,
+			staticWaterLevelMm: a[3]!,
 			unsaturatedStorage: a[4]!,
 			initialUnsaturatedStorage: b[0]!,
 			PPOW: b[1]!,
@@ -646,7 +646,7 @@ export function writeRunoff(module: RunoffModule): string {
 			f(s?.aquiferThicknessM ?? 20, 6, 2, 'L.031 aquifer thickness') +
 				f(s?.storativity ?? 0.005, 7, 4, 'L.031 storativity') +
 				f(s?.initialAquiferStorage ?? 45, w31, 2, 'L.031 initial aquifer storage') +
-				f(s?.staticWaterLevelM ?? 60, w31, 2, 'L.031 static water level') +
+				f(s?.staticWaterLevelMm ?? 60, w31, 2, 'L.031 static water level') +
 				f(s?.unsaturatedStorage ?? 20, w31, 2, 'L.031 unsaturated storage')
 		);
 		// F7.2,6F8.2.
