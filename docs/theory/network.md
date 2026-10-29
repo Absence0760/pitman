@@ -387,6 +387,8 @@ read, every RU percentage exactly 100, and every module file agrees with its
   (no extrapolation), the OQ-17 rule. Round 7 extends the tables to 2025.
 - **R3-N11** SFR children run as free modules (to the zero sink) and parents
   on their full area until Round 6; child positions aren't special-cased.
+  Superseded by the SFR group run in `docs/theory/afforestation.md`
+  (`runSfrGroup`) once it is wired into the runner (Round 6 integration).
 - **R3-N12** An unsolved module puts zero on its routes and has no
   diagnostics; the manual says only that it "will not be processed".
 - **R3-N13** A simulator that leaves out one of its routes gets zero there

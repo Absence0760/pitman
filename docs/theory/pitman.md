@@ -560,7 +560,7 @@ Evidence: "PEMAX is the maximum monthly potential evaporation" (TT 690 p.5). TT 
 
 **OQ-14 What FF (forest factor) does.**
 Evidence: FF is "the factor by which potential evapotranspiration is increased" for SFR Child modules (TT 690 ch.11, p.126); "In previous versions … the Forest Factor was always 1.00 … the field … will always be read-only … WRSM/Pitman will adjust FF automatically when it reduces the outflows for the Child SFR" (TT 689 p.38).
-**Default:** multiply PE by FF (as in OQ-13). For every non-Child module FF = 1.00 and this has no effect. How FF is set for Children belongs to the afforestation/alien-vegetation spec (TT 690 ch.11–12).
+**Default:** multiply PE by FF (as in OQ-13). For every non-Child module FF = 1.00 and this has no effect. How FF is set for Children is in `docs/theory/afforestation.md` (the SFR child calibration adjusts PI, FF, SL and ST; R6-F6, R6-F15).
 
 **OQ-15 Bounds of R.** Evidence: "'R' that ranges between 0 and 1" (TT 690 p.5). **Default:** validate `0 ≤ R ≤ 1` and reject anything else. Both ends are handled by eqs. 1.18–1.19 with no special case (R = 1 with PE = PEMAX gives c = 0).
 
