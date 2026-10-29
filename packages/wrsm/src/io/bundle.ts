@@ -15,14 +15,23 @@
  * **Paths** are relative, `/`-separated, as in a zip or a folder upload. A
  * zip may wrap the network in a folder (`H00/H00.NET`); the folder holding
  * the `.NET` is the network's root, and every name a file gives is resolved
- * inside it, case-insensitively (§1.3): first as a relative path
- * (`RAIN\X.RAN`), then by its base name (an absolute Windows path, or a
- * relative one that doesn't exist), first in the root and then anywhere
- * below it when only one file has that name.
+ * inside it, case-insensitively (§1.3): as a relative path (`RAIN\X.RAN`;
+ * an absolute path inside the `.NET`'s input directory, NET.2, counts as
+ * relative to it). Failing that (an absolute path elsewhere, a relative
+ * one that isn't there) it is matched by base name, in the root or in the
+ * one file below it with that name, **with a warning**, since WRSM2000
+ * would read a file on its own machine that may differ.
  *
  * **Keys.** `NetworkBundle` records are keyed by the name **as a module or
  * the `.NET` gives it, trimmed and upper-cased** (`bundleKey`), so
- * `ctx.rainfall(name)` is `bundle.rainfall[bundleKey(name)]`.
+ * `ctx.rainfall(name)` is `bundle.rainfall[bundleKey(name)]`. Names that
+ * resolve to one file (`SYA.RAN`, `.\SYA.RAN`) are keys to **one shared
+ * record**; an editor must replace it under every key (`files.<record>`
+ * maps each key to its path), or `writeBundle` refuses the clash.
+ *
+ * **Optional references.** A type-0 (no wetland) channel's wetland rainfall
+ * file is a dummy (TT 691 §12.2): missing or unreadable, it is a warning.
+ * It never hides a required reference to the same name.
  *
  * **Lossless.** `readBundle` keeps every file it read verbatim
  * (`files.sources`) and every file it didn't (`files.other`, e.g. `Out/`,
@@ -211,20 +220,30 @@ class FolderIndex {
 		}
 	}
 
-	/** The path of the file a name refers to, or `undefined`. */
-	resolve(name: string): string | undefined {
-		const n = normalisePath(name.trim()).toUpperCase();
+	/**
+	 * The file a name refers to and how it was found, or `undefined`.
+	 * `direct`: the name as a path inside the root (an absolute name inside
+	 * the `.NET`'s input directory, NET.2, counts as relative to it).
+	 * `byName`: by base name, in the root or in the one file below it with
+	 * that name (an absolute path elsewhere, or a relative one that isn't
+	 * there): a guess, so the caller warns.
+	 */
+	resolve(name: string, inputDirectory = ''): { path: string; how: 'direct' | 'byName' } | undefined {
+		let n = normalisePath(name.trim()).toUpperCase();
 		if (n === '') return undefined;
-		const absolute = /^[A-Z]:\//.test(n) || name.trim().startsWith('\\') || name.trim().startsWith('/');
+		const dir = normalisePath(inputDirectory.trim()).toUpperCase().replace(/\/?$/, '/');
+		const inInputDirectory = dir !== '/' && n.startsWith(dir);
+		if (inInputDirectory) n = n.slice(dir.length);
+		const absolute = !inInputDirectory && (/^[A-Z]:\//.test(n) || /^[\\/]/.test(name.trim()));
 		if (!absolute) {
 			const direct = this.byPath.get(n);
-			if (direct !== undefined) return direct;
+			if (direct !== undefined) return { path: direct, how: 'direct' };
 		}
 		const base = baseName(n);
 		const top = this.byPath.get(base);
-		if (top !== undefined) return top;
+		if (top !== undefined) return { path: top, how: 'byName' };
 		const anywhere = this.byBase.get(base);
-		return anywhere?.length === 1 ? anywhere[0] : undefined;
+		return anywhere?.length === 1 ? { path: anywhere[0] as string, how: 'byName' } : undefined;
 	}
 }
 
@@ -311,7 +330,8 @@ function moduleReferences(module: Module, file: string): Reference[] {
 function readSidecar(text: string): Sidecar {
 	let value: unknown;
 	try {
-		value = JSON.parse(text);
+		// A byte-order mark is kept in the text (so the file saves unchanged) but isn't JSON.
+		value = JSON.parse(text.replace(/^\uFEFF/, ''));
 	} catch (error) {
 		throw new Error(`is not valid JSON (${(error as Error).message})`);
 	}
@@ -390,7 +410,7 @@ export function readBundle(files: BundleFiles, options: ReadBundleOptions = {}):
 	const references: Reference[] = [];
 	for (const entry of network.modules) {
 		const name = `${network.code}${entry.type}${entry.number}.DAT`;
-		const path = index.resolve(name);
+		const path = index.resolve(name)?.path;
 		if (path === undefined) {
 			errors.push({ level: 'error', file: `${root}${name}`, message: `module file not found; ${netPath} lists module ${entry.number}${entry.type}` });
 			continue;
@@ -416,26 +436,49 @@ export function readBundle(files: BundleFiles, options: ReadBundleOptions = {}):
 	}
 
 	// Files the modules and the gauges name, read once per key.
+	// Every reference is checked (an optional one never hides a required one
+	// to the same name); names that resolve to one file share one record.
 	const readReferenced = <T>(refs: readonly Reference[], read: (text: string, file: string, ref: Reference) => T) => {
 		const records: Record<string, T> = {};
 		const recordPaths: Record<string, string> = {};
-		const seen = new Set<string>();
-		for (const ref of refs) {
-			const key = bundleKey(ref.name);
-			if (seen.has(key)) continue;
-			seen.add(key);
-			const path = index.resolve(ref.name);
-			if (path === undefined) {
+		const byKey = new Map<string, Reference[]>();
+		for (const ref of refs) byKey.set(bundleKey(ref.name), [...(byKey.get(bundleKey(ref.name)) ?? []), ref]);
+		const byPath = new Map<string, { value?: T }>();
+		for (const [key, keyRefs] of byKey) {
+			const required = keyRefs.find((r) => !r.optional);
+			const ref = required ?? (keyRefs[0] as Reference);
+			const found = index.resolve(ref.name, network.inputDirectory);
+			if (found === undefined) {
 				const issue = { file: ref.from, field: ref.field, message: `names '${ref.name.trim()}', which is not in the folder` };
-				if (ref.optional) warnings.push({ level: 'warning', ...issue });
-				else errors.push({ level: 'error', ...issue });
+				if (required) errors.push({ level: 'error', ...issue });
+				else warnings.push({ level: 'warning', ...issue });
 				continue;
 			}
-			recordPaths[key] = path;
-			try {
-				records[key] = read(take(path), path, ref);
-			} catch (error) {
-				errors.push(issueFrom(error, path));
+			const { path } = found;
+			if (found.how === 'byName') {
+				warnings.push({
+					level: 'warning',
+					file: ref.from,
+					field: ref.field,
+					message: `names '${ref.name.trim()}'; using ${path}, the file of that name in the folder`
+				});
+			}
+			let cached = byPath.get(path);
+			if (cached === undefined) {
+				cached = {};
+				byPath.set(path, cached);
+				try {
+					cached.value = read(take(path), path, ref);
+				} catch (error) {
+					const issue = issueFrom(error, path);
+					// A dummy file (a type-0 wetland's rainfall) need not read.
+					if (required) errors.push(issue);
+					else warnings.push({ ...issue, level: 'warning', message: `${issue.message} (not used: the module has no wetland)` });
+				}
+			}
+			if (cached.value !== undefined) {
+				records[key] = cached.value;
+				recordPaths[key] = path;
 			}
 		}
 		return { records, recordPaths };
@@ -449,7 +492,7 @@ export function readBundle(files: BundleFiles, options: ReadBundleOptions = {}):
 	const observed = readReferenced<ObservedFlow>(gaugeRefs, readObserved);
 
 	let sidecar: Sidecar | undefined;
-	const sidecarPath = index.resolve(SIDECAR_FILE);
+	const sidecarPath = index.resolve(SIDECAR_FILE)?.path;
 	if (sidecarPath !== undefined && dirName(sidecarPath) === root) {
 		try {
 			sidecar = readSidecar(take(sidecarPath));
@@ -507,10 +550,12 @@ function hasFileIndex(bundle: NetworkBundle): bundle is LoadedBundle {
 	return typeof (bundle as Partial<LoadedBundle>).files === 'object' && (bundle as Partial<LoadedBundle>).files !== null;
 }
 
-/** A file name for a new record from its key (`RAIN\X.RAN` → `RAIN/X.RAN`). */
+/** A file name for a new record from its key (`RAIN\\X.RAN` → `RAIN/X.RAN`); never outside the root. */
 function pathFromKey(root: string, key: string): string {
 	const n = normalisePath(key);
-	return root + (/^[A-Z]:\//i.test(n) ? baseName(n) : n);
+	const rel = /^[A-Z]:\//i.test(n) ? baseName(n) : n;
+	if (rel.split('/').some((part) => part === '..' || part === '')) throw new Error(`${key}: not a file name inside the network folder`);
+	return root + rel;
 }
 
 /**
@@ -526,6 +571,10 @@ export function writeBundle(bundle: NetworkBundle, options: WriteBundleOptions =
 	const root = index?.root ?? '';
 	const out: Record<string, string> = { ...(index?.other ?? {}) };
 	const written = new Set<string>();
+	// A new record keeps the spelling of a file already there under another case (docs/formats.md §1.3).
+	const existing = new Map<string, string>();
+	for (const p of [...Object.keys(index?.other ?? {}), ...Object.keys(index?.sources ?? {})]) existing.set(p.toUpperCase(), p);
+	const newPath = (path: string) => existing.get(path.toUpperCase()) ?? path;
 
 	const put = <T>(path: string, value: T, write: (v: T) => string, read: (text: string, file: string) => T) => {
 		const source = index?.sources[path];
@@ -552,26 +601,26 @@ export function writeBundle(bundle: NetworkBundle, options: WriteBundleOptions =
 	};
 
 	const { code } = bundle.network;
-	put(index?.network ?? `${root}${code}.NET`, bundle.network, writeNetwork, readNetwork);
+	put(index?.network ?? newPath(`${root}${code}.NET`), bundle.network, writeNetwork, readNetwork);
 	for (const module of bundle.modules) {
 		const key = moduleKey(module);
-		const path = index?.modules[key] ?? `${root}${code}${key.slice(0, 2)}${module.number}.DAT`;
+		const path = index?.modules[key] ?? newPath(`${root}${code}${key.slice(0, 2)}${module.number}.DAT`);
 		put(path, module, writeModule, (text, file) =>
 			readModule(module.kind === 'unparsed' ? module.moduleType : module.kind, module.number, text, file)
 		);
 	}
 	for (const [key, series] of Object.entries(bundle.rainfall)) {
-		put(index?.rainfall[key] ?? pathFromKey(root, key), series, writeRainfall, readRainfall);
+		put(index?.rainfall[key] ?? newPath(pathFromKey(root, key)), series, writeRainfall, readRainfall);
 	}
 	for (const [key, flow] of Object.entries(bundle.observed)) {
-		put(index?.observed[key] ?? pathFromKey(root, key), flow, writeObserved, readObserved);
+		put(index?.observed[key] ?? newPath(pathFromKey(root, key)), flow, writeObserved, readObserved);
 	}
 	for (const [key, series] of Object.entries(bundle.flowFiles)) {
 		// readDemand records the name it is given: re-read under the same one.
-		put(index?.flowFiles[key] ?? pathFromKey(root, key), series, writeDemand, (text) => readDemand(text, series.fileName));
+		put(index?.flowFiles[key] ?? newPath(pathFromKey(root, key)), series, writeDemand, (text) => readDemand(text, series.fileName));
 	}
 	if (bundle.sidecar !== undefined) {
-		put(index?.sidecar ?? `${root}${SIDECAR_FILE}`, bundle.sidecar, writeSidecar, readSidecar);
+		put(index?.sidecar ?? newPath(`${root}${SIDECAR_FILE}`), bundle.sidecar, writeSidecar, readSidecar);
 	}
 	return out;
 }

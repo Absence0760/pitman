@@ -98,6 +98,28 @@ describe('readBundle: names are case-insensitive (docs/formats.md §1.3)', () =>
 		expect(writeBundle(bundle)).toEqual(withPaths);
 	});
 
+	it('takes an absolute name inside the .NET input directory as relative, and warns on a guess by name', () => {
+		const files = example();
+		const withPaths = {
+			...files,
+			'SYRU1.DAT': files['SYRU1.DAT']!.replace("'SYA.RAN'", "'C:\\WRSM\\SY\\SYA.RAN'"),
+			'SYRU2.DAT': files['SYRU2.DAT']!.replace("'SYA.RAN'", "'D:\\ELSEWHERE\\SYA.RAN'")
+		};
+		const result = readBundle(withPaths);
+		expect(result.ok).toBe(true);
+		expect(result.warnings).toEqual([
+			expect.objectContaining({ file: 'SYRU2.DAT', field: 'L.002 rainfall file', message: expect.stringMatching(/using SYA\.RAN/) })
+		]);
+	});
+
+	it('gives every name for one file the same record', () => {
+		const files = example();
+		const bundle = loaded({ ...files, 'SYRU2.DAT': files['SYRU2.DAT']!.replace("'SYA.RAN'", "'sya.ran'"), 'SYRU1.DAT': files['SYRU1.DAT']!.replace("'SYA.RAN'", "'.\\SYA.RAN'") });
+		const keys = Object.keys(bundle.rainfall);
+		expect(keys.length).toBeGreaterThan(1);
+		for (const k of keys) expect(bundle.rainfall[k]).toBe(bundle.rainfall['SYA.RAN']);
+	});
+
 	it('bundleKey trims and upper-cases', () => {
 		expect(bundleKey('  zero.Ran ')).toBe('ZERO.RAN');
 	});
@@ -138,6 +160,27 @@ describe('readBundle: errors name the file, line and field, and are all collecte
 		expect(result.errors[0]).toMatchObject({ file: 'SYRU1.DAT', field: 'L.002 rainfall file', message: "names 'SYA.RAN', which is not in the folder" });
 		// One error per missing file, not one per module naming it.
 		expect(result.errors.filter((e) => e.message.includes('SYA.RAN'))).toHaveLength(1);
+	});
+
+	it('a dummy wetland reference never hides a required one to the same missing file', () => {
+		const files: Record<string, string> = example();
+		// CR5 (type-0 wetland) comes before RV4 in the .NET; both name the missing file.
+		const cr = files['SYCR5.DAT']!.replace("'SYA.RAN'", "'GONE.RAN'");
+		const rv = files['SYRV4.DAT']!.replace(/'[^']*\.RAN'/i, "'GONE.RAN'");
+		expect(rv).toContain('GONE.RAN');
+		const result = readBundle({ ...files, 'SYCR5.DAT': cr, 'SYRV4.DAT': rv });
+		expect(result.ok).toBe(false);
+		expect(result.errors).toEqual([expect.objectContaining({ file: 'SYRV4.DAT', field: 'L.002 rainfall file' })]);
+	});
+
+	it('a missing or unreadable dummy wetland rainfall file is only a warning', () => {
+		const files = example();
+		const missing = readBundle({ ...files, 'SYCR5.DAT': files['SYCR5.DAT']!.replace("'SYA.RAN'", "'GONE.RAN'") });
+		expect(missing.ok).toBe(true);
+		expect(missing.warnings).toEqual([expect.objectContaining({ file: 'SYCR5.DAT', field: 'L.002 wetland rainfall file' })]);
+		const bad = readBundle({ ...files, 'SYCR5.DAT': files['SYCR5.DAT']!.replace("'SYA.RAN'", "'BAD.RAN'"), 'BAD.RAN': 'nonsense\r\n' });
+		expect(bad.ok).toBe(true);
+		expect(bad.warnings).toEqual([expect.objectContaining({ level: 'warning', file: 'BAD.RAN' })]);
 	});
 
 	it('reports a missing gauge file', () => {
@@ -225,6 +268,13 @@ describe('readBundle / writeBundle: the sidecar', () => {
 		expect(Object.keys(writeBundle({ ...bundle, sidecar: SIDECAR }))).toContain('Net/pitman.json');
 	});
 
+	it('reads a sidecar with a byte-order mark and keeps the mark on save', () => {
+		const text = '\uFEFF{"schema":"pitman-sidecar","schemaVersion":1}';
+		const bundle = loaded({ ...example(), 'pitman.json': text });
+		expect(bundle.sidecar?.schema).toBe('pitman-sidecar');
+		expect(writeBundle(bundle)['pitman.json']).toBe(text);
+	});
+
 	it.each([
 		['not JSON', '{', /not valid JSON/],
 		['another schema', '{"schema":"x"}', /not a Pitman sidecar/],
@@ -258,6 +308,19 @@ describe('writeBundle: changed content', () => {
 		const ru1 = bundle.modules[0] as RunoffModule;
 		const bad = { ...bundle, modules: [{ ...ru1, areaKm2: Number.POSITIVE_INFINITY }, ...bundle.modules.slice(1)] };
 		expect(() => writeBundle(bad)).toThrow(/^SYRU1\.DAT: /);
+	});
+
+	it('writes a new record under the spelling of a file already there in another case', () => {
+		const files: Record<string, string> = { ...example(), 'sya2.ran': 'old\r\n' };
+		const bundle = loaded(files);
+		const out = writeBundle({ ...bundle, rainfall: { ...bundle.rainfall, 'SYA2.RAN': bundle.rainfall['SYA.RAN']! } });
+		expect(Object.keys(out).filter((p) => p.toUpperCase() === 'SYA2.RAN')).toEqual(['sya2.ran']);
+		expect(out['sya2.ran']).toBe(files['SYA.RAN']);
+	});
+
+	it('refuses a record key that would write outside the network folder', () => {
+		const bundle = loaded(example());
+		expect(() => writeBundle({ ...bundle, rainfall: { ...bundle.rainfall, '..\\X.RAN': bundle.rainfall['SYA.RAN']! } })).toThrow(/not a file name inside/);
 	});
 
 	it('refuses two records that would write different text to one file', () => {
