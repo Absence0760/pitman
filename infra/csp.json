@@ -1,0 +1,24 @@
+{
+  "//": "The CloudFront Content-Security-Policy headers, read by security_headers.tf (jsondecode) and by scripts/check-csp.mjs (the deploy-time guard). One list per directive: name, then sources. Why each source is here: security_headers.tf. Adding a source is a security change: say why in docs/security.md.",
+  "site": [
+    ["default-src", "'self'"],
+    ["script-src", "'self'", "'unsafe-inline'"],
+    ["style-src", "'self'", "'unsafe-hashes'", "'sha256-tcbDxjMo+xKqM21aCGYbs/QAJqB7yUXC06oPWDapBgc='"],
+    ["img-src", "'self'"],
+    ["font-src", "'self'"],
+    ["connect-src", "'self'"],
+    ["worker-src", "'self'"],
+    ["manifest-src", "'self'"],
+    ["object-src", "'none'"],
+    ["base-uri", "'none'"],
+    ["form-action", "'self'"],
+    ["frame-ancestors", "'none'"],
+    ["upgrade-insecure-requests"]
+  ],
+  "api": [
+    ["default-src", "'none'"],
+    ["base-uri", "'none'"],
+    ["form-action", "'none'"],
+    ["frame-ancestors", "'none'"]
+  ]
+}
