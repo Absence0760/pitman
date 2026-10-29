@@ -5,8 +5,9 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"//-- dev --": "Local dev servers: frontend on 7777, backend on 3001 (docs/STACK.md).",
+		"//-- dev --": "Local dev servers: frontend on 7777, backend on 3001 (docs/STACK.md). The backend reads a local synthetic CHIRPS copy and MAP grid from backend/.local/ (gitignored): run `dev:data:synthetic` once first (docs/run-locally.md § Backend data).",
 		"dev": "pnpm --filter @pitman/frontend --filter @pitman/backend --parallel run dev",
+		"dev:data:synthetic": "pnpm -C backend exec tsx scripts/gen-synthetic-data.ts",
 		"//-- build --": "Build every workspace that has a build script (packages/* are consumed as TypeScript source and have none).",
 		"build": "pnpm -r run build",
 		"//-- check --": "Typecheck. `check` runs every workspace (--no-bail: one failure does not hide the rest); `check:<surface>` runs one.",
