@@ -454,11 +454,14 @@ describe('runRunoffModule guards', () => {
 	const ran = rainfall(2001, [twelve([15, 5])]);
 	const period = { startYear: 2001, endYear: 2001 };
 
-	it('throws for Hughes and Sami modules', () => {
-		for (const gw of [1, 2] as const) {
+	it('throws for Hughes, and for Sami without its parameters', () => {
+		for (const [gw, text] of [
+			[1, /groundwater model 1 \(Hughes\) is not supported yet/],
+			[2, /groundwater model 2 \(Sami\) but no Sami parameters/]
+		] as const) {
 			const run = () => runRunoffModule(module({ groundwaterModel: gw }), ran, period);
 			expect(run).toThrow(PitmanRunError);
-			expect(run).toThrow(/Sami\/Hughes arrive in Round 6/);
+			expect(run).toThrow(text);
 			try {
 				run();
 			} catch (e) {
