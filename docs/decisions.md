@@ -45,7 +45,7 @@ Notes:
 
 - **TT 690 misprints** (`pitman.md`): eq. 1.10 is missing its minus sign, eq. 1.14 is coded with `+ C2(I2 − I1)`, eq. 1.4 has lost its Σ, and p.6's "lagged by GW" means GL. Code follows the corrected forms.
 - **OQ-22** (TL below 0.5 month gives negative month-to-month outflow with the printed Muskingum form): keep the literal form; Round 2 checks it against the reference and switches to per-step routing if WRSM2000 doesn't go negative. Recorded in `departures.md` either way.
-- **OQ-23** (initial soil moisture ST/2) is a placeholder with no manual basis. Round 0 asks the hydrologist to export the "Pitman S" and surface-runoff series from the classic-GW run, which settles it.
+- **OQ-23** (initial soil moisture ST/2) is a placeholder with no manual basis. #21 (R1) asks the hydrologist to export the "Pitman S" and surface-runoff series from the classic-GW run, which settles it.
 - **OQ-S3** (how final runoff is assembled from Pitman and Sami parts) is the highest-risk Sami default; Round 6's discrepancy hunter tests it first.
 - **Formats:** writers always produce runoff file version 7 and irrigation version 32; demands are written as defined-flow files, never `'*'` monthly abstractions; a negative `.obs` value means missing; a `.RAN` row labelled Y is October Y to September Y+1 (U-19, A1).
 - **Routes** in `.NET` refer to 1-based positions in the module list, not module numbers (`types.ts`, TT 691 L.014).
@@ -55,5 +55,6 @@ Notes:
 | Item | Status |
 |---|---|
 | The base-owned `.pre-commit-config.yaml` hooks `trailing-whitespace` and `end-of-file-fixer` would rewrite `docs/formats/examples/` (byte-exact CRLF files). The fix belongs in the templates repo's `base` (an exclude for byte-exact fixture folders), not here | Open: proposed for templates `base` |
-| CodeQL ("Analyze") fails: code scanning isn't available on this private repo without GitHub Advanced Security | Open: operator decision (enable GHAS, make the repo public, or skip CodeQL here) |
+| CodeQL ("Analyze") fails: code scanning isn't available on this private repo without GitHub Advanced Security | Open: resolved when the repo goes public (#22 step 2) |
 | The labeler workflow fails with "Resource not accessible by integration" | Open: check repository Actions workflow permissions |
+| Workflow: commit and push straight to `main`, no PRs, while the engine is built (operator, 2026-10-28). The repo is treated as public | Decided; PRs and branch protection return later (#22 steps 10–11) |
