@@ -59,7 +59,12 @@ const simulate: SfrSimulator = (m) => {
 	return { ...r, diagnostics: { ...r.diagnostics, actualEvaporationMm: { startYear: START, values: actualEvaporation(m), unit: 'mm' } } } as ReturnType<SfrSimulator>;
 };
 /** The same without EAVE. */
-const simulateBare: SfrSimulator = (m) => runClassic(m);
+// A simulator whose diagnostics carry no actual evaporation (EAVE), as before R6-V10 added it to runRunoffModule.
+const simulateBare: SfrSimulator = (m) => {
+	const r = runClassic(m);
+	const { actualEvaporationMm: _, ...diagnostics } = r.diagnostics;
+	return { ...r, diagnostics };
+};
 
 const group = (av: AlienVegetation, mode: RunMode = { kind: 'historical' }, extra: Partial<SfrGroupInput> = {}): SfrGroupInput => ({
 	parent,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { samiAquiferStep } from '../groundwater/sami/aquifer.js';
 import { fakeSamiParts } from '../groundwater/sami/fake-parts.js';
 import { samiInterflow, samiSoilPass } from '../groundwater/sami/soil.js';
 import type { ReductionInput, StreamflowReduction } from '../landuse/contract.js';
@@ -69,16 +70,24 @@ const ran: RainfallSeries = {
 const period = { startYear: 2001, endYear: 2003 };
 
 describe('wiring (src/runoff/wiring.ts)', () => {
-	it('ships with Sami not wired until integration, and both land-use models wired', () => {
-		expect(SAMI_PARTS).toBe(SAMI_PARTS_NOT_WIRED);
+	it('ships with the real Sami parts and both land-use models wired', () => {
+		expect(SAMI_PARTS).not.toBe(SAMI_PARTS_NOT_WIRED);
+		expect(SAMI_PARTS.soilPass).toBe(samiSoilPass);
+		expect(SAMI_PARTS.aquiferStep).toBe(samiAquiferStep);
 		expect(STREAMFLOW_REDUCTIONS).toHaveLength(2);
 		expect(STREAMFLOW_REDUCTIONS[0]).toBe(forestReduction);
 		expect(typeof SFR_TARGETS.alien).toBe('function');
 		expect(() => SAMI_PARTS_NOT_WIRED.aquiferInit({} as never)).toThrow(/not wired/);
 	});
 
-	it('refuses a Sami module with the default parts, naming it (R2-2)', () => {
-		const run = () => runRunoffModule(module(), ran, period);
+	it('runs a Sami module with the default (real) parts', () => {
+		const result = runRunoffModule(module(), ran, period);
+		expect(result.outflow.values).toHaveLength(36);
+		expect(result.outflow.values.every(Number.isFinite)).toBe(true);
+	});
+
+	it('refuses a Sami module when the parts are not wired, naming it (R2-2)', () => {
+		const run = () => runRunoffModule(module(), ran, { ...period, samiParts: SAMI_PARTS_NOT_WIRED });
 		expect(run).toThrow(PitmanRunError);
 		expect(run).toThrow(/RU 4: groundwater model 2 \(Sami\) parts are not wired yet/);
 	});

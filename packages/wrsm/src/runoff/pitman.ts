@@ -105,7 +105,7 @@ export const DEFAULT_PITMAN_OPTIONS: PitmanOptions = {
 	interceptionSpread: 'proportional', // OQ-3
 	stepOrder: 'explicit', // OQ-8
 	evaporationAdjustment: 'proportional', // OQ-12
-	routing: 'monthly', // OQ-20, OQ-22
+	routing: 'perStep', // OQ-20, OQ-22 → R6-R6: the reference comparison settles it
 	precision: 'float64' // OQ-25
 };
 

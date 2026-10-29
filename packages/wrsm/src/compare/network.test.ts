@@ -5,6 +5,7 @@ import { readBundle, writeBundle, type LoadedBundle } from '../io/bundle.js';
 import { fakeSimulators } from '../network/fake-simulators.js';
 import { runNetwork } from '../network/run-network.js';
 import { syntheticBundle } from '../network/synthetic-bundle.js';
+import { SAMI_PARTS_NOT_WIRED } from '../runoff/wiring.js';
 import type { MonthlySeries, NetworkBundle, RunoffModule, RunResult } from '../types.js';
 import { compareNetworkWithReference, compareRunWithReference, referenceAnswerTexts } from './network.js';
 
@@ -80,7 +81,9 @@ describe('compareNetworkWithReference', () => {
 	});
 
 	it('returns the error of a run that throws, with the reference count', () => {
-		const failed = compareNetworkWithReference(loaded, (b) => runNetwork(b, { kind: 'historical' }, fakeSimulators())); // Sami not wired
+		const failed = compareNetworkWithReference(loaded, (b) =>
+			runNetwork(b, { kind: 'historical' }, { ...fakeSimulators(), samiParts: SAMI_PARTS_NOT_WIRED })
+		);
 		expect(failed.ok).toBe(false);
 		if (failed.ok) return;
 		expect(String(failed.error)).toMatch(/not wired/);

@@ -144,7 +144,8 @@ describe('subsurface flow and evaporation (TT 690 eqs. 1.13, 1.17–1.19)', () =
 
 describe('worked example (spec §4)', () => {
 	const input: PitmanInput = { params, sPanMm, panFactors, rainfallMm: [90, 30] };
-	const { months } = simulatePitman(input, { initialSoilMoisture: 150 });
+	// The spec's worked example (pitman.md §4) is worked with the literal monthly lag.
+	const { months } = simulatePitman(input, { initialSoilMoisture: 150, routing: 'monthly' });
 	const [oct, nov] = months as [NonNullable<(typeof months)[0]>, NonNullable<(typeof months)[1]>];
 
 	it('§4.3 October, step by step', () => {
@@ -222,7 +223,7 @@ describe('worked example (spec §4)', () => {
 		const result = runRunoffModule(module(), rainfall(2001, [twelve([15, 5])]), {
 			startYear: 2001,
 			endYear: 2001,
-			pitman: { initialSoilMoisture: 150 }
+			pitman: { initialSoilMoisture: 150, routing: 'monthly' }
 		});
 		expect(result.messages).toEqual([]);
 		expect(result.outflow.startYear).toBe(2001);
@@ -236,7 +237,7 @@ describe('worked example (spec §4)', () => {
 	});
 
 	it('§4.6 wet month with SPILL and case 3', () => {
-		const { months: [wet] } = simulatePitman({ params, sPanMm, panFactors, rainfallMm: [240] }, { initialSoilMoisture: 190 });
+		const { months: [wet] } = simulatePitman({ params, sPanMm, panFactors, rainfallMm: [240] }, { initialSoilMoisture: 190, routing: 'monthly' });
 		const m = wet!;
 		const rows = [
 			[8.0639460034, 0.0223733774, 2.25625, 33.1458121653, 0, 162.6395104608, 0.75, 1.5286233774],
@@ -311,7 +312,8 @@ const OPTION_SETS: Partial<PitmanOptions>[] = [
 	{},
 	{ initialSoilMoisture: 'ST', initialLagState: 'steady', routing: 'perStep' },
 	{ sCurveSampling: 'midpointDensity', interceptionSpread: 'equal', stepOrder: 'spillBeforeQ', evaporationAdjustment: 'subtractive' },
-	{ initialSoilMoisture: 'zero' }
+	{ initialSoilMoisture: 'zero' },
+	{ routing: 'monthly' }
 ];
 
 describe('invariants over long random synthetic records', () => {
@@ -336,8 +338,9 @@ describe('invariants over long random synthetic records', () => {
 				}
 				if (p.ZMIN === 999 && p.ZMAX === 999) expect(m.surface).toBe(0);
 			}
-			// Routed volume: the x = 0 Muskingum trapezoidal identity, from zero states (lag.ts).
-			if (opts.initialLagState === undefined && opts.routing === undefined) {
+			// Routed volume: the x = 0 Muskingum trapezoidal identity for monthly routing, from zero states (lag.ts).
+			// Per-step routing (the default since R6-R6) has its own volume test below.
+			if (opts.initialLagState === undefined && opts.routing === 'monthly') {
 				const N = months.length - 1;
 				for (const [k, inflow, outflow] of [
 					[p.GL, months.map((m) => m.base), months.map((m) => m.routedBase)],
@@ -409,14 +412,14 @@ describe('defaults and options', () => {
 			interceptionSpread: 'proportional',
 			stepOrder: 'explicit',
 			evaporationAdjustment: 'proportional',
-			routing: 'monthly',
+			routing: 'perStep', // R6-R6: OQ-22 settled by the reference comparison
 			precision: 'float64'
 		});
 		expect(simulatePitman({ params, sPanMm, panFactors, rainfallMm: [0] }).months[0]!.sStart).toBe(100);
 	});
 
 	it('steady lag start puts the first month out at its inflow (OQ-24 (b))', () => {
-		const m = simulatePitman({ params, sPanMm, panFactors, rainfallMm: [90] }, { initialSoilMoisture: 150, initialLagState: 'steady' }).months[0]!;
+		const m = simulatePitman({ params, sPanMm, panFactors, rainfallMm: [90] }, { initialSoilMoisture: 150, initialLagState: 'steady', routing: 'monthly' }).months[0]!;
 		near(m.routedBase, m.base);
 		near(m.routedFast, m.fast);
 	});

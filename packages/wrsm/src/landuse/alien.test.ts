@@ -11,7 +11,7 @@ import {
 	alienReductionTargets,
 	alienVegetationReduction,
 	evaporationDeficit,
-	flowStatistics,
+	sfrFlowStatistics,
 	longLagAnnualReduction,
 	longLagLowFlowReduction,
 	mediumTreeBiomass,
@@ -278,10 +278,10 @@ describe('areas and flow statistics', () => {
 
 	it('MAR = mean year total; low flow = mean of the lowest quarter (TT 689 p.138)', () => {
 		const v = Array.from({ length: 24 }, (_, i) => i + 1);
-		const s = flowStatistics(v);
+		const s = sfrFlowStatistics(v);
 		expect(s.marMm3).toBeCloseTo(300 / 2, 12);
 		expect(s.lowFlowMm3).toBeCloseTo((1 + 2 + 3 + 4 + 5 + 6) / 6, 12);
-		expect(flowStatistics([])).toEqual({ marMm3: 0, lowFlowMm3: 0 });
+		expect(sfrFlowStatistics([])).toEqual({ marMm3: 0, lowFlowMm3: 0 });
 	});
 });
 
@@ -366,9 +366,9 @@ describe('alienVegetationReduction', () => {
 	it('child: the virgin series loses TPRM %, so its MAR drops from VMAR to QMAR = VMAR (1 − TPRM/100)', () => {
 		const q = runoff(4);
 		const out = call(freeModule(alienBlock(), 20), q, { kind: 'historical' }, {}, base);
-		const vmar = flowStatistics(q).marMm3;
+		const vmar = sfrFlowStatistics(q).marMm3;
 		expect(out.virginMarMm3).toBeCloseTo(vmar, 12);
-		const reducedMar = flowStatistics(q.map((v, t) => v - out.reductionMm3.values[t]!)).marMm3;
+		const reducedMar = sfrFlowStatistics(q.map((v, t) => v - out.reductionMm3.values[t]!)).marMm3;
 		expect(reducedMar).toBeCloseTo(vmar * (1 - out.targets.tprm / 100), 12);
 		// No FT note for a child.
 		expect(out.messages).toEqual([]);

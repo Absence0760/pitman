@@ -349,7 +349,7 @@ export function alienAreaByMonth(table: YearTable, mode: RunMode, startYear: Hyd
 }
 
 /** Mean annual flow and low flow of a monthly volume series. */
-export interface FlowStatistics {
+export interface SfrFlowStatistics {
 	/** Mean of the hydrological-year totals, million m³/a (the "Virgin MAR" of a natural series). */
 	readonly marMm3: number;
 	/** Mean of the lowest 25 % of the monthly values (TT 689 p.138), million m³/month. */
@@ -357,7 +357,7 @@ export interface FlowStatistics {
 }
 
 /** MAR and low flow (TT 689 p.138: "ranking all monthly flows, selecting the 25% lowest and calculating the mean"; count = round(n / 4), at least 1, R6-V12). */
-export function flowStatistics(values: readonly number[]): FlowStatistics {
+export function sfrFlowStatistics(values: readonly number[]): SfrFlowStatistics {
 	const n = values.length;
 	if (n === 0) return { marMm3: 0, lowFlowMm3: 0 };
 	const total = values.reduce((a, b) => a + b, 0);
@@ -420,7 +420,7 @@ export function alienVegetationReduction(input: AlienReductionInput): AlienReduc
 	if (n !== 12 * (endYear - startYear + 1)) throw new RangeError(`RU ${module.number}: unreduced runoff has ${n} months, the run ${startYear}–${endYear} has ${12 * (endYear - startYear + 1)}`);
 
 	const isChild = input.parent !== null;
-	const virgin = isChild ? { virginMarMm3: flowStatistics(q).marMm3 } : {};
+	const virgin = isChild ? { virginMarMm3: sfrFlowStatistics(q).marMm3 } : {};
 	const zeros = (): MonthlySeries => ({ startYear, values: new Array<number>(n).fill(0), unit: 'Mm3' });
 	const alien = module.alienVegetation;
 	const area = alien ? alienAreaByMonth(alien.areaKm2, mode, startYear, endYear) : new Array<number>(n).fill(0);

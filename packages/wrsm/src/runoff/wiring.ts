@@ -20,6 +20,8 @@ import type { StreamflowReduction } from '../landuse/contract.js';
 import { forestReduction } from '../landuse/forest.js';
 import { alienTargetModel, alienVegetationReduction } from '../landuse/alien.js';
 import type { ChildTargetModel } from '../landuse/sfr.js';
+import { makeSamiAquiferStep, samiAquiferInit, samiAquiferStep } from '../groundwater/sami/aquifer.js';
+import { samiInterflow, samiSoilPass } from '../groundwater/sami/soil.js';
 
 function notWired(part: string): never {
 	throw new Error(`Sami ${part} is not wired yet (Round 6 integration: src/runoff/wiring.ts)`);
@@ -38,9 +40,14 @@ export const SAMI_PARTS_NOT_WIRED: SamiRunParts = Object.freeze({
 	aquiferStep: () => notWired('aquiferStep')
 });
 
-// WIRING POINT (Sami): replace SAMI_PARTS_NOT_WIRED with the real parts.
-/** The Sami parts a run uses when none are injected. */
-export const SAMI_PARTS: SamiRunParts = SAMI_PARTS_NOT_WIRED;
+/** The Sami parts a run uses when none are injected: soil (6.1) and aquifer (6.2). */
+export const SAMI_PARTS: SamiRunParts = Object.freeze({
+	soilPass: samiSoilPass,
+	interflow: samiInterflow,
+	aquiferInit: samiAquiferInit,
+	aquiferStep: samiAquiferStep,
+	makeAquiferStep: makeSamiAquiferStep
+});
 
 // Lambdas, not the functions themselves: alien.ts and this file are in an import cycle through
 // runoff/pitman.ts, so nothing here may touch an alien.ts binding while modules load.

@@ -51,9 +51,20 @@ export * from './channel/index.js';
 export * from './stats/index.js';
 export * from './run.js';
 
-// Round 6 contracts: the Sami groundwater parts (docs/theory/sami.md § 6) and streamflow reductions.
+// Round 6: Sami groundwater (docs/theory/sami.md), afforestation and SFR parent/child
+// (afforestation.md), alien vegetation and paved area (alien.md), and their wiring.
 export type * from './groundwater/sami/contract.js';
 export type * from './landuse/contract.js';
+export * from './groundwater/sami/soil.js';
+export * from './groundwater/sami/aquifer.js';
+export * from './groundwater/sami/index.js';
+export * from './groundwater/sami/fake-parts.js';
+export * from './landuse/forest.js';
+export * from './landuse/sfr.js';
+export * from './landuse/alien.js';
+export * from './landuse/paved.js';
+export * from './runoff/wiring.js';
+export * from './network/sfr-groups.js';
 
 // Round 4 contract for method A, the CHIRPS extension (docs/theory/extend.md).
 export * from './extend/contract.js';
