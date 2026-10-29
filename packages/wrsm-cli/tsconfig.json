@@ -1,0 +1,20 @@
+{
+	// The CLI does the file-system work the engine may not (issue #3 rule 6),
+	// so it runs on Node and has Node's types.
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"lib": ["ES2022"],
+		"types": ["node"],
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"isolatedModules": true,
+		"noEmit": true
+	},
+	"include": ["src/**/*.ts", "vitest.config.ts"],
+	"exclude": ["node_modules", "dist"]
+}

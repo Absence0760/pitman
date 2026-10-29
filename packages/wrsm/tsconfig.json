@@ -1,0 +1,21 @@
+{
+	// Engine source. `lib` has no DOM and `types` is empty, so any use of a
+	// browser global or a Node API (`node:fs`, `process`, `Buffer`) fails to
+	// typecheck. Readers and writers take and return strings (issue #3 rule 6).
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"lib": ["ES2022"],
+		"types": [],
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"isolatedModules": true,
+		"noEmit": true
+	},
+	"include": ["src/**/*.ts"],
+	"exclude": ["src/**/*.test.ts", "node_modules", "dist"]
+}

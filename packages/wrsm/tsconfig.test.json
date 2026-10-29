@@ -1,0 +1,10 @@
+{
+	// Tests only. They may use Node (the purity guard reads the source tree);
+	// the engine source itself is checked under tsconfig.json without it.
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"types": ["node"]
+	},
+	"include": ["src/**/*.ts", "vitest.config.ts"],
+	"exclude": ["node_modules", "dist"]
+}
