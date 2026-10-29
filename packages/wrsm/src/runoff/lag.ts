@@ -99,3 +99,60 @@ export function routeSeries(inflow: readonly number[], options: MuskingumOptions
 	const router = new MuskingumRouter(options);
 	return inflow.map((value) => router.step(value));
 }
+
+/** Options for a `ShiftRouter`. */
+export interface ShiftOptions {
+	/** Lag k in months (k ≥ 0). */
+	readonly k: number;
+	/** The inflow assumed for every month before the first; 0 when absent (OQ-24 (a)). */
+	readonly initialInflow?: number;
+	/** Applied to the outflow, e.g. `Math.fround` (OQ-25). Identity when absent. */
+	readonly round?: (value: number) => number;
+}
+
+/**
+ * The time delay WRSM2000's outputs show (OQ-22 reading (e), R6-R9): each
+ * month's runoff is shifted later by k months, spread uniformly over the
+ * month, so with k = n + f (n whole, 0 ≤ f < 1)
+ *
+ *   O_t = (1 − f) I_{t−n} + f I_{t−n−1}
+ *
+ * k = 0.25 keeps ¾ of a month's runoff in that month and moves ¼ into the
+ * next. Not the Muskingum form TT 690 p.4 eqs. 1.14–1.16 print: the
+ * reference `ncr.MTS` series give this two-term kernel for TL = 0.2, 0.25,
+ * 0.35 and 0.5 with no recession tail (docs/theory/pitman.md OQ-22). It
+ * conserves mass (Σ O = Σ I less what is still in transit at the end) and
+ * never goes negative for I ≥ 0.
+ */
+export class ShiftRouter {
+	readonly k: number;
+	private readonly whole: number;
+	private readonly fraction: number;
+	private readonly round: ((value: number) => number) | undefined;
+	/** The last `whole + 1` inflows, newest last. */
+	private readonly history: number[];
+
+	constructor(options: ShiftOptions) {
+		if (!(options.k >= 0) || !Number.isFinite(options.k)) throw new RangeError(`lag k must be finite and ≥ 0, got ${options.k}`);
+		this.k = options.k;
+		this.whole = Math.floor(options.k);
+		this.fraction = options.k - this.whole;
+		this.round = options.round;
+		this.history = new Array<number>(this.whole + 1).fill(options.initialInflow ?? 0);
+	}
+
+	/** Replace the months before the first with a constant inflow (a steady start, OQ-24 (b)). */
+	reset(inflow: number): void {
+		this.history.fill(inflow);
+	}
+
+	/** Route one month's inflow and return its outflow. */
+	step(inflow: number): number {
+		this.history.push(inflow);
+		// history now holds I_{t−n−1} … I_t; drop the oldest after use.
+		const older = this.history.shift()!; // I_{t−n−1}
+		const newer = this.history[0]!; // I_{t−n}
+		const O = this.fraction === 0 ? newer : (1 - this.fraction) * newer + this.fraction * older;
+		return this.round ? this.round(O) : O;
+	}
+}

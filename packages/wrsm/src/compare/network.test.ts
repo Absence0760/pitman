@@ -76,7 +76,8 @@ describe('compareNetworkWithReference', () => {
 		const byRoute = new Map(c.routes.map((r) => [r.route, r]));
 		expect(byRoute.get(1)).toMatchObject({ fails: true, origin: true, module: { type: 'RU', number: 1 }, position: 1 });
 		expect(byRoute.get(2)).toMatchObject({ fails: true, origin: false, module: { type: 'RU', number: 2 } });
-		expect(c.modules[0]).toMatchObject({ module: { type: 'RU', number: 1 }, origin: true, fails: true });
+		// Found by number: the modules are ranked by error, and RU 1 and RU 2 differ by the same 10 %.
+		expect(c.modules.find((m) => m.module.number === 1)).toMatchObject({ module: { type: 'RU', number: 1 }, origin: true, fails: true });
 		expect(c.modules.find((m) => m.module.number === 2)).toMatchObject({ origin: false, fails: true });
 	});
 

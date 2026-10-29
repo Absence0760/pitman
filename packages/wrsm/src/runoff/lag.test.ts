@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MuskingumRouter, muskingumCoefficients, routeSeries } from './lag.js';
+import { MuskingumRouter, muskingumCoefficients, routeSeries, ShiftRouter } from './lag.js';
 
 /** Seeded uniform [0, 1) generator (mulberry32). */
 function random(seed: number): () => number {
@@ -73,5 +73,49 @@ describe('Muskingum, x = 0 (TT 690 eqs. 1.14–1.16)', () => {
 	it('rounds the stored outflow when asked (OQ-25)', () => {
 		const out = routeSeries([1, 2, 3], { k: 2.5, dt: 1, round: Math.fround });
 		for (const o of out) expect(Math.fround(o)).toBe(o);
+	});
+});
+
+describe('ShiftRouter: the time shift WRSM2000 applies (OQ-22 (e), R6-R9)', () => {
+	const shift = (k: number, xs: readonly number[], initialInflow?: number) => {
+		const r = new ShiftRouter({ k, ...(initialInflow !== undefined ? { initialInflow } : {}) });
+		return xs.map((x) => r.step(x));
+	};
+
+	it('k = 0.25 keeps ¾ of a month in it and moves ¼ to the next, with no tail (the ncr.MTS kernel)', () => {
+		const out = shift(0.25, [8, 0, 0, 0]);
+		expect(out).toEqual([6, 2, 0, 0]);
+	});
+
+	it('k = n + f delays by n whole months and spreads f into the month after', () => {
+		const out = shift(1.5, [10, 0, 0, 0]);
+		expect(out).toEqual([0, 5, 5, 0]);
+		expect(shift(2, [1, 2, 3, 4])).toEqual([0, 0, 1, 2]);
+	});
+
+	it('k = 0 passes the series through', () => {
+		expect(shift(0, [1, 2, 3])).toEqual([1, 2, 3]);
+	});
+
+	it('starts from the initial inflow, and reset() gives a steady start', () => {
+		expect(shift(0.25, [4, 4], 4)).toEqual([4, 4]);
+		const r = new ShiftRouter({ k: 0.5 });
+		r.reset(2);
+		expect(r.step(4)).toBe(3);
+	});
+
+	it('conserves volume once the record drains and never goes negative', () => {
+		const rnd = random(7);
+		for (const k of [0.1, 0.25, 0.35, 0.5, 1.7, 3]) {
+			const inflow = [...Array.from({ length: 200 }, () => (rnd() < 0.3 ? 0 : 50 * rnd() ** 3)), ...new Array<number>(5).fill(0)];
+			const out = shift(k, inflow);
+			expect(out.every((o) => o >= 0)).toBe(true);
+			expect(sum(out)).toBeCloseTo(sum(inflow), 9);
+		}
+	});
+
+	it('rejects a negative or non-finite k', () => {
+		expect(() => new ShiftRouter({ k: -0.1 })).toThrow(RangeError);
+		expect(() => new ShiftRouter({ k: Infinity })).toThrow(RangeError);
 	});
 });

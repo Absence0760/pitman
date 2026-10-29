@@ -32,9 +32,9 @@ export function fakeSamiParts(options: { readonly rechargeFraction?: number; rea
 	const mean = (xs: readonly number[]) => (xs.length > 0 ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 	return {
 		calls,
-		soilPass(S, p): SamiSoilPass {
+		soilPass(S, p, _options?: unknown, recharge?: readonly number[]): SamiSoilPass {
 			calls.push('soilPass');
-			const re = S.map((s) => rechargeFraction * Math.max(0, s));
+			const re = recharge ? [...recharge] : S.map((s) => rechargeFraction * Math.max(0, s));
 			const soilInterflow = S.map((s) => interflowFraction * Math.max(0, s));
 			let P = p.P0;
 			const exrech: number[] = [];

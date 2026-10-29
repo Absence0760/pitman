@@ -186,16 +186,20 @@ const mean = (xs: readonly number[]): number => (xs.length === 0 ? 0 : xs.reduce
  * Means are over the whole run (TT 691 p.51 three-pass note; OQ-S6, OQ-S13).
  * Throws `RangeError` on an invalid parameter or a non-finite S (R2-2).
  */
-export const samiSoilPass: SamiSoilPassFn & ((S: readonly Mm[], p: SamiSoilParams, options?: SamiSoilOptions) => SamiSoilPass) = (
+export const samiSoilPass: SamiSoilPassFn &
+	((S: readonly Mm[], p: SamiSoilParams, options?: SamiSoilOptions, recharge?: readonly Mm[]) => SamiSoilPass) = (
 	S: readonly Mm[],
 	p: SamiSoilParams,
-	options: SamiSoilOptions = DEFAULT_SAMI_SOIL_OPTIONS
+	options: SamiSoilOptions = DEFAULT_SAMI_SOIL_OPTIONS,
+	recharge?: readonly Mm[]
 ): SamiSoilPass => {
 	S.forEach((value, i) => {
 		if (!Number.isFinite(value)) throw new RangeError(`Sami soil moisture S must be finite, got ${value} in month ${i}`);
 	});
 	// Pass 1.
-	const re = S.map((value) => samiRecharge(value, p, options));
+	// OQ-S2 (b): the recharge the Pitman core already took out of S, when the composition passes it.
+	if (recharge && recharge.length !== S.length) throw new RangeError(`Sami recharge has ${recharge.length} months; S has ${S.length}`);
+	const re = recharge ? [...recharge] : S.map((value) => samiRecharge(value, p, options));
 	const soilInterflow = S.map((value) => samiSoilInterflow(value, p));
 	const reBar = mean(re);
 	// Pass 2.
