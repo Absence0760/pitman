@@ -58,16 +58,8 @@ export const SAMI_OUTFLOW_WIDTH_FACTOR = 4;
 /** Days per month in the outflow and the pumping clock (OQ-S11; the constant of TT 690 p.90 eq. 8.14). */
 export const SAMI_DAYS_PER_MONTH = 30;
 
-/**
- * `SamiAquiferParams` plus the catchment area. The contract's params carry
- * no area, but ET (EVAREA/AREA) and the outflow (W and the depth
- * conversion) need it; until the contract gains `areaKm2`, the step reads
- * it from here and throws if it is missing.
- */
-export interface SamiAquiferParamsWithArea extends SamiAquiferParams {
-  /** RU catchment area (L.002 v1; the child area for an SFR child), km². */
-  readonly areaKm2: number;
-}
+/** @deprecated The contract's `SamiAquiferParams` now carries `areaKm2`; kept as an alias. */
+export type SamiAquiferParamsWithArea = SamiAquiferParams;
 
 /** The provisional choices of the aquifer step that can be switched without touching the code. */
 export interface SamiAquiferOptions {
@@ -136,7 +128,7 @@ export function samiCapacity(p: SamiAquiferParams): Mm {
 }
 
 function areaOf(p: SamiAquiferParams): number {
-  const area = (p as Partial<SamiAquiferParamsWithArea>).areaKm2;
+  const area = p.areaKm2;
   if (typeof area !== "number" || !(area > 0) || !Number.isFinite(area)) {
     throw new RangeError(
       `Sami aquifer: params need a catchment areaKm2 > 0 (got ${String(area)})`,
@@ -323,7 +315,7 @@ export const samiAquiferStep: SamiAquiferStepFn = makeSamiAquiferStep();
  * Aquifer parameters from a runoff module's Sami block (L.031–L.034;
  * sami.md §2.1). No unit conversions are needed: the file holds THICK in m,
  * STORE₀, SWL and BFMAX in mm (mm/month), T in m²/d, x in m and EVAREA in
- * km² (TT 689 p.43–44). `staticWaterLevelM` is mm despite its name (TT 689
+ * km² (TT 689 p.43–44). `staticWaterLevelMm` is mm (TT 689
  * p.43: "a default of 60 mm"). GWMAX and the OQ-S11 constants are fixed.
  */
 export function samiAquiferParams(
@@ -338,7 +330,7 @@ export function samiAquiferParams(
     thicknessM: sami.aquiferThicknessM,
     storativity: sami.storativity,
     store0: sami.initialAquiferStorage,
-    SWL: sami.staticWaterLevelM,
+    SWL: sami.staticWaterLevelMm,
     BFMAX: sami.maxDischarge,
     BPOW: sami.gwSwPower,
     HGRAD: sami.maxHydraulicGradient,

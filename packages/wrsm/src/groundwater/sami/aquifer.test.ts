@@ -101,7 +101,7 @@ describe("Sami aquifer: parameters and initial state", () => {
       aquiferThicknessM: 17,
       storativity: 0.009,
       initialAquiferStorage: 142,
-      staticWaterLevelM: 126,
+      staticWaterLevelMm: 126,
       unsaturatedStorage: 9,
       initialUnsaturatedStorage: 5,
       PPOW: 0.2,

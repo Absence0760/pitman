@@ -389,8 +389,8 @@ export interface SamiParameters {
 	readonly storativity: number;
 	/** L.031 v3: initial aquifer storage (B11_AquiferStor), unit not stated. */
 	readonly initialAquiferStorage: number;
-	/** L.031 v4: static water level (B13_StatWaterLevel), m. */
-	readonly staticWaterLevelM: number;
+	/** L.031 v4: static water level (B13_StatWaterLevel), mm (TT 689 p.43: "a default of 60 mm"; renamed from `staticWaterLevelM` in Round 6). */
+	readonly staticWaterLevelMm: number;
 	/** L.031 v5: unsaturated storage (D7_Unsat, method 2) or decay (D7_Decay, method 1). */
 	readonly unsaturatedStorage: number;
 	/** L.032 v1: initial unsaturated-zone storage (D8_STinit, method 2) or growth % (D8_GrowthPerc, method 1). */

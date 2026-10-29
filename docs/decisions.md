@@ -120,3 +120,11 @@ Round 3 reference checks (local, `WRSM_REFERENCE_DIR`): 34 of 35 `.NET` files va
 | R6-S0 | Sami soil-side open questions are switchable (`SamiSoilOptions`, `SamiInterflowOptions` in `groundwater/sami/soil.ts`): OQ-S5 recharge threshold `HGSL` (alt. `SL`); OQ-S6 moving-average start `available` (alt. `zeroPadded`); OQ-S8 eq. 8.5 uses P `afterRecharge` (alt. `previous`); OQ-S10 standard Muskingum as `runoff/lag.ts` (k = 0 no routing); OQ-S17 lag starts `steady` (alt. `zero`). The reference comparison picks the winners | Provisional |
 | R6-S1 | PMAX = 0 means no percolating store: all recharge is EXRECH, PERC = 0. PMAX < 0, P₀ < 0, MMA < 1 or non-finite S are errors (R2-2) | Decided |
 | R6-S2 | MMA (F7.2 in the file) is read as the nearest integer; below 1 is an error, never raised to 1 | Provisional |
+| R6-A0 | Sami aquifer switches (`SamiAquiferOptions` in `groundwater/sami/aquifer.ts`): R6-A1 depletion may exceed ABS and the surplus returns to STORE ("rewatering", TT 690 p.91; alt. `depletionCap: 'abstraction'`); R6-A2 transmission losses are not capped at CAP, the surplus spills to interflow next month (alt. `transmissionLossCap: 'runoffAndCapacity'`); OQ-S14 the pumping clock never resets (alt. `pumpingClock: 'resetWhenIdle'`) | Provisional; reference comparison |
+| R6-A3 | `fromStorage` is all the abstraction takes from STORE; `pctFromGw` is 0 until pumping starts | Provisional |
+| R6-A4 | CAP ≤ SWL is an error (TT 691 p.209) | Decided |
+| R6-A5 | **Changes eq. 8.9's literal HEAD:** a negative runoff counts as 0 in HEAD and in the TL cap | Provisional |
+| R6-A6 | **Changes OQ-S12's default:** the baseflow curve uses −\|BPOW\| | Provisional |
+| R6-A7 | STORE has no floor (heavy abstraction can take it below 0); a clamp would need an unmet-abstraction output | Provisional |
+| R6-A8 | The aquifer step rejects storativity ≤ 0, borehole distance ≤ 0, an evaporation area outside [0, AREA], a negative or non-finite abstraction (R2-2) | Decided |
+| R6-A9 | `SamiAquiferParams` carries `areaKm2` (contract change); `SamiParameters.staticWaterLevelM` renamed `staticWaterLevelMm`: the value is mm (TT 689 p.43) | Decided |
