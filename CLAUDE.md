@@ -110,13 +110,25 @@ Run these as slash-commands. Each delegates to a specialised agent (`.claude/age
 - `/audit/all` — runs every audit in `audit/`; `/audit/<area>` for a single sweep. Areas: `secrets`, `infra`, `deps`, `xss`, `cost-controls`, `auth`, `accessibility`, `gdpr`, `data-export-completeness`, `account-deletion-completeness`, `cookie-consent`, `third-party-data-flows`.
 - `/persona` — runs the bug-hunting persona auditors (`.claude/agents/persona-*.md`): real-world points of view (new user, power user, admin, international user, accessibility, integrator, adversary, data subject) that find logic / UX / domain bugs a code review misses. Each writes a living report to `reviews/<persona>.md` (git-ignored). Protocol + how to add domain personas: `.claude/personas/README.md`.
 
+Pitman's own additions (listed in `.claude/README.md` § Pitman additions):
+
+- `/issue <n>` — one issue end to end: worktree, routing, gate, merge into `main` while PRs are off.
+- `/audit/licenses`, `/audit/docs-drift` — dependency and data licences; docs against the code.
+- Agents: `wrsm-engine-reviewer` (run it on every `packages/wrsm` change), `persona-hydrologist`, `za-legal-researcher`, `infra-auditor`, `ui-designer`.
+- Hook: `.claude/hooks/security-patterns.sh` flags engine-purity, float32-rounding, private-env, S3-region and machine-path patterns after each edit (never blocks).
+
 These ship with placeholder examples and need per-project adaptation — see `.claude/README.md`.
 
 ## Where to look
 
 - `docs/STACK.md` — the canonical "what is this and how do I run it" doc (template-owned)
 - `docs/` — additional architecture/deployment/security docs (template-owned)
-- `.github/workflows/gitleaks.yml` — secret scanning (base-owned)
+- `.github/workflows/gitleaks.yml` — secret scanning on push/PR (base-owned; also `workflow_call`ed by `gitleaks-sweep.yml`)
+- `.github/workflows/gitleaks-sweep.yml` — weekly full-history secret scan; opens a `secret-scan` issue on failure
+- `.github/workflows/coverage.yml` — weekly `pnpm test:coverage` report (never a gate)
+- `.github/workflows/terraform.yml` — `infra/` fmt + validate + Trivy, credential-free
+- `.github/workflows/pr-mergeable.yml` — flags a conflicted PR on which `ci.yml` never ran (Dependabot's, while PRs are off)
+- `.github/codeql/codeql-config.yml` — CodeQL paths-ignore (`docs/formats/examples/**`)
 - `.github/workflows/audit.yml` — weekly `pnpm audit` + auto-issue (base-owned)
 - `.github/workflows/security.yml` — CodeQL static analysis + container scanning (base-owned)
 - `.github/workflows/scorecard.yml` — OSSF Scorecard (base-owned)

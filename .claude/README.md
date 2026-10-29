@@ -31,6 +31,27 @@ These agents and commands were derived from a real working web app (SvelteKit + 
   - Quality: `accessibility.md`
   - `all.md` runs them all in sequence; `README.md` is the index
 
+## Pitman additions
+
+Project-owned (not from the templates `base` branch). Adapted from the
+estate's other repos, mostly IC-WBT (`project-water-management`, same
+domain and stack), with every fact rewritten for Pitman.
+
+### Agents
+- **`wrsm-engine-reviewer.md`** — review-only judge of `packages/wrsm` diffs: specs and TT manual citations, `docs/decisions.md` IDs (no silent change to a provisional default), the TT 690 errata, `docs/departures.md`, water balance and bounds, units, hydrological-year month order (index 0 = October), float32 rounding in writers, byte-identical round-trips, the reference comparison's skip rule, purity. Same output shape as `code-reviewer`; run it beside `/check` (which doesn't call it) and from `/issue`.
+- **`persona-hydrologist.md`** — domain persona: a WRSM2000-literate consulting hydrologist bringing a network to 2025. Synthetic data only; writes `reviews/persona-hydrologist.md`. Runs with the `/persona` panel.
+- **`za-legal-researcher.md`** — pre-counsel research on one licence or law question (WR2012/WRC terms, DWS data, CHIRPS/CHELSA attribution, Cape Farm Mapper terms, the clean-room rule, South African law). Not legal advice.
+- **`infra-auditor.md`** — read-only spend and IAM auditor for `infra/` and the backend's AWS use, including the cross-account grants in `docs/data.md` § Cross-account access. Areas: `cost`, `iam`, `cross-account`, `data`, `observability`, `all`.
+- **`ui-designer.md`** — build or review one screen of the Round 3+ app against the UI playbook (IC-WBT's, read-only, until Pitman has its own).
+
+### Commands
+- **`issue.md`** — `/issue <n>`: one issue end to end in a worktree, routed to the right agents, gated, merged into `main` while PRs are off (the PR variant is noted inline for when PRs return, issue #22 step 10).
+- **`audit/licenses.md`** — `/audit/licenses`: dependency licences (what ships in the SPA and Lambda bundles) plus data attribution and what must never be committed.
+- **`audit/docs-drift.md`** — `/audit/docs-drift`: README, `CLAUDE.md`, `docs/STACK.md`, `docs/*` and `.claude/` listings against the code, scripts, workflows and Terraform.
+
+### Hooks
+- **`hooks/security-patterns.sh`** (PostToolUse on Edit/Write/MultiEdit) — grep rules for engine purity and determinism, float32 rounding in `src/io/` writers, private env in the frontend, `S3Client` with no region, and hard-coded machine paths. Runs after the edit, so it never blocks; findings reach the next turn. Bypass a line with `// noqa: <rule>`. Tests: `bash .claude/hooks/security-patterns.test.sh`.
+
 ## Adapting these for a new project
 
 1. Rewrite the trust-boundary map in `agents/repo-security-auditor.md` to match your stack's actual third-party integrations.

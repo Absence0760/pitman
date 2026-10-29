@@ -29,12 +29,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  schedule:
-    # Weekly full-history sweep. The push / PR triggers above only
-    # diff against the base, so a secret that landed on a forgotten
-    # branch and got merged via fast-forward could slip through.
-    # 06:00 UTC Monday — same tide as audit.yml / security.yml / scorecard.yml.
-    - cron: '0 6 * * 1'
+  # The weekly full-history sweep calls this workflow from
+  # gitleaks-sweep.yml (06:00 UTC Monday), which also opens a
+  # `secret-scan` issue when it fails: a cron here would fail silently.
+  # A caller's grant is the ceiling for the job's permissions below, so
+  # the sweep grants the same three.
+  workflow_call:
 
 permissions: read-all
 

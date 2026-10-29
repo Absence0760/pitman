@@ -1,0 +1,11 @@
+# CodeQL configuration for this project (security.yml's init step reads it).
+# Adapted from IC-WBT's .github/codeql/codeql-config.yml (estate pattern).
+#
+# docs/formats/examples/ holds the synthetic WRSM2000 network `SY`: byte-exact
+# fixture files (CRLF, fixed widths, trailing blanks; CLAUDE.md project rule 6),
+# data rather than code, never shipped or served. Nothing in it is for CodeQL
+# to analyse, and an alert there could only be "fixed" by editing a fixture
+# that must stay byte-identical. Tests and dev scripts stay in scope: an alert
+# there after a real edit is cheap to re-check, and they can hold real bugs.
+paths-ignore:
+  - docs/formats/examples/**
