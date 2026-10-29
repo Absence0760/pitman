@@ -232,6 +232,16 @@ without bound for HEAD < 0, but TT 690 Fig 8.8 shows an odd-symmetric curve that
 ±BFMAX (OQ-S12). `Q_i/AREA` in the manual is the runoff volume over the catchment area, which is
 simply Q_i in mm.
 
+Three provisional details of this step (Round 6, `aquifer.ts`; §8):
+
+- The curve uses `−|BPOW|`, so a positive BPOW cannot turn the saturating curve into an unbounded
+  one (R6-A6; TT 689 p.44: BPOW "should always be −0.05").
+- A negative Q_i (the literal Muskingum lag can produce one, OQ-22) counts as 0 in HEAD and in the
+  TL cap, so `0 ≤ TL ≤ Q` holds (R6-A5).
+- TL is added to STORE with no capacity cap (TT 690 p.87), so STORE can end the month above CAP. The
+  surplus then spills as AQX at the start of the next month, and that month's AQRECH can be negative
+  (R6-A2, switchable).
+
 ### 3.11 Abstraction (ABSON ≠ 0, never in natural mode)
 
 Monthly demand `ABS_i` (mm) comes from the interpolated annual value or the time series (OQ-S9). With
@@ -254,6 +264,20 @@ GWBaseflow, the excess is removed from groundwater storage" (TT 690 p.91). t cou
 started. The rule for when it starts and resets is OQ-S14. TT 687 §2.13 eq. 14 also adds borehole-yield
 curtailment (EXTINCT, SUPPLY). It has no field in the v7 file format (OQ-S15), so it is **off** by
 default.
+
+Eqs. 8.14 and 8.15 are one expression, `t_i = max(0, t_{i−1} + (1 − ratio_i)·30)`. TT 690 p.91 prints
+eq. 8.15's condition as "> 1, t 13", a garbled fragment; nothing in it changes the reading. With
+`ratio > 1` and a small %GW (late in pumping), eq. 8.16 gives DEP > ABS, and `STORE −= ABS − DEP`
+adds the difference to STORE. That is the "rewatering" TT 690 p.91 describes ("allows the portion of
+recharge above the mean monthly value to replenish the accumulated aquifer storage deficit"), so the
+literal form is kept (R6-A1, switchable to DEP ≤ ABS). The output `fromStorage` is everything the
+abstraction takes from STORE, `(ABS − DEP) + max(0, DEP − GWBF_gross)`, so
+`ABS = fromStorage + (GWBF_gross − GWBF_net)` (R6-A3). It is negative in a rewatering month.
+
+The clock already moves in the first month with ABS > 0: t goes from 0 to `max(0, (1 − ratio)·30)`
+before %GW is computed (OQ-S14 as implemented; the §7 example cannot tell the readings apart because
+its first pumping month has ratio > 1). Nothing floors STORE: heavy abstraction can take it below 0
+(R6-A7). Below SWL, OUT turns negative and TL grows, so the aquifer then draws water in.
 
 ### 3.12 Module outputs
 
@@ -319,14 +343,25 @@ already-computed GWBaseflow.
 
 - **Aquifer mass balance**, every month:
   `ΔSTORE = PERC + EXRECH − AQX − ET − OUT − GWBF_gross + TL − (ABS − DEP) − max(0, DEP − GWBF_gross)`.
+  Because `GWBF_gross + max(0, DEP − GWBF_gross) = GWBF_net + DEP`, this is also
+  `ΔSTORE = AQRECH − ET − OUT − GWBF_net + TL − ABS`: depletion only moves water from baseflow to
+  the abstraction.
 - **Percolating store balance:** `ΔP = RE − EXRECH − PERC`, with `0 ≤ P ≤ PMAX`.
 - **Soil/aquifer accounting:** `Σ RE = Σ (PERC + EXRECH) + ΔP`;
   total recharge `= AQRECH + INTERFLOW` (TT 689 p.182).
 - `0 ≤ TL_i ≤ Q_i`; `0 ≤ GWBF_i ≤ BFMAX`; `ET_i ≥ 0`; `STORE ≤ CAP` after step 1.
 - With no abstraction and HGRAD ≥ 0, every loss term goes to 0 as STORE → SWL, so STORE should stay
-  ≥ SWL once above it. This is a **soft** check, not an invariant: the baseflow step alone cannot
-  overshoot only if `BFMAX·|BPOW| ≤ 1`, and ET and outflow are taken before it in the same month.
-  Assert it only for parameter sets that satisfy that condition. Otherwise log any undershoot.
+  ≥ SWL once above it. This is a **soft** check, not an invariant. Each of the three loss steps is
+  linear or sub-linear in `STORE − SWL` and can overshoot on its own:
+  - ET cannot overshoot only if `(PETgw − RAIN)⁺·EVAREA/AREA ≤ CAP − SWL`;
+  - OUT cannot overshoot only if `T·HGRAD·Δt·W/(AREA·10⁶)·1000 ≤ CAP − SWL` (OUT at HG = HGRAD);
+  - baseflow cannot overshoot only if `BFMAX·|BPOW| ≤ 1`, since `1 − e^{−b·H} ≤ b·H` gives
+    `GWBF ≤ HEAD ≤ STORE − SWL`.
+
+  Assert it only for parameter sets that satisfy all three. Otherwise log any undershoot. (Corrected
+  in Round 6: the earlier text named only the baseflow condition, but ET and OUT are taken first and
+  each can overshoot alone.)
+- `STORE ≥ 0` is **not** an invariant under abstraction (R6-A7).
 - Zero rain (S below both SL and HGSL) ⇒ RE = SIF = 0, and the aquifer only recedes towards SWL.
 - Natural mode ⇒ ABS ≡ 0.
 
@@ -516,7 +551,8 @@ Final runoff (LAG = 0, so QLAG = INTERFLOW):
 | 5 | 0.2436 | 1.1576 | 0 | 5.1576 |
 | 6 | 0.1410 | 0 | 0 | 2.0000 |
 
-The mass balance (§5) closes to < 1e‑4 mm each month. For a regression check against the source, the
+The mass balance (§5) closes to < 1e‑4 mm each month. `aquifer.test.ts` reproduces every column of
+the aquifer table from the rounded `aquiferInflow` column to the printed precision. For a regression check against the source, the
 B82B virgin balance in TT 690 Fig 8.17 has an exact aquifer identity: aquifer recharge 18.58 + TL 0.38
 = GW baseflow 9.79 + ET 8.67 + outflow 0.50 (+ Δstorage −0.01) = 18.96 mm/a. That is the §5 balance
 in annual form. Treat it as a structural check, not a number to reproduce, because the 1922–1996 S
@@ -630,6 +666,29 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   land-use reduction interacts with its Sami flows is ch.11/12 territory.
   *Default:* run Sami per module on that module's own area and parameters. Round 6.3/6.4 own the
   reduction coupling.
+- **R6-A1. Depletion above the abstraction** (§3.11). Eq. 8.16 lets DEP exceed ABS when ratio > 1
+  and %GW is small. *Default:* literal, with the surplus returned to STORE (TT 690 p.91 "rewater").
+  *Option:* `depletionCap: 'abstraction'` (DEP ≤ ABS).
+- **R6-A2. TL above capacity** (§3.10). TT 690 p.87 adds TL to STORE with no cap. *Default:* literal
+  (TL ≤ Q only), and the surplus spills as next month's AQX. *Option:*
+  `transmissionLossCap: 'runoffAndCapacity'` (TL ≤ min(Q, CAP − STORE)).
+- **R6-A3. Meaning of `fromStorage`.** Not defined by the manuals. *Default:* everything the abstraction
+  takes from STORE, `(ABS − DEP) + max(0, DEP − GWBF_gross)`; `%GW` is reported as `pctFromGw`, and
+  is 0 before pumping starts.
+- **R6-A4. Missing CAP ≤ SWL guard.** The storage factor divides by CAP − SWL; WRSM2000 refuses
+  CAP ≤ SWL (TT 691 p.209 item 83). *Default:* `samiAquiferInit` and the step throw a `RangeError`.
+- **R6-A5. Negative runoff for the head** (§3.10). *Default:* `max(0, Q)` in HEAD and in the TL cap.
+- **R6-A6. Sign of BPOW** (§3.10). *Default:* the curve uses `−|BPOW|`. No option: the file value is
+  −0.05 everywhere the manuals mention it.
+- **R6-A7. STORE below zero.** TT 690 p.91 takes `ABS − DEP` and any excess depletion from STORE with
+  no lower bound. TT 687 eq. 14's curtailment is the only limit in the manuals, and OQ-S15 turns it
+  off. TT 691 p.209 item 78 ("Aquifer storages have no zeroes unlike before which incorrectly showed
+  negatives") hints that WRSM2000's storages can go negative but doesn't settle it. *Default:* no
+  floor (literal). *Alternative:* clamp at 0 and report the unmet abstraction, which needs a contract
+  output field. 6.5 to check any abstraction network.
+- **R6-A8. Input guards.** Beyond R6-A4, the step throws a `RangeError` for storativity ≤ 0 or
+  borehole distance ≤ 0 (eq. 8.13 divides by x²·S), for an evaporation area outside [0, AREA], and
+  for a negative or non-finite ABS (a demand, never a supply).
 - **OQ-S19. Table 8.1 typography.** The Table 8.1 caption (TT 690 p.92) says method-2-only parameters
   are in italics and method-1-only ones underlined. At 100 and 140 dpi renders, no row is visibly
   italic or underlined. So the method split here comes from the prose and TT 691's per-method variable
