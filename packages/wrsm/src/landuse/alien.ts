@@ -11,11 +11,12 @@
  * Two uses:
  *
  * - **SFR child** (the WRSM2000 way, TT 690 p.125; TT 691 p.56
- *   RU_GetSFReduction): `alienReductionTargets` gives the target % reductions
- *   in MAR and low flow (TPRM, TPRL) that the parent/child mechanism
- *   (`sfr.ts`) reaches by adjusting the child's PI, FF, SL and ST, then
- *   `riparianDeduction` takes the riparian loss off the child's final
- *   outflow (TT 690 p.139: "performed after the effect of alien vegetation is
+ *   RU_GetSFReduction): `alienTargetModel` is the `ChildTargetModel` that
+ *   `runSfrGroup` takes as `targets.alien`. It gives the target % reductions
+ *   in MAR and low flow (TPRM, TPRL, `alienReductionTargets`) that `sfr.ts`
+ *   reaches by adjusting the child's PI, FF, SL and ST, and its
+ *   `adjustOutflow` takes the riparian loss (`riparianDeduction`) off the
+ *   child's calibrated outflow (TT 690 p.139: "performed after the effect of alien vegetation is
  *   determined as if all is in the non-riparian zone").
  * - **Free module** (TT 689 p.140: catchments with FT = 0, where a child must
  *   not be used): `alienVegetationReduction`, a `StreamflowReduction`, takes
@@ -27,9 +28,10 @@
  * questions) and are switchable through `AlienOptions`.
  */
 
-import type { AlienVegetation, HydroYear, MonthlySeries, RunMessage, RunMode, YearTable } from '../types.js';
-import { yearTableValue } from '../runoff/pitman.js';
+import type { AlienVegetation, HydroYear, MonthlySeries, RunMessage, RunMode, RunoffDiagnostics, YearTable } from '../types.js';
+import { potentialEvaporation, yearTableValue } from '../runoff/pitman.js';
 import type { ReductionInput, ReductionOutput } from './contract.js';
+import { activePitman, type ChildFinalRun, type ChildTargetModel, type SfrRun } from './sfr.js';
 
 // ---------------------------------------------------------------------------
 // Options
@@ -375,7 +377,9 @@ export interface AlienReductionInput extends ReductionInput {
 	/**
 	 * Monthly potential (PEACT) and actual (EAVE) evaporation of the module's
 	 * run, mm, one per month of `unreducedRunoffMm3`. Without them the
-	 * riparian deduction is skipped with a warning.
+	 * riparian deduction is skipped with a warning. For a child they must
+	 * come from the child's final (iterated) run (docs/theory/alien.md §4.2
+	 * step 4); the child path here is a fallback for when no iteration runs.
 	 */
 	readonly evaporation?: { readonly potentialMm: readonly number[]; readonly actualMm: readonly number[] };
 	readonly options?: Partial<AlienOptions>;
@@ -383,7 +387,7 @@ export interface AlienReductionInput extends ReductionInput {
 
 export interface AlienReductionOutput extends ReductionOutput {
 	readonly targets: { readonly tprm: number; readonly tprl: number };
-	/** Alien area per month, km². */
+	/** Alien area per month, km², held at the module's AREA when the table exceeds it. */
 	readonly areaKm2: readonly number[];
 	/** ETVOL per month (TS_RipVegDemand), million m³/month; zeros when the deduction is off. */
 	readonly riparianDemandMm3: MonthlySeries;
@@ -437,7 +441,15 @@ export function alienVegetationReduction(input: AlienReductionInput): AlienReduc
 		}
 		if (area[t]! > module.areaKm2 + 1e-9) overArea = true;
 	}
-	if (overArea) messages.push({ level: 'error', module: ref, text: `RU ${module.number}: alien vegetation area exceeds the module's area ${module.areaKm2} km² (TT 689 p.128); held at the module's area` });
+	if (overArea) {
+		messages.push({ level: 'error', module: ref, text: `RU ${module.number}: alien vegetation area exceeds the module's area ${module.areaKm2} km² (TT 689 p.128); held at the module's area` });
+		for (let t = 0; t < n; t++) area[t] = Math.min(area[t]!, module.areaKm2);
+	}
+	// TT 689 p.128: the year/area data "must cover the entire simulation period" or "the module will issue a warning" (historical only, as R3-N20).
+	const years = alien.areaKm2;
+	if (mode.kind === 'historical' && (years[0]!.year > startYear || years[years.length - 1]!.year < endYear)) {
+		messages.push({ level: 'warning', module: ref, text: `RU ${module.number}: alien vegetation years ${years[0]!.year}–${years[years.length - 1]!.year} don't cover the run ${startYear}–${endYear}; held flat beyond them (TT 689 p.128; OQ-17)` });
+	}
 	if (!isChild && module.pitman.FT > 0) {
 		messages.push({ level: 'info', module: ref, text: `RU ${module.number}: alien vegetation in a free module with FT > 0; TT 689 p.140 models it as an SFR child unless FT = 0` });
 	}
@@ -450,11 +462,14 @@ export function alienVegetationReduction(input: AlienReductionInput): AlienReduc
 		lowThreshold = sorted[Math.max(0, Math.round(n / 4) - 1)]!;
 	}
 	const afterCsir: number[] = [];
+	/** What is left of the alien area's own runoff after the CSIR cut: TotalOutflow of eq. 12.12. */
+	const alienResidual: number[] = [];
 	for (let t = 0; t < n; t++) {
 		const qt = q[t]!;
 		const pct = qt <= lowThreshold ? targets.tprl : targets.tprm;
 		const cut = qt > 0 ? share(t) * (pct / 100) * qt : 0;
 		afterCsir.push(qt - cut);
+		alienResidual.push(qt > 0 ? share(t) * qt - cut : 0);
 	}
 
 	// Riparian deduction (TT 690 §12.5; on whenever the riparian % > 0, R6-V8).
@@ -466,13 +481,16 @@ export function alienVegetationReduction(input: AlienReductionInput): AlienReduc
 		} else {
 			const ripArea = options.riparianArea === 'module' ? area.map((a) => (a > 0 ? module.areaKm2 : 0)) : area.map((a) => Math.min(a, module.areaKm2));
 			const rip = riparianDeduction({
-				outflowMm3: afterCsir.map((v) => Math.max(0, v)),
+				// Eq. 12.12's TotalOutflow is the alien (child) area's runoff (TT 690 p.139; TT 689 p.129 "the residual
+				// runoff from the portion of catchment ... covered by alien vegetation"), so a free module's riparian
+				// loss never takes runoff from the rest of the module.
+				outflowMm3: alienResidual.map((v) => Math.max(0, v)),
 				potentialEvaporationMm: input.evaporation.potentialMm,
 				actualEvaporationMm: input.evaporation.actualMm,
 				riparianPercent: alien.riparianArea,
 				areaKm2: ripArea
 			});
-			after = afterCsir.map((v, t) => (v > 0 ? rip.outflowMm3[t]! : v));
+			after = afterCsir.map((v, t) => v - rip.lossMm3[t]!);
 			demand = rip.demandMm3;
 		}
 	}
@@ -485,5 +503,88 @@ export function alienVegetationReduction(input: AlienReductionInput): AlienReduc
 		targets: { tprm: targets.tprm, tprl: targets.tprl },
 		areaKm2: area,
 		riparianDemandMm3: { startYear, values: demand, unit: 'Mm3' }
+	};
+}
+
+// ---------------------------------------------------------------------------
+// SFR child: the ChildTargetModel for runSfrGroup
+// ---------------------------------------------------------------------------
+
+/**
+ * Actual evaporation a runoff model may report beside `RunoffDiagnostics`:
+ * EAVE of eq. 12.10, interception + soil evaporation per month, mm (R6-V10).
+ * `RunoffDiagnostics` has no such field yet; until it does the riparian
+ * deduction reads it from here or from `AlienTargetModelOptions.actualEvaporationMm`.
+ */
+export interface EvaporationDiagnostics {
+	readonly actualEvaporationMm?: MonthlySeries;
+}
+
+export interface AlienTargetModelOptions extends Partial<AlienOptions> {
+	/**
+	 * EAVE per month, mm, of a child's calibrated run. Default: the run's
+	 * `diagnostics.actualEvaporationMm` (`EvaporationDiagnostics`). Without
+	 * either, the riparian deduction is skipped with a warning.
+	 */
+	readonly actualEvaporationMm?: (run: SfrRun) => readonly number[] | undefined;
+}
+
+/** PEACT per month (FF × S-pan × pan factor, October first) of a module with its active parameter set. */
+function potentialByMonth(final: ChildFinalRun, months: number): number[] {
+	const pe = potentialEvaporation(final.child.sPanMm, final.child.panFactors, activePitman(final.child).FF);
+	return Array.from({ length: months }, (_, t) => pe[t % 12]!);
+}
+
+/**
+ * Alien vegetation as a `ChildTargetModel` (`runSfrGroup({ targets: { alien:
+ * alienTargetModel() } })`). Targets: `alienReductionTargets` on the child's
+ * own L.011–L.015, one pair for the whole run (R6-V3; the run log prints one
+ * TPRM per child). Label: "CSIR ALIEN Vegetation", as the log's "SFR is …".
+ * When the riparian % is above 0, `adjustOutflow` applies eqs. 12.10–12.12
+ * to the calibrated outflow with the calibrated run's evaporation and the
+ * active alien area of each year (TT 690 p.139: "after the effect of alien
+ * vegetation is determined as if all is in the non-riparian zone"; the log
+ * turns "Riparian vegetation deductions on." after the iteration).
+ */
+export function alienTargetModel(options: AlienTargetModelOptions = {}): ChildTargetModel {
+	const { actualEvaporationMm: readActual, ...alienOptions } = options;
+	const opts: AlienOptions = { ...DEFAULT_ALIEN_OPTIONS, ...alienOptions };
+	return ({ child }) => {
+		const ref = { type: 'RU', number: child.number } as const;
+		const label = 'CSIR ALIEN Vegetation';
+		const alien = child.alienVegetation;
+		if (!alien || alien.algorithm === 0) return { targets: null, label: 'none', messages: [] };
+		const t = alienReductionTargets(alien, opts);
+		const messages: RunMessage[] = t.messages.map((m) => ({ ...m, module: ref, text: `RU ${child.number}: ${m.text}` }));
+		if (t.messages.some((m) => m.level === 'error')) return { targets: null, label, messages };
+		const targets = { marPercent: t.tprm, lowFlowPercent: t.tprl };
+		if (!(alien.riparianArea > 0)) return { targets, label, messages };
+
+		const adjustOutflow = (final: ChildFinalRun): { outflowMm3: readonly number[]; messages: readonly RunMessage[] } => {
+			const months = final.outflowMm3.length;
+			const actual = final.run ? (readActual ? readActual(final.run) : (final.run.diagnostics as (RunoffDiagnostics & EvaporationDiagnostics) | undefined)?.actualEvaporationMm?.values) : undefined;
+			if (!final.run || !actual || actual.length !== months) {
+				const why = !final.run ? 'the child has no calibrated run' : "the run doesn't report actual evaporation";
+				return {
+					outflowMm3: final.outflowMm3,
+					messages: final.outflowMm3.some((v) => v > 0)
+						? [{ level: 'warning', module: ref, text: `RU ${child.number}: riparian alien vegetation (${alien.riparianArea} %) not deducted: ${why} (TT 690 eq. 12.10 needs it)` }]
+						: []
+				};
+			}
+			const area = Array.from({ length: months }, (_, i) => {
+				const a = final.areaKm2ByYear[Math.floor(i / 12)] ?? 0;
+				return opts.riparianArea === 'module' ? (a > 0 ? final.child.areaKm2 : 0) : a;
+			});
+			const r = riparianDeduction({
+				outflowMm3: final.outflowMm3.map((v) => Math.max(0, v)),
+				potentialEvaporationMm: potentialByMonth(final, months),
+				actualEvaporationMm: actual,
+				riparianPercent: alien.riparianArea,
+				areaKm2: area
+			});
+			return { outflowMm3: final.outflowMm3.map((v, i) => v - r.lossMm3[i]!), messages: [] };
+		};
+		return { targets, label, messages, adjustOutflow };
 	};
 }

@@ -165,7 +165,7 @@ const composition = {
 const alienBlock = (over: Partial<AlienVegetation> = {}): AlienVegetation => ({
 	algorithm: 1,
 	riparianArea: 0,
-	areaKm2: [{ year: 2000, value: 2 }, { year: 2002, value: 4 }],
+	areaKm2: [{ year: 2000, value: 2 }, { year: 2002, value: 4 }, { year: 2004, value: 4 }],
 	composition,
 	optimalPercent: 40,
 	...over
@@ -402,7 +402,8 @@ describe('alienVegetationReduction', () => {
 		const plain = call(module, q, { kind: 'historical' }, { options: {} });
 		const rip = call(module, q, { kind: 'historical' }, { evaporation: { potentialMm, actualMm } });
 		for (let t = 0; t < N; t++) {
-			const left = q[t]! - plain.reductionMm3.values[t]!;
+			// Eq. 12.12 caps the loss at the alien area's own residual runoff (0.4 of the module), not the module's.
+			const left = 0.4 * q[t]! - plain.reductionMm3.values[t]!;
 			const etvol = 0.001 * Math.max(0, potentialMm[t]! - actualMm[t]!) * 0.05 * 4;
 			expect(rip.riparianDemandMm3.values[t]).toBeCloseTo(etvol, 12);
 			expect(rip.reductionMm3.values[t]).toBeCloseTo(plain.reductionMm3.values[t]! + Math.min(Math.max(0, left), etvol), 12);
@@ -411,6 +412,25 @@ describe('alienVegetationReduction', () => {
 		const wide = call(module, q, { kind: 'historical' }, { evaporation: { potentialMm, actualMm }, options: { riparianArea: 'module' } });
 		const total = (o: { reductionMm3: MonthlySeries }) => o.reductionMm3.values.reduce((a, b) => a + b, 0);
 		expect(total(wide)).toBeGreaterThanOrEqual(total(rip));
+	});
+
+	it('riparian loss never exceeds the alien area\'s residual runoff (TT 690 p.139; TT 689 p.129)', () => {
+		// AREA 100 km², 1 km² alien, all riparian, ETDEF 100 mm: ETVOL 0.1 Mm³ ≫ the alien km²'s runoff.
+		const module = { ...freeModule(alienBlock({ riparianArea: 100, areaKm2: [{ year: START, value: 1 }, { year: END, value: 1 }] })), areaKm2: 100 };
+		const q = new Array(N).fill(2); // 20 mm/month over 100 km²
+		const out = call(module, q, { kind: 'historical' }, { evaporation: { potentialMm: new Array(N).fill(150), actualMm: new Array(N).fill(50) } });
+		out.reductionMm3.values.forEach((v) => expect(v).toBeCloseTo(0.02, 12)); // all of the alien km²'s 0.02 Mm³, nothing more
+	});
+
+	it('warns when the alien years do not cover a historical run (TT 689 p.128); not in present day', () => {
+		const short = alienBlock({ areaKm2: [{ year: 2001, value: 2 }, { year: 2003, value: 2 }] });
+		expect(call(freeModule(short), runoff(8)).messages.some((m) => /don't cover the run/.test(m.text))).toBe(true);
+		expect(call(freeModule(short), runoff(8), { kind: 'presentDay', year: 2002 }).messages.some((m) => /don't cover/.test(m.text))).toBe(false);
+	});
+
+	it('returns the area held at AREA when the table exceeds it', () => {
+		const out = call(freeModule(alienBlock({ areaKm2: [{ year: START, value: 12 }, { year: END, value: 12 }] })), new Array(N).fill(1));
+		expect(Math.max(...out.areaKm2)).toBe(10);
 	});
 
 	it('rejects a runoff series that does not span the run', () => {

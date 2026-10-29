@@ -4,8 +4,9 @@ Implementable specification of WRSM2000's **CSIR alien vegetation** streamflow r
 lines L.011–L.015), its **riparian** deduction, how both apply to a free runoff module and to an **SFR
 child**, and a check of the **paved-area** (impervious fraction) implementation against the manuals.
 Code: `packages/wrsm/src/landuse/alien.ts`, `packages/wrsm/src/landuse/paved.ts`. Afforestation and the
-parent/child iteration itself are `docs/theory/afforestation.md` / `src/landuse/sfr.ts` (agent 6.3);
-§6 says where alien vegetation differs from afforestation there.
+parent/child calibration itself are `docs/theory/afforestation.md` / `src/landuse/sfr.ts`; alien
+vegetation plugs into it as the `ChildTargetModel` `alienTargetModel` (§4.2). §6 says where alien
+vegetation differs from afforestation there.
 
 ## Sources and citation style
 
@@ -145,7 +146,11 @@ reduction(t) = min(1, A_alien(y) / AREA) · TPRM/100 · Q(t)        Q(t) > 0, el
 ```
 
 Option `lowFlowMonths`: months at or below the run's lowest-quartile flow lose TPRL % instead. Then
-the riparian deduction (§5) on what is left. A free module with FT > 0 and alien vegetation gets an
+the riparian deduction (§5) on what is left **of the alien area's own runoff**,
+`share · Q(t) − reduction(t)`: eq. 12.12's TotalOutflow is the alien ("Child") area's flow (TT 690
+p.139; TT 689 p.129 "the residual runoff from the portion of catchment … covered by alien
+vegetation"), so the riparian loss never takes runoff from the rest of the module. A historical run
+whose alien years don't cover the run gets a warning (TT 689 p.128), as paved does (R3-N20). A free module with FT > 0 and alien vegetation gets an
 info message pointing at TT 689 p.140. "The user cannot obtain either groundwater plots or groundwater
 time series" in this case (TT 690 p.126): the reduction is taken off the total outflow, not split.
 
@@ -172,6 +177,21 @@ Order for one parent, per TT 689 pp.137–140 and the run log (`docs/formats.md`
    non-riparian zone" (TT 690 p.139).
 5. **Parent.** The parent runs on AREA minus the active child areas month by month and adds the
    children's outflows to its own (TT 689 p.140).
+
+**Interface.** `alienTargetModel(options)` is a `ChildTargetModel` (`sfr.ts`):
+`runSfrGroup({ …, targets: { alien: alienTargetModel() } })`. It returns `{ marPercent: TPRM,
+lowFlowPercent: TPRL }` for the whole run (R6-V3), label "CSIR ALIEN Vegetation", and, when the
+riparian % is above 0, an `adjustOutflow` that applies step 4 to the calibrated outflow. Step 4 needs
+the calibrated run's EAVE: `RunoffDiagnostics` has no such series yet, so the model reads
+`diagnostics.actualEvaporationMm` (`EvaporationDiagnostics` in `alien.ts`, interception + soil
+evaporation, mm/month) or the `actualEvaporationMm` option, and without either skips the deduction with
+a warning. **The runner must add that series** (`runRunoffModule`: `sim.months.map(m => m.E +
+m.interception)`; the Sami/Hughes runners likewise). PEACT comes from the calibrated child's FF.
+
+**One SFR per child (R6-F11).** TT 691 p.207 change 45c: "For slave modules, if afforestation then grey
+out alien veg and vice versa", so a child holds one or the other (TT 691 p.52 NSFR is one code). Which
+wins when a file has both isn't stated; `sfr.ts`'s default (afforestation, alien ignored with a warning)
+stands. No reference child has both.
 
 `alienVegetationReduction` with `parent` set returns `targets`, `virginMarMm3` and, as a reduction,
 TPRM % of the virgin series month by month, whose annual mean is exactly VMAR − QMAR. That is the
@@ -238,9 +258,8 @@ sink) is shared. What differs for an alien child:
    said (open, R6-V13).
 5. Free-module use with FT = 0 is the same rule as for afforestation (TT 690 p.126).
 
-The interface `sfr.ts` needs from this module: `alienReductionTargets(alien, options)` (step 2),
-`riparianDeduction(input)` (step 4), `alienAreaByMonth(table, mode, start, end)` (active area),
-`flowStatistics(values)` (VMAR, VLQT; `sfr.ts` may own its own copy).
+The interface `sfr.ts` uses is `alienTargetModel` (§4.2), built on `alienReductionTargets` (step 2)
+and `riparianDeduction` (step 4).
 
 ## 7. Reference check (local only, `alien.reference.test.ts`)
 
@@ -318,7 +337,8 @@ present-day mode (`applyRunMode`). No change is needed for free modules.
 2. **R6-P2, a child with paved data** ignores it with a warning (`pavedFractionByMonth(…, { isChild:
    true })`); the child's run must pass zero AI.
 3. **R6-P3, the special-area check** (`specialAreaMessages`): afforestation + alien + paved km² + the
-   children's active areas > AREA is an error, as `RU_SPECIAL_AREA` does (TT 691 p.63).
+   children's active areas > AREA is an error, as `RU_SPECIAL_AREA` does (TT 691 p.63). It takes the
+   run mode: nothing to check in natural mode, tables read at `mode.year` in present day.
 
 ## 9. Invariants (unit tests)
 
@@ -329,8 +349,9 @@ present-day mode (`applyRunMode`). No change is needed for free modules.
 - 0 ≤ reduction(t) ≤ max(0, Q(t)); zero area ⇒ zero reduction; natural ⇒ zero; present day ⇒ the same
   area and the same proportion every month.
 - Child: the reduced MAR equals VMAR (1 − TPRM/100).
-- Riparian: the extra reduction equals min(left-over flow, ETVOL) month by month on a simulated
-  Pitman run.
+- Riparian: the extra reduction equals min(the alien area's left-over flow, ETVOL) month by month on a
+  simulated Pitman run, and never more than the alien area's runoff; through `runSfrGroup` the
+  calibrated child loses exactly min(flow, ETVOL) and its calibration is unchanged by the riparian %.
 - Paved: per-month AI per mode, the child rule, the active-area rescale and the special-area check.
 
 ## 10. Open questions and provisional choices
