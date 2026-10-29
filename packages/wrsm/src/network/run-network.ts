@@ -1,0 +1,211 @@
+/**
+ * `runNetwork()`: solve a whole network in one run mode.
+ *
+ * Modules are solved one at a time over the whole record, in `.NET` order
+ * (R3-1), after `validateNetwork` has passed. Runoff modules run on
+ * `runRunoffModule`; reservoirs and channels on the injected simulators
+ * (`ModuleSimulators`, `contract.ts`). Spec: docs/theory/network.md §6.
+ */
+
+import { PitmanRunError, runRunoffModule, type PitmanOptions } from '../runoff/pitman.js';
+import type {
+	MonthlySeries,
+	NetworkBundle,
+	RunMessage,
+	RunMode,
+	RunoffDiagnostics,
+	RunoffModule,
+	RunResult
+} from '../types.js';
+import { definedFlowSeries, monthCount, zeroSeries, type ModuleRunContext, type ModuleRunResult, type ModuleSimulators, type RouteFlows } from './contract.js';
+import { applyRunMode } from './modes.js';
+import { definedFileOn, lookupFile, moduleLabel, placedLabel, placeModules, type PlacedModule } from './modules.js';
+import { NetworkError, validateNetwork } from './validate.js';
+
+/** What `runNetwork` needs besides the bundle and the mode. */
+export interface RunNetworkOptions {
+	readonly simulators: ModuleSimulators;
+	/** Classic Pitman options for every runoff module (R2-1). */
+	readonly pitman?: Partial<PitmanOptions>;
+}
+
+/**
+ * Run `bundle` in `mode`.
+ *
+ * Throws `NetworkError` (every validation problem at once) when the network
+ * can't be run, `PitmanRunError` when a runoff module can't (R2-2: e.g. a
+ * Sami or Hughes module before Round 6, or a rainfall year missing), and
+ * `NetworkError` naming the module when a simulator throws or breaks the
+ * contract (a series of the wrong length).
+ *
+ * The result has a series for **every** `.NET` route, each `monthCount`
+ * long: what the module that controls it put on it, the defined flow of a
+ * zero-source route, or zeros (a route leaving an unsolved, irrigation,
+ * mine or unparsed module; R3-N6, R3-N7).
+ */
+export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNetworkOptions): RunResult {
+	const validation = validateNetwork(bundle);
+	if (validation.some((m) => m.level === 'error')) throw new NetworkError(validation);
+
+	const { network } = bundle;
+	const { startYear, endYear } = network;
+	const length = monthCount(startYear, endYear);
+	const placed = placeModules(bundle);
+	const messages: RunMessage[] = [...validation];
+	const flows = new Map<number, MonthlySeries>();
+	const reservoirStorage: Record<number, MonthlySeries> = {};
+	const runoff: Record<number, RunoffDiagnostics> = {};
+	const ctx: ModuleRunContext = {
+		mode,
+		startYear,
+		endYear,
+		rainfall: (fileName) => lookupFile(bundle.rainfall, fileName),
+		flowFile: (fileName) => lookupFile(bundle.flowFiles, fileName)
+	};
+
+	// Routes from the zero module carry the defined flow their downstream module names (TT 689 p.xv).
+	for (const route of network.routes) {
+		if (route.upstreamPosition !== 0) continue;
+		const down = placed[route.downstreamPosition - 1]!;
+		const fileName = definedFileOn(down.module, route.number, 'in');
+		const file = fileName ? lookupFile(bundle.flowFiles, fileName) : undefined;
+		if (!file) continue; // an unparsed downstream module (warned by validation): zeros below
+		const result = guard(down, () => definedFlowSeries(file, mode, startYear, endYear));
+		flows.set(route.number, result.series);
+		for (const m of result.messages) messages.push({ ...m, route: m.route ?? route.number });
+	}
+
+	for (const p of placed) {
+		const module = p.module!; // validation guarantees a file per entry
+		const leaving = network.routes.filter((r) => r.upstreamPosition === p.position).map((r) => r.number);
+		if (!p.entry.solve) {
+			messages.push({ level: 'info', module: p.ref, text: `${placedLabel(p)} is not solved (Solve = N in ${network.code}.NET); its outflow routes carry zero` });
+			for (const route of leaving) flows.set(route, zeroSeries(startYear, endYear));
+			continue;
+		}
+		switch (module.kind) {
+			case 'RU': {
+				const result = runRunoff(p, module, bundle, mode, options.pitman);
+				messages.push(...result.messages);
+				runoff[module.number] = result.diagnostics;
+				const inflow = module.inflowRoute ? flows.get(module.inflowRoute)!.values : undefined;
+				const total = result.outflow.values.map((v, i) => v + (inflow ? inflow[i]! : 0));
+				for (const o of module.outflows) {
+					// TT 689 p.xvi (c): "fixed proportions of the total runoff along various routes"; TT 691 L.020.
+					const share = o.percent / 100;
+					flows.set(o.route, series(startYear, total.map((v) => v * share)));
+				}
+				break;
+			}
+			case 'RV':
+			case 'CR': {
+				const inflows: Record<number, MonthlySeries> = {};
+				for (const c of module.inflows) {
+					// A route with a defined-flow file is read by the simulator from `ctx.flowFile` (contract.ts).
+					if (c.definedFlowFile) continue;
+					const route = network.routes.find((r) => r.number === c.route)!;
+					if (route.upstreamPosition === 0) continue;
+					inflows[c.route] = flows.get(c.route)!;
+				}
+				const result: ModuleRunResult = guard(p, () =>
+					module.kind === 'RV' ? options.simulators.reservoir(module, inflows, ctx) : options.simulators.channel(module, inflows, ctx)
+				);
+				for (const m of result.messages) messages.push(m.module ? m : { ...m, module: p.ref });
+				takeOutflows(p, leaving, result.outflows, length, flows, messages);
+				if (result.storage) {
+					checkLength(p, 'storage', result.storage, length);
+					if (module.kind === 'RV') reservoirStorage[module.number] = result.storage;
+				}
+				break;
+			}
+			case 'RR':
+				// R3-N6: irrigation is simulated from Round 7; until then it demands and returns nothing.
+				messages.push(
+					mode.kind === 'natural'
+						? { level: 'info', module: p.ref, text: `${placedLabel(p)}: irrigation is removed in natural mode; its return-flow route carries zero` }
+						: { level: 'warning', module: p.ref, text: `${placedLabel(p)}: irrigation is not simulated yet (Round 7); it demands nothing and its return-flow route carries zero (R3-N6)` }
+				);
+				break;
+			case 'unparsed':
+				// R3-N7: a module the engine can't read (a mine, or an unknown file version).
+				messages.push({
+					level: 'warning',
+					module: p.ref,
+					text: `${placedLabel(p)} is not simulated (${module.reason}); ${leaving.length > 0 ? `routes ${leaving.join(', ')} carry` : 'it has no outflow routes, so it sends'} zero (R3-N7)`
+				});
+				break;
+		}
+		// Whatever the module didn't put a flow on (irrigation, unparsed, a route a simulator left out) carries zero.
+		for (const route of leaving) if (!flows.has(route)) flows.set(route, zeroSeries(startYear, endYear));
+	}
+
+	const routeFlows: Record<number, MonthlySeries> = {};
+	for (const route of network.routes) routeFlows[route.number] = flows.get(route.number) ?? zeroSeries(startYear, endYear);
+	return { mode, startYear, endYear, routeFlows, reservoirStorage, runoff, messages };
+}
+
+function series(startYear: number, values: number[]): MonthlySeries {
+	return { startYear, values, unit: 'Mm3' };
+}
+
+function runRunoff(p: PlacedModule, module: RunoffModule, bundle: NetworkBundle, mode: RunMode, pitman: Partial<PitmanOptions> | undefined) {
+	const { startYear, endYear } = bundle.network;
+	const messages: RunMessage[] = [];
+	const applied = applyRunMode(module, mode);
+	// TT 689 p.142: paved data must cover the whole simulation period, or the module warns.
+	const paved = applied.paved?.fraction ?? [];
+	if (mode.kind === 'historical' && paved.length > 0 && (paved[0]!.year > startYear || paved[paved.length - 1]!.year < endYear)) {
+		messages.push({ level: 'warning', module: p.ref, text: `${placedLabel(p)}: paved-area years ${paved[0]!.year}–${paved[paved.length - 1]!.year} don't cover the run ${startYear}–${endYear}; held flat beyond them (TT 689 p.142; OQ-17)` });
+	}
+	const rainfall = lookupFile(bundle.rainfall, module.rainfallFile)!; // validated
+	const result = runRunoffModule(applied, rainfall, { startYear, endYear, ...(pitman ? { pitman } : {}) });
+	return { ...result, messages: [...messages, ...result.messages] };
+}
+
+/** Run a simulator (or a defined-flow read), turning a plain error into a `NetworkError` naming the module. */
+function guard<T>(p: PlacedModule, run: () => T): T {
+	try {
+		return run();
+	} catch (error) {
+		if (error instanceof NetworkError || error instanceof PitmanRunError) throw error;
+		const text = `${placedLabel(p)}: ${error instanceof Error ? error.message : String(error)}`;
+		throw new NetworkError([{ level: 'error', module: p.ref, text }], { cause: error });
+	}
+}
+
+function checkLength(p: PlacedModule, what: string, s: MonthlySeries, length: number): void {
+	if (s.values.length !== length) {
+		throw new NetworkError([{ level: 'error', module: p.ref, text: `${placedLabel(p)}: simulator returned ${what} with ${s.values.length} months; the run has ${length}` }]);
+	}
+}
+
+/**
+ * Keep a simulator's outflows on the routes that leave its module in the
+ * `.NET`; a route it leaves out carries zero (warned), a route it returns
+ * that doesn't leave it is ignored (warned).
+ */
+function takeOutflows(
+	p: PlacedModule,
+	leaving: readonly number[],
+	outflows: RouteFlows,
+	length: number,
+	flows: Map<number, MonthlySeries>,
+	messages: RunMessage[]
+): void {
+	for (const route of leaving) {
+		const s = outflows[route];
+		if (!s) {
+			messages.push({ level: 'warning', module: p.ref, route, text: `${placedLabel(p)}: the simulator returned nothing for outflow route ${route}; it carries zero` });
+			continue;
+		}
+		checkLength(p, `route ${route}`, s, length);
+		flows.set(route, s);
+	}
+	for (const key of Object.keys(outflows)) {
+		const route = Number(key);
+		if (!leaving.includes(route)) {
+			messages.push({ level: 'warning', module: p.ref, route, text: `${placedLabel(p)}: the simulator returned route ${route}, which doesn't leave ${moduleLabel(p.ref)} in the network; ignored` });
+		}
+	}
+}
+
