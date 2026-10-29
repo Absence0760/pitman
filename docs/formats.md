@@ -610,7 +610,7 @@ Names (TT 689 §2.3.4 p.8 and §4.5–4.8, pp.13–17):
 | `<net>RV<n>.ANS` | reservoir storage, million m³ |
 | `<net>RQ<route>.DEM` | demand on a route |
 | `<net>RQ<route>.SHO` | shortage (demand − supply, **positive**) |
-| `<net>RU<n><series>.MTS` | runoff-module time series (`ncr` = net catchment runoff, observed **[F]**; `dfl` = daily flows, TT 689 p.198) |
+| `<net>RU<n><series>.MTS` | runoff-module time series (`ncr` = net catchment runoff, observed **[F]**; for an SFR parent it is the parent's **own** runoff depth × its full L.002 area, not the flow its routes carry (Round 6); `dfl` = daily flows, TT 689 p.198) |
 
 The other `.MTS` series codes (surface runoff, GW outflow, Pitman S, …) are unknown (U-20). For the series given in mm (soil moisture, recharge), the same layout holds but the units are mm. All five types are written to the output folder.
 
