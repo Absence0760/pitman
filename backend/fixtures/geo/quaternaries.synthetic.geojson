@@ -1,0 +1,324 @@
+{
+ "type": "FeatureCollection",
+ "name": "quaternaries.synthetic",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "code": "Z01A",
+    "areaKm2": 642.5,
+    "mapMm": 620,
+    "marMm3": 22.706,
+    "monthlyMm3": [
+     1.3624,
+     0.9082,
+     0.6812,
+     0.4541,
+     0.4541,
+     0.6812,
+     1.3624,
+     2.7247,
+     3.633,
+     4.0871,
+     3.633,
+     2.7246
+    ],
+    "periodStart": 1920,
+    "periodEnd": 2009,
+    "source": "SYNTHETIC test data, invented for this repository (not DWS or WR2012): quaternary Z01A"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       21.0,
+       -33.75
+      ],
+      [
+       21.25,
+       -33.75
+      ],
+      [
+       21.25,
+       -33.5
+      ],
+      [
+       21.0,
+       -33.5
+      ],
+      [
+       21.0,
+       -33.75
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "code": "Z01B",
+    "areaKm2": 642.5,
+    "mapMm": 540,
+    "marMm3": 17.001,
+    "monthlyMm3": [
+     1.0201,
+     0.68,
+     0.51,
+     0.34,
+     0.34,
+     0.51,
+     1.0201,
+     2.0401,
+     2.7202,
+     3.0602,
+     2.7202,
+     2.0401
+    ],
+    "periodStart": 1920,
+    "periodEnd": 2009,
+    "source": "SYNTHETIC test data, invented for this repository (not DWS or WR2012): quaternary Z01B"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       21.25,
+       -33.75
+      ],
+      [
+       21.5,
+       -33.75
+      ],
+      [
+       21.5,
+       -33.5
+      ],
+      [
+       21.25,
+       -33.5
+      ],
+      [
+       21.25,
+       -33.75
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "code": "Z01C",
+    "areaKm2": 642.5,
+    "mapMm": 470,
+    "marMm3": 12.683,
+    "monthlyMm3": [
+     0.761,
+     0.5073,
+     0.3805,
+     0.2537,
+     0.2537,
+     0.3805,
+     0.761,
+     1.522,
+     2.0293,
+     2.2829,
+     2.0293,
+     1.5218
+    ],
+    "periodStart": 1920,
+    "periodEnd": 2009,
+    "source": "SYNTHETIC test data, invented for this repository (not DWS or WR2012): quaternary Z01C"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       21.5,
+       -33.75
+      ],
+      [
+       21.75,
+       -33.75
+      ],
+      [
+       21.75,
+       -33.5
+      ],
+      [
+       21.5,
+       -33.5
+      ],
+      [
+       21.5,
+       -33.75
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "code": "Z02A",
+    "areaKm2": 640.6,
+    "mapMm": 700,
+    "marMm3": 29.147,
+    "monthlyMm3": [
+     1.7488,
+     1.1659,
+     0.8744,
+     0.5829,
+     0.5829,
+     0.8744,
+     1.7488,
+     3.4976,
+     4.6635,
+     5.2465,
+     4.6635,
+     3.4978
+    ],
+    "periodStart": 1920,
+    "periodEnd": 2009,
+    "source": "SYNTHETIC test data, invented for this repository (not DWS or WR2012): quaternary Z02A"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       21.0,
+       -34.0
+      ],
+      [
+       21.25,
+       -34.0
+      ],
+      [
+       21.25,
+       -33.75
+      ],
+      [
+       21.0,
+       -33.75
+      ],
+      [
+       21.0,
+       -34.0
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "code": "Z02B",
+    "areaKm2": 640.6,
+    "mapMm": 580,
+    "marMm3": 19.692,
+    "monthlyMm3": [
+     1.1815,
+     0.7877,
+     0.5908,
+     0.3938,
+     0.3938,
+     0.5908,
+     1.1815,
+     2.363,
+     3.1507,
+     3.5446,
+     3.1507,
+     2.3631
+    ],
+    "periodStart": 1920,
+    "periodEnd": 2009,
+    "source": "SYNTHETIC test data, invented for this repository (not DWS or WR2012): quaternary Z02B"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       21.25,
+       -34.0
+      ],
+      [
+       21.5,
+       -34.0
+      ],
+      [
+       21.5,
+       -33.75
+      ],
+      [
+       21.25,
+       -33.75
+      ],
+      [
+       21.25,
+       -34.0
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "code": "Z02C",
+    "areaKm2": 640.6,
+    "mapMm": 450,
+    "marMm3": 11.531,
+    "monthlyMm3": [
+     0.6919,
+     0.4612,
+     0.3459,
+     0.2306,
+     0.2306,
+     0.3459,
+     0.6919,
+     1.3837,
+     1.845,
+     2.0756,
+     1.845,
+     1.3837
+    ],
+    "periodStart": 1920,
+    "periodEnd": 2009,
+    "source": "SYNTHETIC test data, invented for this repository (not DWS or WR2012): quaternary Z02C"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       21.5,
+       -34.0
+      ],
+      [
+       21.75,
+       -34.0
+      ],
+      [
+       21.75,
+       -33.75
+      ],
+      [
+       21.5,
+       -33.75
+      ],
+      [
+       21.5,
+       -34.0
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}
