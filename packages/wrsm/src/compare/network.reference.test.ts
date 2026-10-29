@@ -33,18 +33,19 @@ interface Variant {
 	readonly pitman?: Partial<PitmanOptions>;
 }
 const perStep = { routing: 'perStep' } as const;
+const readingA = { finalRunoff: 'surfacePlusSami' } as const;
 const VARIANTS: Record<string, Variant> = allVariants
 	? {
 			default: {},
-			'OQ-22 per-step routing': { pitman: perStep },
-			'OQ-22 per-step + OQ-S3 (b) total + baseflow': { pitman: perStep, sami: { finalRunoff: 'totalPlusBaseflow' } },
-			'OQ-22 per-step + OQ-S3 HEAD (ii) surface': { pitman: perStep, sami: { headRunoff: 'surface' } },
-			'OQ-22 per-step + OQ-S3 unlagged parts': { pitman: perStep, sami: { pitmanParts: 'unlagged' } },
-			'OQ-22 per-step + OQ-S2 (b) recharge drains S': { pitman: perStep, sami: { soilFeedback: 'rechargeDrainsS' } },
-			'OQ-S3 unlagged parts (monthly routing)': { sami: { pitmanParts: 'unlagged' } },
-			'R6-R3 clamp negative': { sami: { negativeRunoff: 'clamp' } },
-			'OQ-22 per-step + R6-R3 clamp': { pitman: perStep, sami: { negativeRunoff: 'clamp' } },
-			'OQ-22 per-step + R6-R3 clamp + OQ-S2 (b)': { pitman: perStep, sami: { negativeRunoff: 'clamp', soilFeedback: 'rechargeDrainsS' } }
+			'R6-R6 baseline: per-step Muskingum + OQ-S3 (a)': { pitman: perStep, sami: readingA },
+			'OQ-22 per-step Muskingum (R6-R6), OQ-S3 (c)': { pitman: perStep },
+			'OQ-S3 (a) surface + Sami interflow + baseflow, shift routing': { sami: readingA },
+			'OQ-S3 (b) total + baseflow': { sami: { finalRunoff: 'totalPlusBaseflow' } },
+			'OQ-S3 HEAD (ii) surface': { sami: { headRunoff: 'surface' } },
+			'OQ-S3 unlagged parts': { sami: { pitmanParts: 'unlagged' } },
+			'OQ-S2 (b) recharge drains S': { sami: { soilFeedback: 'rechargeDrainsS' } },
+			'OQ-S4 step-mean S': { sami: { soilMoisture: 'stepMean' } },
+			'R6-R3 clamp negative': { sami: { negativeRunoff: 'clamp' } }
 		}
 	: { default: {} };
 
