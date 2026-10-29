@@ -70,6 +70,11 @@ describe('specialAreaMessages (R6-P3; TT 689 p.127, TT 691 p.63 RU_SPECIAL_AREA)
 		expect(specialAreaMessages(m, 2000, [28])).toEqual([]); // 30 + 40 + 2 + 28 = 100
 	});
 
+	it('reads present day at mode.year and checks nothing in natural mode', () => {
+		expect(specialAreaMessages(m, 2000, [28], { kind: 'presentDay', year: 2004 }).map((x) => x.level)).toEqual(['error']);
+		expect(specialAreaMessages(m, 2004, [28], { kind: 'natural' })).toEqual([]);
+	});
+
 	it('an error when they exceed it', () => {
 		const msgs = specialAreaMessages(m, 2004, [28]); // paved 6 km² by 2004
 		expect(msgs.map((x) => x.level)).toEqual(['error']);

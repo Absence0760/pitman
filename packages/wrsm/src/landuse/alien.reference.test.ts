@@ -80,6 +80,10 @@ describe.skipIf(!dir)('CSIR alien vegetation targets against WRSM2000.ERR', () =
 				unreadable.push(c.number);
 				continue;
 			}
+			if (!(c.tprm > 0)) {
+				unreadable.push(c.number); // a logged TPRM of 0 (no area) can't give a relative error
+				continue;
+			}
 			const module = readRunoff(readFileSync(join(c.runDir, file), 'latin1'), file);
 			const alien = module.alienVegetation!;
 			const manual = alienReductionTargets(alien, DEFAULT_ALIEN_OPTIONS);
@@ -97,7 +101,7 @@ describe.skipIf(!dir)('CSIR alien vegetation targets against WRSM2000.ERR', () =
 		const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 		console.info(
 			[
-				`CSIR alien children: ${all.length} in the run logs, ${n} compared, ${unreadable.length} without a readable RU file or targets`,
+				`CSIR alien children: ${all.length} in the run logs, ${n} compared, ${unreadable.length} without a readable RU file, targets or a TPRM above 0`,
 				`TPRM, manual c: exact to 4 dp ${exactManual}/${n}, mean |error| ${pct(mean(relManual))}, max ${pct(Math.max(...relManual))}`,
 				`TPRM, fitted c: exact to 4 dp ${exactFit}/${n}, mean |error| ${pct(mean(relFit))}, max ${pct(Math.max(...relFit))}`,
 				`TPRL: WRSM2000 equal to TPRM in ${tprlEqualsTprm}/${n}, below TPRM in ${tprlBelowTprm}/${n}, above our curve in ${tprlAboveCurve}/${n}; mean |error| ${mean(tprlPts).toFixed(2)} points`

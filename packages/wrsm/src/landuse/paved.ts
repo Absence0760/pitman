@@ -80,9 +80,14 @@ export function activeAreaPavedFraction(ai: number, areaKm2: number, activeAreaK
  * may also not exceed the total area of the catchment"; TT 691 p.63
  * RU_SPECIAL_AREA issues "an error message when the special area is greater
  * than the total catchment". `childAreasKm2` are the active areas of the
- * module's children that year (a parent; TT 689 p.140).
+ * module's children that year (a parent; TT 689 p.140). In present-day mode
+ * the tables are read at `mode.year`, whatever `year` says; natural mode has
+ * nothing to check.
  */
-export function specialAreaMessages(module: RunoffModule, year: HydroYear, childAreasKm2: readonly number[] = []): RunMessage[] {
+export function specialAreaMessages(module: RunoffModule, year: HydroYear, childAreasKm2: readonly number[] = [], mode: RunMode = { kind: 'historical' }): RunMessage[] {
+	// Natural mode has no special areas (TT 689 p.27); present day holds every table at mode.year (D1).
+	if (mode.kind === 'natural') return [];
+	if (mode.kind === 'presentDay') year = mode.year;
 	const forest = yearTableValue(module.afforestation.areaKm2, year);
 	const alien = module.alienVegetation ? yearTableValue(module.alienVegetation.areaKm2, year) : 0;
 	const paved = module.paved ? yearTableValue(module.paved.fraction, year) * module.areaKm2 : 0;
