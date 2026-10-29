@@ -660,6 +660,9 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   which a monthly spreadsheet can do but the text never suggests. Switch:
   `SamiSoilOptions.rechargeAverageStart` (`available` | `zeroPadded`, the latter dividing the first
   windows by MMA as if the months before the run had no recharge).
+  *Evidence (Round 6 wave 2):* against the reference ncr.MTS, `zeroPadded` makes the first year worse
+  (median |%| 3.51 vs 2.98, 52 vs 55 modules within 2 %) and leaves the record unchanged (3.04 vs 3.05).
+  `available` stays.
 - **OQ-S7. Groundwater PET.** TT 690 builds it from MAE·MDIST·CROP (A-pan). WRSM2000 stores S-pan
   monthly evaporation (L.004) and A-pan factors (L.040), and converts S→A "internally" without saying
   how (TT 689 p.34–35).
@@ -721,6 +724,16 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   *Default:* single pass from STORE₀ and P₀ as read. QLAG₀ = INTERFLOW₀, i.e. the lag reservoir
   starts in steady state at the first month's interflow. Switch (lag only):
   `SamiInterflowOptions.initialLagState` (`steady` | `zero`, the classic OQ-24 dry start).
+  *Evidence (Round 6 wave 2):* STORE₀ = SWL in 180 of 191 reference Sami modules and P₀ = ½ PMAX in
+  181; both are used as read. No warm-up: the first month fits Pitman S₀ = ST/2 directly (pitman.md
+  OQ-23). F28_Lag = 0 in all 191 modules, so the interflow lag's start cannot be tested from the set
+  (`steady` and `zero` give identical results); it stays `steady`. One pattern is *not* initial state:
+  the dry J10 modules (HGSL = 30, MMA = 1140, P₀ never percolates in the engine) show a reference tail
+  of 0.02–0.10 mm/month for two years that the engine lacks, then run high; month 1's reference
+  (0.07 mm) matches RE taken from S₀ rather than month-end S, which points at OQ-S4/OQ-S2.
+  The month-1 fit also bears on OQ-S3: with S₀ = ST/2, Qfinal = Pitman total + baseflow − TL
+  (reading (b)) reproduces month 1 (first-year median |%| 2.17 vs 2.98 for (a), 63 vs 55 within
+  2 %), while no S₀ makes (a) fit; over the whole record the two readings are equal (3.09 vs 3.05).
 - **OQ-S18. SFR parent/child.** WRSM2000 computes Sami for parent and child modules separately
   (TT 689 p.182), and `TS_AvGWStorage` is the area-weighted parent storage (TT 691 p.51). How a child's
   land-use reduction interacts with its Sami flows is ch.11/12 territory.
