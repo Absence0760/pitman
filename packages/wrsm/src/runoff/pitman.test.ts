@@ -454,11 +454,14 @@ describe('runRunoffModule guards', () => {
 	const ran = rainfall(2001, [twelve([15, 5])]);
 	const period = { startYear: 2001, endYear: 2001 };
 
-	it('throws for Hughes and Sami modules', () => {
-		for (const gw of [1, 2] as const) {
+	it('throws for Hughes, and for Sami without its parameters', () => {
+		for (const [gw, text] of [
+			[1, /groundwater model 1 \(Hughes\) is not supported yet/],
+			[2, /groundwater model 2 \(Sami\) but no Sami parameters/]
+		] as const) {
 			const run = () => runRunoffModule(module({ groundwaterModel: gw }), ran, period);
 			expect(run).toThrow(PitmanRunError);
-			expect(run).toThrow(/Sami\/Hughes arrive in Round 6/);
+			expect(run).toThrow(text);
 			try {
 				run();
 			} catch (e) {
@@ -467,7 +470,7 @@ describe('runRunoffModule guards', () => {
 		}
 	});
 
-	it('warns about and ignores afforestation, alien vegetation and SFR children', () => {
+	it('passes land use to the wired reductions and leaves SFR children to the network runner', () => {
 		const base = runRunoffModule(module(), ran, period);
 		const land = runRunoffModule(
 			module({
@@ -478,9 +481,15 @@ describe('runRunoffModule guards', () => {
 			ran,
 			period
 		);
-		expect(land.messages).toHaveLength(1);
-		expect(land.messages[0]).toMatchObject({ level: 'warning' });
-		expect(land.messages[0]!.text).toMatch(/afforestation, alien vegetation, SFR children/);
+		const texts = land.messages.map((m) => m.text);
+		expect(texts).toEqual(
+			expect.arrayContaining([
+				expect.stringMatching(/SFR children are run with their parent by the network runner/),
+				expect.stringMatching(/CSIR afforestation in a free module is not modelled.*R6-F3/), // forestReduction
+				expect.stringMatching(/alien vegetation has no class split or ages/) // alienVegetationReduction
+			])
+		);
+		expect(land.messages.every((m) => m.module?.number === 1)).toBe(true);
 		expect(land.outflow.values).toEqual(base.outflow.values);
 	});
 

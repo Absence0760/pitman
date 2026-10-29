@@ -16,3 +16,12 @@ export {
 	meetsThresholds,
 	type ExpectedRoute
 } from './expectations.js';
+export {
+	compareNetworkWithReference,
+	compareRunWithReference,
+	referenceAnswerTexts,
+	referenceAnswers,
+	type ModuleComparison,
+	type NetworkComparison,
+	type RouteComparison
+} from './network.js';
