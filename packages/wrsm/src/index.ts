@@ -51,6 +51,9 @@ export * from './channel/index.js';
 export * from './stats/index.js';
 export * from './run.js';
 
+// Round 4 contract for method A, the CHIRPS extension (docs/theory/extend.md).
+export * from './extend/contract.js';
+
 // Comparison against WRSM2000 outputs, and a synthetic network for tests.
 export * from './compare/index.js';
 export * from './synthetic/index.js';
