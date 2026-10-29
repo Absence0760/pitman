@@ -1,109 +1,162 @@
 # Deployment
 
-## Overview
+Pitman runs at **`https://pitman.jaredhoward.com`**: one CloudFront
+distribution serving the static SvelteKit site from a private S3 bucket and
+proxying `/api/*` to the Hono API on AWS Lambda, in Pitman's own AWS account
+(issue #22 step 4). The Lambda and the bucket are in **`af-south-1`** (D-6),
+beside IC-WBT's buckets it reads; CloudFront, its certificate and its WAF are
+global / `us-east-1`. The Terraform is in `infra/` (`infra/README.md` lists
+the files); CI deploys with GitHub OIDC, never static keys.
 
-The project deploys to AWS via GitHub Actions with OIDC federation (no
-long-lived AWS keys). Two independent deploy workflows fire when a GitHub
-release is published, each with a skip-if-unchanged check.
-
-## Prerequisites
-
-- AWS account with the target region enabled
-- Domain registered + Route 53 hosted zone existing
-- Terraform >= 1.6
-- GitHub CLI (`gh`) authenticated
-- `sops` + `jq` installed
-
-## Secrets management
-
-Production secrets do **not** live in this repo. They live in the private estate
-repo `infra-secrets` (sibling of this repo under `~/github/`), in
-`infra-secrets/<project-slug>/`, SOPS-encrypted under this project's own KMS key
-`alias/<project-slug>-sops`. Decryption requires `kms:Decrypt` on that key via AWS
-IAM (access is IAM, not repo membership). See `../infra-secrets/README.md` for the
-full model.
-
-- `infra-secrets/<project-slug>/prod.sops.yaml` — encrypted production secrets,
-  consumed by this project's Terraform via the `carlpett/sops` provider
-  (`data "sops_file"`).
-
-### First-time setup
-
-Authenticated to the project's AWS account, bootstrap the slot once:
-
-```bash
-cd ../infra-secrets
-./bin/sops-init.sh --project <project-slug> --region <region>   # creates alias/<project-slug>-sops, wires the ARN into .sops.yaml
-sops <project-slug>/prod.sops.yaml    # seed from the .example, fill real values, save ENCRYPTED
+```
+browser ──► CloudFront (WAF, CSP headers, pitman.jaredhoward.com)
+              ├─ /*      ─► S3 site bucket (OAC; client routes → index.html)
+              └─ /api/*  ─► strip /api ─► Lambda Function URL (+ shared-secret header)
+                                            └─► IC-WBT's buckets, read-only (CHIRPS rnl/*, MAP grid)
 ```
 
-### Daily workflow
+## How a deploy happens
 
-- Edit a secret: `sops ../infra-secrets/<project-slug>/prod.sops.yaml`
-- Add a collaborator: grant them `kms:Decrypt` on `alias/<project-slug>-sops` (IAM)
-- Local dev usually needs no secrets (committed `backend/.env.development` covers it). If you need a real value locally, read it out of the encrypted file (`sops -d ../infra-secrets/<project-slug>/prod.sops.yaml`) and put it in a gitignored `backend/.env.development.local`
+Two workflows, each **build** (no AWS access) then **deploy** (gated on the
+`production` GitHub environment, so a required reviewer approves every run;
+only that job can mint an OIDC token, and the deploy role's trust policy only
+accepts tokens for that environment):
 
-## One-command bootstrap
+| Workflow | Runs on | Build | Deploy |
+|---|---|---|---|
+| `deploy-frontend.yml` | push to `main` touching `frontend/`, `packages/wrsm/`, `pnpm-lock.yaml`, `infra/csp.json`, `infra/scripts/check-csp.mjs` or itself; or manual | `pnpm build`, then `infra/scripts/check-csp.mjs` (refuses a build whose inline scripts aren't hashed in SvelteKit's meta CSP, or with an inline style the header doesn't allow) | sync `_app/immutable/` (1-year immutable cache; old hashed files kept for open tabs), sync the rest with `--delete` (60 s cache), invalidate `/*` and wait |
+| `deploy-backend.yml` | push to `main` touching `backend/`, `packages/wrsm/`, `pnpm-lock.yaml` or itself; or manual | typecheck, esbuild bundle, zip | `update-function-code`, wait, then `GET /api/health` through CloudFront |
 
-```bash
-./bin/setup.sh
-```
+**Until the operator wires CI, both are inert:** every job's `if:` needs the
+repo variables below, so before they exist each run shows *skipped*, not
+failed. Terraform owns the Lambda's configuration (memory, timeout,
+concurrency, environment); the workflow only ever replaces its code.
 
-This handles:
-1. Terraform state bucket + DynamoDB lock table creation
-2. `terraform init` + `terraform apply`
-3. GitHub Actions environment variables population
+Manual run: `gh workflow run deploy-backend.yml` / `gh workflow run deploy-frontend.yml`, then approve it in the Actions tab.
 
-## Release-gated deploys
+### GitHub repo variables
 
-Deploys fire on GitHub releases, not on every push. Each workflow has a
-skip-if-unchanged check job that compares against the previous release tag.
+All set in one go by `~/github/templates/scripts/export-tf-vars.sh infra/`
+from the Terraform outputs (each output's name, uppercased). None is a
+secret; the repo needs no AWS secret at all.
 
-To deploy:
+| Variable | Output | Used by |
+|---|---|---|
+| `AWS_DEPLOY_ROLE_ARN` | `aws_deploy_role_arn` (the bootstrap's `pitman-deploy` role) | both: `role-to-assume` |
+| `AWS_REGION` | `aws_region` (`af-south-1`) | both |
+| `FRONTEND_BUCKET` | `frontend_bucket` (`pitman-frontend-<account>`) | frontend |
+| `CLOUDFRONT_DISTRIBUTION_ID` | `cloudfront_distribution_id` | frontend |
+| `LAMBDA_FUNCTION_NAME` | `lambda_function_name` (`pitman-backend`) | backend |
+| `PUBLIC_API_URL` | `public_api_url` (`https://pitman.jaredhoward.com/api`) | frontend build env |
+| `PUBLIC_SITE_URL` | `public_site_url` | frontend build env, backend smoke check |
 
-```bash
-gh release create v0.1.0 --generate-notes --target main
-```
+The role ARN is a *variable*, not a secret, on purpose: a job-level `if:`
+can read variables but not secrets, which is what keeps the workflows inert
+until it's set; an ARN grants nothing by itself (assuming the role needs this
+repo's `production` OIDC token, which needs the reviewer). It is not
+masked in logs; AWS does not treat account IDs as secret.
 
-This fires both deploy workflows. Each checks whether its workspace
-files changed and skips if not.
+### Lambda environment
 
-## Manual deploys
+Set by Terraform (`infra/lambda.tf`), never by CI. **The names of the data
+variables are assumptions made while Round 4.2 writes the backend in
+parallel; reconcile them with `backend/src` before the first apply.**
 
-Each workflow also supports `workflow_dispatch` for manual re-runs:
+| Name | Value | Meaning |
+|---|---|---|
+| `ALLOWED_ORIGINS` | `https://pitman.jaredhoward.com` | Hono `cors()` allow-list (every request is same-origin anyway) |
+| `SITE_URL` | `https://pitman.jaredhoward.com` | the site's URL |
+| `CLOUDFRONT_SHARED_SECRET` | generated by Terraform | the app rejects any request without CloudFront's `X-CloudFront-Shared-Secret` header (in Terraform state only) |
+| `CHIRPS_SOURCE` | `s3` once the CHIRPS grant is configured, else empty | where the CHIRPS reader reads (`s3` = IC-WBT's mirror bucket; empty = feature unavailable) |
+| `CHIRPS_BUCKET` | `chirps_bucket` | IC-WBT's mirror bucket |
+| `CHIRPS_PREFIX` | `chirps_prefix` (`rnl`) | the store's prefix in it |
+| `MAP_GRID_SOURCE` | `s3://<map_grid_bucket>/<map_grid_key>`, or empty | the MAP grid (method B) |
+| `DATA_REGION` | `aws_region` (`af-south-1`) | region for the S3 client that reads IC-WBT's buckets (pass it explicitly; `docs/data.md`) |
 
-```bash
-gh workflow run deploy-frontend.yml
-gh workflow run deploy-backend.yml
-```
+The API routes are mounted **without** the `/api` prefix: CloudFront's
+`api_strip_prefix` function turns `/api/chirps/monthly` into
+`/chirps/monthly` before the Lambda sees it, as in local dev where the
+frontend calls `:3001` directly.
 
-## GitHub Actions environment variables
+## First deploy (operator runbook)
 
-Set by `bin/setup.sh` in the `production` environment:
+Claude prepares and checks; the operator runs every command below (they
+need the operator's AWS and GitHub credentials). One step at a time, in
+order. `pitman` is the SSO profile created in step 3.
 
-| Variable | Source |
-|---|---|
-| `AWS_REGION` | `terraform.tfvars` |
-| `AWS_ROLE_TO_ASSUME` | `terraform output github_actions_role_arn` |
-| `FRONTEND_BUCKET` | `terraform output frontend_bucket_name` |
-| `CLOUDFRONT_DISTRIBUTION_ID` | `terraform output cloudfront_distribution_id` |
-| `LAMBDA_FUNCTION_NAME` | `terraform output lambda_function_name` |
-| `PUBLIC_API_URL` | `terraform output lambda_function_url` |
-| `PUBLIC_SITE_URL` | `https://<domain>` |
+1. In `~/github/templates`, create the bootstrap's project file: `cp infra/bootstrap/projects/example.tfvars infra/bootstrap/projects/pitman.tfvars` and set `project = "pitman"`, `account_email`, `github_repo = "Absence0760/pitman"`, `github_subject_prefix = "repo:Absence0760/pitman"`, `github_environment = "production"`, `create_subdomain = true`, `parent_domain = "jaredhoward.com"`, and **`region = "us-east-1"`** (the tfstate bucket and `alias/pitman-sops` live there; `af-south-1` isn't enabled in a new account yet, R4-I3).
+2. Dry-run, then run, the bootstrap (#22 step 4): `cd ~/github/templates && ./scripts/new-project-account.sh pitman --plan && ./scripts/new-project-account.sh pitman`. Note the tfstate bucket name it prints.
+3. Give yourself access and a profile (Runbook D in `~/github/project-mgmt/docs/runbooks.md`): assign `AdministratorAccess` on the new account in Identity Center, then `aws configure sso --profile pitman`.
+4. Check the child zone is delegated: `dig +short NS pitman.jaredhoward.com` (four `awsdns` servers).
+5. Check the `production` environment has you as required reviewer (#22 step 5): `gh api repos/Absence0760/pitman/environments/production --jq '.protection_rules[] | select(.type=="required_reviewers") | .reviewers[].reviewer.login'`. **Do this before step 15**: a workflow that runs against a missing environment creates it with no reviewer.
+6. Enable `af-south-1` in the account: `aws account enable-region --region-name af-south-1 --profile pitman`.
+7. Wait until it reports `ENABLED` (minutes, sometimes hours): `aws account get-region-opt-status --region-name af-south-1 --profile pitman --query RegionOptStatus --output text`.
+8. Check the Lambda concurrency quota (must be at least `lambda_reserved_concurrency` + 10 = 20): `aws service-quotas get-service-quota --service-code lambda --quota-code L-B99A9384 --region af-south-1 --profile pitman --query Quota.Value`.
+9. If it's below 20, ask for 1 000 (usually granted automatically, can take a day): `aws service-quotas request-service-quota-increase --service-code lambda --quota-code L-B99A9384 --desired-value 1000 --region af-south-1 --profile pitman`.
+10. Turn on **IAM access to billing information** for the account (root user, console: Account → "IAM user and role access to Billing information" → Activate). Until then set `budget_monthly_usd = 0` in step 12, or the apply fails on the budget.
+11. Write the backend config, filling in the bucket from step 2: `cp infra/backend.config.example infra/backend.config && $EDITOR infra/backend.config`.
+12. Write the variables (leave the IC-WBT block commented out for now; set `alert_email`): `cp infra/terraform.tfvars.example infra/terraform.tfvars && $EDITOR infra/terraform.tfvars`.
+13. Initialise against the real state bucket: `AWS_PROFILE=pitman terraform -chdir=infra init -backend-config=backend.config`.
+14. Plan, read it, then apply that plan (about 15 minutes: the certificate and CloudFront): `AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan && AWS_PROFILE=pitman terraform -chdir=infra apply tfplan`.
+15. Confirm the two "AWS Notification - Subscription Confirmation" emails (one per alert topic).
+16. Export the outputs to the repo variables (this is the step that switches the deploy workflows on): `AWS_PROFILE=pitman ~/github/templates/scripts/export-tf-vars.sh infra/`.
+17. Check they're there: `gh variable list --repo Absence0760/pitman`.
+18. Deploy the API, then approve the run in the Actions tab: `gh workflow run deploy-backend.yml --repo Absence0760/pitman`.
+19. Deploy the site (needs `csp: { mode: 'hash', ... }` in `frontend/vite.config.ts`, R4-I1, or `check-csp` refuses the build), then approve: `gh workflow run deploy-frontend.yml --repo Absence0760/pitman`.
+20. Check the site answers with its CSP: `curl -sI https://pitman.jaredhoward.com/ | grep -i -e '^content-security-policy' -e '^strict-transport-security'`.
+21. Check the API through CloudFront: `curl -s https://pitman.jaredhoward.com/api/health` → `{"ok":true}`.
+22. Check the bare Function URL refuses a caller that skips CloudFront: `curl -s "$(AWS_PROFILE=pitman terraform -chdir=infra output -raw lambda_function_url)health"` → `{"error":"forbidden"}`.
 
-## GitHub Actions secrets
+### Then: IC-WBT's data (after Round 4.1)
 
-| Secret | Purpose |
-|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code automation |
+23. Print the Lambda role ARN for the IC-WBT PR (4.1) to name as principal: `AWS_PROFILE=pitman terraform -chdir=infra output -raw lambda_role_arn`.
+24. Once 4.1 is merged and applied in IC-WBT's account, uncomment and fill the IC-WBT block in `infra/terraform.tfvars` (`icwbt_account_id`, `chirps_bucket`, and `map_grid_bucket` + `map_grid_key` once D-4's decision is recorded), then plan and apply as in step 14.
+25. Check a missing CHIRPS chunk reads as missing, not denied (R4-I2) with the backend's CHIRPS test call, and a real quaternary's monthly series comes back.
+
+## What IC-WBT must grant (Round 4.1)
+
+A separate PR in `project-water-management`'s `infra/` (its `/safe-edit`
+flow): **bucket-policy statements** naming Pitman's Lambda role by exact
+ARN (`aws:PrincipalArn` = step 23's output, never the whole Pitman account),
+matching the identity policy `infra/lambda.tf` already carries. Rows from
+`docs/data.md` § Cross-account access:
+
+| Row | Bucket | Grant to Pitman's Lambda role | Pitman side |
+|---|---|---|---|
+| 1 | `water-management-mirror-<id>` | `s3:GetObject` on `rnl/*` (and `zarr.json` at the root, if 4.2's test shows the reader opens it) | `ChirpsRead` |
+| 2 | same | `s3:ListBucket` on the bucket, `StringLike s3:prefix ["rnl/*"]` | `ChirpsListPrefix` |
+| 5 | `water-management-reference-<id>` | `s3:GetObject` on the one MAP-grid key | `MapGridRead` |
+
+IC-WBT's `DenyInsecureTransport` statements stay. All three buckets are
+SSE-S3, so there is no KMS grant. Rows 3, 4 and 6 (the DEM, the water
+occurrence tiles, and the browser's `/tiles/*` through Pitman's CloudFront)
+are Rounds 5 and 7; Pitman's side adds them then. Not granted, ever: any other
+mirror prefix, any other reference object, any write, delete or list outside
+`rnl/`, any database access.
+
+## Secrets
+
+Pitman's only runtime secret so far is the CloudFront shared secret, which
+Terraform generates and keeps in its (encrypted, in-account) state; nobody
+handles it. Rotate it with `AWS_PROFILE=pitman terraform -chdir=infra apply -replace=random_password.cloudfront_shared_secret` (a few seconds of 403s while CloudFront propagates).
+
+Secrets that come later (the Cape Farm Mapper token, D3) live SOPS-encrypted
+in the private `infra-secrets/pitman/` under `alias/pitman-sops`, never in
+this repo; the operator creates and edits them (`sops infra-secrets/pitman/prod.sops.yaml`), and
+Claude only checks that they exist. See `../infra-secrets/README.md`.
+
+## Changing the infrastructure
+
+`AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan`, read it, then `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan`; re-run step 16 if an output changed. Claude never runs `apply` (nor a plan against the real backend). CI checks every `infra/` change credential-free (`terraform.yml`: fmt, validate, Trivy); `terraform -chdir=infra test` runs the mocked-provider tests in `infra/tests/`, and `node --test infra/scripts/*.test.mjs` the CSP guard's and the CloudFront functions' tests.
+
+## Rollback
+
+Revert the bad commit on `main` and push; the matching workflow redeploys the
+previous code (approve it). Terraform changes roll back the same way, through
+a plan and apply of the reverted `infra/`.
 
 ## Claude Code automation
 
 The `claude.yml` workflow responds to `@claude` mentions. The authorized
 user is configured via the `CLAUDE_AUTHORIZED_USER` repository variable
 (Settings > Variables > Actions).
-
-## Rollback
-
-Re-run the previous deploy workflow from the GitHub Actions UI, or trigger
-a manual deploy of the last known-good release tag.
