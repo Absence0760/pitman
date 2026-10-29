@@ -70,6 +70,14 @@ pnpm frontend test        # frontend only
 
 **Reference suite.** Point `WRSM_REFERENCE_DIR` at a folder of real WRSM2000 networks (never committed) and run `pnpm test:wrsm`: every reader then round-trips every real file. Without the variable those tests skip. Don't write `wrsm run` output into a reference folder you don't own: pass `--out`.
 
+## Pushing straight to `main` (for now)
+
+Until PRs return (issue #22 steps 10–11), work is committed and pushed straight to `main`. Install the local gate once per clone; it runs `pnpm check && pnpm test` before any push that touches code:
+
+```bash
+cp scripts/git-hooks/pre-push .git/hooks/pre-push
+```
+
 ## Common issues
 
 **`PUBLIC_API_URL` is not defined at build time**
