@@ -90,6 +90,19 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-$PWD}/.claude/hooks/security-patterns.sh\"",
+            "timeout": 10,
+            "description": "Pitman pattern checks (engine purity and determinism, float32 rounding in writers, private env in the frontend, S3Client region, machine paths). Runs after the edit, so it never blocks: findings reach the next turn via exit 2 + stderr. Rules and bypass: .claude/hooks/security-patterns.sh; tests: security-patterns.test.sh."
+          }
+        ]
+      }
     ]
   }
 }
