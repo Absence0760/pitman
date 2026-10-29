@@ -120,37 +120,92 @@ export interface SfrOptions {
 	 * R6-F9: the closing error at iteration i, in % points of the virgin MAR /
 	 * low flow, both |ERRM| and |ERRL| must be within it. TT 689 p.139: "within
 	 * 1% … if this is not reached within 10 iterations, it increases the
-	 * closing error until closure is achieved". Default 1 for i ≤ 10, then 2,
-	 * 4, 8, 16 at iterations 11, 17, 25, 33 (the steps the run logs show).
+	 * closing error until closure is achieved". Default 1 for i ≤ 8, then
+	 * doubling every 8 iterations (2, 4, 8, 16 from iterations 9, 17, 25, 33):
+	 * the bands that reproduce every stop-or-continue decision in the public
+	 * run logs (613 of 613 logged iterations), where "10" does not (it misses
+	 * the four logged stops at iteration 9 with 1 < |ERRL| ≤ 2).
 	 */
 	readonly tolerance: (iteration: number) => number;
+	/**
+	 * R6-F19: when the damped ΔSL would take SL below 0, re-solve ΔFF (and
+	 * ΔPI = k·ΔFF) from the MAR equation alone with the SL change that
+	 * happens (−SL). Default true, inferred from the run logs; false keeps
+	 * the joint solve's ΔFF.
+	 */
+	readonly slFloorResolve: boolean;
 	/** TT 689 p.139: "40 iterations allowed in total". */
 	readonly maxIterations: number;
 	/**
-	 * R6-F10: the published constants A, B, C, X, Y, Z of eqs. 11.2–11.3
-	 * "depend on MAP and ST" but their formulas are not given (TT 690 p.126).
-	 * They are estimated from two extra runs at the start: one with ΔFF =
-	 * `ff` (and ΔPI = k·ΔFF), one with ΔSL = ΔST = `sl` mm.
+	 * R6-F10: the constants A, B, C, X, Y, Z of eqs. 11.2–11.3 "depend on MAP
+	 * and ST" but their formulas are not given (TT 690 p.126). `'logged'`
+	 * (default): the linear forms that reproduce every constant the public
+	 * run logs print (`sfrConstants`), fixed for the whole calibration as the
+	 * logged steps show. `'estimated'`: from two extra runs at the start, one
+	 * with ΔFF = `jacobianStep.ff` (and ΔPI = k·ΔFF), one with ΔSL = ΔST =
+	 * `jacobianStep.sl` mm.
 	 */
+	readonly constants: 'logged' | 'estimated';
+	/** The steps of the `'estimated'` constants (R6-F10). */
 	readonly jacobianStep: { readonly ff: number; readonly sl: number };
 	/** Options for the default afforestation target model. */
 	readonly forest: Partial<ForestOptions>;
+	/**
+	 * The area a Sami member's regional-outflow W/AREA is taken over when it
+	 * runs on part of its parent's catchment (`samiOnArea`,
+	 * `network/sfr-groups.ts`): `'own'` (default, as the logged virgin MARs
+	 * favour) or `'owner'` (the parent's OUT depth). Read by the network
+	 * runner's simulator, not by `runSfrGroup`.
+	 */
+	readonly samiOutflowArea: 'own' | 'owner';
 }
 
-/** R6-F9 default schedule. */
+/** R6-F9 default schedule: 1 % for iterations 1–8, doubling every 8 iterations after. */
 export function defaultTolerance(iteration: number): number {
-	if (iteration <= 10) return 1;
-	return 2 ** (1 + Math.floor((iteration - 9) / 8));
+	return 2 ** Math.floor((Math.max(1, iteration) - 1) / 8);
+}
+
+/** The constants of TT 690 eqs. 11.2–11.3: MAR reduction (%) = A·ΔPI + B·ΔFF + C·ΔSL, low-flow reduction (%) = X·ΔPI + Y·ΔFF + Z·ΔSL. */
+export interface SfrConstants {
+	readonly A: number;
+	readonly B: number;
+	readonly C: number;
+	readonly X: number;
+	readonly Y: number;
+	readonly Z: number;
+}
+
+/**
+ * R6-F10 `'logged'`: the constants for a child with MAP `mapMm` (the
+ * parent's, "PMean" in the run log) and original ST `stMm`. TT 690 p.126
+ * says only that they "depend on MAP and ST". These linear forms are
+ * inferred from the 19 distinct constant sets the public WR2012
+ * `WRSM2000.ERR` logs print (MAP 373–930 mm, ST 90–250 mm): A, B, X, Y
+ * depend on MAP alone and C, Z on ST alone, and every printed value is
+ * reproduced to its 4 decimals. Observed program output, not code (rule 1).
+ */
+export function sfrConstants(mapMm: number, stMm: number): SfrConstants {
+	return {
+		A: 14.4753 - 0.00836 * mapMm,
+		B: 275.2365 - 0.16114 * mapMm,
+		C: 0.6913 - 0.00181 * stMm,
+		X: 7.3665 - 0.00244 * mapMm,
+		Y: 200.1673 - 0.09435 * mapMm,
+		Z: 1.54 - 0.00389 * stMm
+	};
 }
 
 export const DEFAULT_SFR_OPTIONS: SfrOptions = {
 	piPerFf: 34,
 	slStepFactor: (update) => (update <= 10 ? 0.7 : 0.35),
 	slFloor: 'reflect',
+	slFloorResolve: true,
 	tolerance: defaultTolerance,
 	maxIterations: 40,
+	constants: 'logged',
 	jacobianStep: { ff: 0.1, sl: 10 },
-	forest: {}
+	forest: {},
+	samiOutflowArea: 'own'
 };
 
 // ---------------------------------------------------------------------------
@@ -219,6 +274,22 @@ export function activeAreaByYear(table: YearTable, mode: RunMode, startYear: Hyd
 	for (let y = startYear; y <= endYear; y++) {
 		if (mode.kind === 'natural') out.push(0);
 		else out.push(Math.max(0, yearTableValue(table, mode.kind === 'presentDay' ? mode.year : y)));
+	}
+	return out;
+}
+
+/** Each child's active area per hydrological year (`activeAreaByYear` of its SFR kind's table). */
+export function childAreasByYear(children: readonly RunoffModule[], mode: RunMode, startYear: HydroYear, endYear: HydroYear): number[][] {
+	return children.map((c) => activeAreaByYear(activeAreaTable(c, sfrKind(c)), mode, startYear, endYear));
+}
+
+/** A parent's own area per hydrological year: its AREA less its children's active areas, floored at 0 (TT 689 p.140). */
+export function parentAreaByYear(parentAreaKm2: number, childAreas: readonly (readonly number[])[], years: number): number[] {
+	const out: number[] = [];
+	for (let y = 0; y < years; y++) {
+		let a = parentAreaKm2;
+		for (const c of childAreas) a -= c[y]!;
+		out.push(Math.max(0, a));
 	}
 	return out;
 }
@@ -336,6 +407,41 @@ export function applySfrStep(p: SfrParameters, u: number, v: number, k: number, 
 	}
 	const HGSL = Math.max(0, p.HGSL + (SL - p.SL));
 	return { PI, FF, SL, ST, HGSL };
+}
+
+/** The sensitivities of eqs. 11.2–11.3 per unit ΔFF (with ΔPI = k·ΔFF: A·k + B, X·k + Y) and per unit ΔSL (C, Z), % points. */
+export interface SfrJacobian {
+	readonly mu: number;
+	readonly lu: number;
+	readonly mv: number;
+	readonly lv: number;
+}
+
+/** `sfrConstants` as the sensitivities the calibration solves with (R6-F10 `'logged'`). */
+export function sfrJacobian(c: SfrConstants, k: number): SfrJacobian {
+	return { mu: c.A * k + c.B, lu: c.X * k + c.Y, mv: c.C, lv: c.Z };
+}
+
+/**
+ * One parameter update from the errors ERRM, ERRL (% points) at update `n`
+ * (0 = the pre-iteration solve from the targets): solve eqs. 11.2–11.3 for
+ * ΔFF and ΔSL, damp ΔSL by `slStepFactor(n)` (R6-F7) and apply it
+ * (`applySfrStep`, R6-F6, F8). R6-F19: when the damped ΔSL would take SL
+ * below 0, SL stops at 0 and ΔFF is re-solved from the MAR equation alone
+ * with the SL change that happens, ΔFF = (ERRM − C·(−SL)) / (A·k + B).
+ * Inferred from the run logs: with `sfrConstants` this reproduces 475 of
+ * the 501 logged updates to within 0.005 in every parameter.
+ */
+export function sfrUpdate(p: SfrParameters, errM: number, errL: number, n: number, J: SfrJacobian, options: Pick<SfrOptions, 'piPerFf' | 'slFloor' | 'slStepFactor' | 'slFloorResolve'>): SfrParameters {
+	const k = options.piPerFf;
+	let u: number;
+	let v: number;
+	const both = solve2(J.mu, J.mv, J.lu, J.lv, errM, errL);
+	if (both) [u, v] = both;
+	else [u, v] = J.mu !== 0 ? [errM / J.mu, 0] : [0, 0]; // singular (SL has no effect): steer MAR with FF/PI alone
+	const dv = v * options.slStepFactor(n);
+	if (options.slFloorResolve && p.SL + dv < 0 && J.mu !== 0) u = (errM - J.mv * -p.SL) / J.mu;
+	return applySfrStep(p, u, dv, k, options.slFloor);
 }
 
 // ---------------------------------------------------------------------------
@@ -484,27 +590,26 @@ function runChild(rawChild: RunoffModule, kind: SfrKind, ctx: ChildContext, mess
 
 	const needsCalibration = targets !== null && (targets.marPercent !== 0 || targets.lowFlowPercent !== 0);
 	if (needsCalibration) {
-		const { piPerFf: k, slFloor } = options;
+		const { piPerFf: k } = options;
 		const reductions = (values: number[]): [number, number] => [reductionPercent(meanAnnual(values), vmar), vlqt > 0 ? reductionPercent(lowFlow(values), vlqt) : 0];
 		const runAt = (p: SfrParameters) => runOverArea(simulate, withSfrParameters(child, p), areaKm2ByYear, months, startYear);
 
-		// R6-F10: estimate A·k + B, X·k + Y (per unit ΔFF) and C, Z (per unit ΔSL) from two runs.
-		const du = options.jacobianStep.ff;
-		const dv = options.jacobianStep.sl;
-		const [mu, lu] = reductions(runAt(applySfrStep(initial, du, 0, k, 'clamp')).values);
-		const [mv, lv] = reductions(runAt(applySfrStep(initial, 0, dv, k, 'clamp')).values);
-		const J = { mu: mu / du, lu: lu / du, mv: mv / dv, lv: lv / dv };
-		const step = (errM: number, errL: number): [number, number] => {
-			const both = solve2(J.mu, J.mv, J.lu, J.lv, errM, errL);
-			if (both) return both;
-			// Singular (e.g. SL has no effect): steer MAR with FF/PI alone.
-			return J.mu !== 0 ? [errM / J.mu, 0] : [0, 0];
-		};
+		// R6-F10: A·k + B, X·k + Y (per unit ΔFF, with ΔPI = k·ΔFF) and C, Z (per unit ΔSL).
+		const J = (() => {
+			if (options.constants === 'logged') {
+				return sfrJacobian(sfrConstants(child.mapMm, initial.ST), k);
+			}
+			const du = options.jacobianStep.ff;
+			const dv = options.jacobianStep.sl;
+			const [mu, lu] = reductions(runAt(applySfrStep(initial, du, 0, k, 'clamp')).values);
+			const [mv, lv] = reductions(runAt(applySfrStep(initial, 0, dv, k, 'clamp')).values);
+			return { mu: mu / du, lu: lu / du, mv: mv / dv, lv: lv / dv };
+		})();
+		const update = (p: SfrParameters, errM: number, errL: number, n: number) => sfrUpdate(p, errM, errL, n, J, options);
 
 		// Pre-iteration: from no reduction to the targets.
 		let params = initial;
-		let [u, v] = step(targets.marPercent, targets.lowFlowPercent);
-		params = applySfrStep(params, u, v * options.slStepFactor(0), k, slFloor);
+		params = update(params, targets.marPercent, targets.lowFlowPercent, 0);
 		converged = false;
 		for (let i = 1; i <= options.maxIterations; i++) {
 			const r = runAt(params);
@@ -520,8 +625,7 @@ function runChild(rawChild: RunoffModule, kind: SfrKind, ctx: ChildContext, mess
 				break;
 			}
 			if (i === options.maxIterations) break;
-			[u, v] = step(errMar, errLowFlow);
-			params = applySfrStep(params, u, v * options.slStepFactor(i), k, slFloor);
+			params = update(params, errMar, errLowFlow, i);
 		}
 		if (!converged) {
 			const last = iterations[iterations.length - 1]!;
@@ -646,7 +750,7 @@ export function runSfrGroup(input: SfrGroupInput, options: Partial<SfrOptions> =
 	}
 
 	// The parent's area, year by year.
-	const parentAreaKm2ByYear: number[] = [];
+	const parentAreaKm2ByYear = parentAreaByYear(parent.areaKm2, children.map((c) => c.areaKm2ByYear), years);
 	for (let y = 0; y < years; y++) {
 		let a = parent.areaKm2;
 		for (const c of children) a -= c.areaKm2ByYear[y]!;
@@ -658,7 +762,6 @@ export function runSfrGroup(input: SfrGroupInput, options: Partial<SfrOptions> =
 				text: `RU ${parent.number}: the children's active areas exceed the parent's area ${parent.areaKm2} km² in ${startYear + y} (TT 689 p.127); the parent's own area is taken as 0`
 			});
 		}
-		parentAreaKm2ByYear.push(Math.max(0, a));
 	}
 	const own = runOverArea(simulate, parent, parentAreaKm2ByYear, months, startYear);
 	if (own.run) for (const m of own.run.messages) messages.push(m);

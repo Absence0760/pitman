@@ -12,7 +12,10 @@ import {
 	lowFlow,
 	meanAnnual,
 	runSfrGroup,
+	sfrConstants,
+	sfrJacobian,
 	sfrKind,
+	sfrUpdate,
 	sfrParameters,
 	withSfrParameters,
 	type ChildTargetModel,
@@ -190,8 +193,8 @@ describe('the calibrated parameters', () => {
 		expect(q.FF).toBe(0.01);
 	});
 
-	it('closing error: 1 % to iteration 10, then 2, 4, 8, 16 (TT 689 p.139; R6-F9)', () => {
-		expect([1, 10, 11, 16, 17, 24, 25, 32, 33, 40].map(defaultTolerance)).toEqual([1, 1, 2, 2, 4, 4, 8, 8, 16, 16]);
+	it('closing error: 1 % to iteration 8, then doubling every 8 iterations (TT 689 p.139; R6-F9, the logged bands)', () => {
+		expect([1, 8, 9, 16, 17, 24, 25, 32, 33, 40].map(defaultTolerance)).toEqual([1, 1, 2, 2, 4, 4, 8, 8, 16, 16]);
 		expect(DEFAULT_SFR_OPTIONS.maxIterations).toBe(40);
 		expect(DEFAULT_SFR_OPTIONS.slStepFactor(10)).toBe(0.7);
 		expect(DEFAULT_SFR_OPTIONS.slStepFactor(11)).toBe(0.35);
@@ -387,5 +390,59 @@ describe('runSfrGroup', () => {
 		const before = structuredClone([parent, c]);
 		runSfrGroup(group([c]));
 		expect([parent, c]).toEqual(before);
+	});
+});
+
+describe('the calibration step (R6-F6 … F10, F19)', () => {
+	it('constants: A, B, X, Y linear in MAP, C, Z in ST (R6-F10, the logged forms)', () => {
+		const c = sfrConstants(706, 120);
+		expect(c.A).toBeCloseTo(8.5731, 4);
+		expect(c.B).toBeCloseTo(161.4717, 4);
+		expect(c.C).toBeCloseTo(0.4741, 4);
+		expect(c.X).toBeCloseTo(5.6439, 4);
+		expect(c.Y).toBeCloseTo(133.5562, 4);
+		expect(c.Z).toBeCloseTo(1.0732, 4);
+		// C and Z don't depend on MAP, A … Y not on ST.
+		expect(sfrConstants(400, 120).C).toBe(c.C);
+		expect(sfrConstants(706, 250).A).toBe(c.A);
+	});
+
+	it('defaults to the logged constants (pinned)', () => {
+		expect(DEFAULT_SFR_OPTIONS.constants).toBe('logged');
+		expect(DEFAULT_SFR_OPTIONS.slFloorResolve).toBe(true);
+	});
+
+	const J = sfrJacobian(sfrConstants(706, 120), 34);
+	const opts = DEFAULT_SFR_OPTIONS;
+	const start = { PI: 1.5, FF: 1, SL: 0, ST: 120, HGSL: 0 };
+
+	it('the pre-iteration solve: ΔFF and 0.7 × ΔSL from the two equations', () => {
+		const p = sfrUpdate(start, 80, 85, 0, J, opts);
+		const det = J.mu * J.lv - J.mv * J.lu;
+		const u = (80 * J.lv - J.mv * 85) / det;
+		const v = (J.mu * 85 - J.lu * 80) / det;
+		expect(p.FF).toBeCloseTo(1 + u, 12);
+		expect(p.PI).toBeCloseTo(1.5 + 34 * u, 12);
+		expect(p.SL).toBeCloseTo(0.7 * v, 12);
+		expect(p.ST).toBeCloseTo(120 + 0.7 * v, 12);
+		expect(p.HGSL).toBeCloseTo(p.SL, 12);
+	});
+
+	it('R6-F19: SL floored at 0 ⇒ ΔFF from the MAR equation with the SL change that happens', () => {
+		const at = { PI: 8.7, FF: 1.21, SL: 4, ST: 124, HGSL: 4 };
+		const p = sfrUpdate(at, 8, -6, 2, J, opts);
+		expect(p.SL).toBe(0);
+		const u = (8 - J.mv * -4) / J.mu;
+		expect(p.FF).toBeCloseTo(1.21 + u, 12);
+		expect(p.PI).toBeCloseTo(8.7 + 34 * u, 12);
+		// Without the re-solve the joint solution's ΔFF is kept.
+		const joint = sfrUpdate(at, 8, -6, 2, J, { ...opts, slFloorResolve: false });
+		expect(joint.FF).not.toBeCloseTo(p.FF, 6);
+		expect(joint.ST).toBe(p.ST);
+	});
+
+	it('the estimated constants still calibrate (R6-F10 alternative)', () => {
+		const r = runSfrGroup(group([userDefined(40, 30)]), { constants: 'estimated' });
+		expect(r.children[0]!.converged).toBe(true);
 	});
 });
