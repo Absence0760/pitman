@@ -9,7 +9,7 @@
 		"preview": "vite preview --port 8888",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"test": "vitest run",
+		"test": "svelte-kit sync && vitest run",
 		"test:watch": "vitest"
 	},
 	"devDependencies": {
