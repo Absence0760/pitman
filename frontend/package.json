@@ -28,7 +28,7 @@
 		"fake-indexeddb": "6.2.6",
 		"svelte": "5.57.2",
 		"svelte-check": "4.7.7",
-		"typescript": "6.0.2",
+		"typescript": "7.0.2",
 		"vite": "8.3.5",
 		"vitest": "5.0.5"
 	},
