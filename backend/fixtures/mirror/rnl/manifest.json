@@ -1,0 +1,350 @@
+{
+  "product": "rnl",
+  "revision": 1,
+  "region": {
+    "w": 10,
+    "s": -35.5,
+    "e": 41,
+    "n": -8
+  },
+  "grid": {
+    "origin": {
+      "lat": -35.475,
+      "lon": 10.025
+    },
+    "step": 0.05
+  },
+  "years": {
+    "first": 2023,
+    "last": 2025
+  },
+  "finalThrough": "2025-12-31",
+  "prelimThrough": null,
+  "files": [
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2023.01.days_p05.nc",
+      "etag": "\"fx-062744b445d947a0\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "b91ba31bcc7b2e8017e7602416e9bcce405fa11a07ebe11cada10bcc650f62cf",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2023.02.days_p05.nc",
+      "etag": "\"fx-4f959ece9ccfcfae\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "679640d8bf4d9d21c0fb63198183bb706375ba0e1b72b432390636b09fd8b86e",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2023.03.days_p05.nc",
+      "etag": "\"fx-952435bdd1cf0ef9\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "88477834784c36fb48374c56e194465ec32ff6846e8ed5055d391c4b6e325be3",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2023.04.days_p05.nc",
+      "etag": "\"fx-7f84ce5e52f09a1e\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "889492c4042d937e2fed037e68fdfe75efb813d81de788d200d1586f2ec462aa",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2023.05.days_p05.nc",
+      "etag": "\"fx-ac8b2acf0320b187\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "f06624dc1332cfdf1aea007d930c51a1f2e0d4337664ea5e7b0641ba9482622f",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2023.06.days_p05.nc",
+      "etag": "\"fx-efce4ab675f34b29\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "9f31b7b70e86e78cf996b403fcbd13a69e4171a06cd9e2b83e8bbcb312926807",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2023.07.days_p05.nc",
+      "etag": "\"fx-e12a4df8aaf6278d\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "f35e9cce6b80e8784444f06960e2aaa99c15d1d71a112ce436a6b64a1ed27f12",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2023.08.days_p05.nc",
+      "etag": "\"fx-6ab1f941fb23c107\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "b189f9c4188b2b4cf78b11070ecc70e9b965e23f2fa15e91b59336ed967490af",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2023.09.days_p05.nc",
+      "etag": "\"fx-e8217daf8d1c1a1d\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "3bd6e2c54d97b8d865403cc790b613e0b0bfdaac6b838eb64ea4517418c55bc0",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2023.10.days_p05.nc",
+      "etag": "\"fx-b2b680404b5fb804\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "277d5c3f9d47a72f032cb77d324ff85600194789df7c25fdfeca93db6cc5451c",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2023.11.days_p05.nc",
+      "etag": "\"fx-bf25b4426a3b5397\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "2cc7ae281e810f45efddb50b6ee5a1bf7178b40a5da771d363692b1dad609460",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2023.12.days_p05.nc",
+      "etag": "\"fx-7289c809e99a6cf2\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "24a62c12e25e126c62989df088dbee968d8153ebf5d84e28cd7af3aaad8d30a2",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2024.01.days_p05.nc",
+      "etag": "\"fx-1f12704805e4b675\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "549ec5c60deeb9f33f72a1ec33483d353c7b0437c7c037f724c9dc2b7e04ede2",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2024.02.days_p05.nc",
+      "etag": "\"fx-ea19b1f2f4653324\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "b6771cfe240f026792a1c324c3a55dfe286cc3b572648d5eae9c539850de12a1",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2024.03.days_p05.nc",
+      "etag": "\"fx-e94c3faf35a089fd\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "4236645c91e0df4c50802ed295e3f83e8aa4d84fe2e7ffd959637c2fdb70e17e",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2024.04.days_p05.nc",
+      "etag": "\"fx-0c4df72f24345ae1\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "fc13211f3ed6e8d27fca7d6280f1550ccf2e7aee15c9b873f91926a93e746066",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2024.05.days_p05.nc",
+      "etag": "\"fx-0d31b95d6aefeeab\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "ec4c202d97921da33b354a14851b9fef525948fd812cea175bcebb3d4fb368e0",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2024.06.days_p05.nc",
+      "etag": "\"fx-e3da6eba8424d49a\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "f61b92a40c508121d556bd27aa23e8a19d2a812096ba5b8afda8fd5e29017d05",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2024.07.days_p05.nc",
+      "etag": "\"fx-1f12704805e4b675\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "549ec5c60deeb9f33f72a1ec33483d353c7b0437c7c037f724c9dc2b7e04ede2",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2024.08.days_p05.nc",
+      "etag": "\"fx-076dca105e88175d\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "c69a41447f09cf6bdad07e58a5df873527e09d93f6d86d8d3c15f0a319554bd7",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2024.09.days_p05.nc",
+      "etag": "\"fx-195322d791023410\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "f41fd0cc741a0f3905eb44f0bbc1b6cd731f4ee1c7920aaaf976d680e4f8cb5c",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2024.10.days_p05.nc",
+      "etag": "\"fx-2f5f2f03e299c22a\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "c3553490a1e156f839e25c9b0f4aa2e66f359598ef29a42335985c0a4d2827b8",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2024.11.days_p05.nc",
+      "etag": "\"fx-3387b30d72bd1399\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "4d3281fb40c00dea663d2e8b296cdb9f1a8dfa7d2fe06e7b3d4179f9a9be200d",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2024.12.days_p05.nc",
+      "etag": "\"fx-062744b445d947a0\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "b91ba31bcc7b2e8017e7602416e9bcce405fa11a07ebe11cada10bcc650f62cf",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2025.01.days_p05.nc",
+      "etag": "\"fx-952435bdd1cf0ef9\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "88477834784c36fb48374c56e194465ec32ff6846e8ed5055d391c4b6e325be3",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2025.02.days_p05.nc",
+      "etag": "\"fx-7c39b0c17b056fa5\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "7708e237ff12fe872c4fa06e10790aaddf038e9614266487e3d008878a71ba54",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2025.03.days_p05.nc",
+      "etag": "\"fx-ff94082561fccffc\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "d1d45359763ccde20eaaad3255a985519ba0262576dae9227c6ca4ba96c3ccf9",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2025.04.days_p05.nc",
+      "etag": "\"fx-8a230dd0596412e8\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "e4a56228d507963d6c0bc388afeae8ae495198f9b235a3f544bc50a729225e39",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2025.05.days_p05.nc",
+      "etag": "\"fx-10da2afe9370aa2e\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "93a0dc6c2c3ade0697d70cb74b43af6c7fe54b6736455daa2bdc37affeb183e2",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2025.06.days_p05.nc",
+      "etag": "\"fx-27cf086a179c4eb1\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "1826d42849ee05df0a44de2aa6d163981d0d72010ae2d66316859b72c6a975d2",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2025.07.days_p05.nc",
+      "etag": "\"fx-6ab1f941fb23c107\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "b189f9c4188b2b4cf78b11070ecc70e9b965e23f2fa15e91b59336ed967490af",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2025.08.days_p05.nc",
+      "etag": "\"fx-e94c3faf35a089fd\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "4236645c91e0df4c50802ed295e3f83e8aa4d84fe2e7ffd959637c2fdb70e17e",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2025.09.days_p05.nc",
+      "etag": "\"fx-0c4df72f24345ae1\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "fc13211f3ed6e8d27fca7d6280f1550ccf2e7aee15c9b873f91926a93e746066",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2025.10.days_p05.nc",
+      "etag": "\"fx-0d31b95d6aefeeab\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "ec4c202d97921da33b354a14851b9fef525948fd812cea175bcebb3d4fb368e0",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2025.11.days_p05.nc",
+      "etag": "\"fx-e3da6eba8424d49a\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "f61b92a40c508121d556bd27aa23e8a19d2a812096ba5b8afda8fd5e29017d05",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    },
+    {
+      "url": "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/rnl/netcdf/byMonth/chirps-v3.0.2025.12.days_p05.nc",
+      "etag": "\"fx-1f12704805e4b675\"",
+      "lastModified": null,
+      "size": null,
+      "valuesSha256": "549ec5c60deeb9f33f72a1ec33483d353c7b0437c7c037f724c9dc2b7e04ede2",
+      "revision": 1,
+      "fetchedAt": "2026-02-09T00:00:00Z"
+    }
+  ],
+  "changes": []
+}

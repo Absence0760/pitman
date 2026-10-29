@@ -135,6 +135,58 @@ difference is how requests reach the app.
 **Important:** `server.ts` imports `dotenv/config`; `lambda.ts` does not.
 This ensures esbuild tree-shakes `dotenv` out of the Lambda bundle. Do not
 add `dotenv` imports to any module reachable from `lambda.ts`.
+`src/lambda.test.ts` bundles `lambda.ts` with esbuild and fails if `dotenv`,
+`server.ts` or the synthetic-data writers end up in it.
+
+### Data API
+
+Stateless: it receives only an area (GeoJSON) and answers numbers, never
+network files. CloudFront strips `/api` before the Lambda (R4-I4), so the
+routes are mounted unprefixed (`/chirps/monthly` here is `/api/chirps/monthly`
+in the browser).
+
+| Route | Body → answer | Module |
+|---|---|---|
+| `GET /health` | `{ ok: true }` | `app.ts` |
+| `POST /chirps/monthly` | `ChirpsMonthlyRequest` → `ChirpsMonthly` (`packages/wrsm/src/extend/contract.ts`) | `src/chirps/` |
+| `POST /map-grid/mean` | `{ area }` → `MapGridSample` + provenance | `src/mapgrid/` |
+
+No quaternary routes: there are no licensed boundaries yet (D-1), so the app
+takes an uploaded boundary.
+
+Layout, by topic:
+
+- `src/geo/`: geometry copied from IC-WBT (`area.ts` geodesic area,
+  `clip.ts`, `gridShares.ts`, `geojson.ts` `checkGeometry`).
+- `src/chirps/`: the CHIRPS reader copied from IC-WBT (`mirror/`,
+  `boundaryCells.ts`), Pitman's own `readMonthly.ts` (days → calendar months
+  → area mean), `monthly.ts` (the answer), `copy.ts` (which copy:
+  `CHIRPS_SOURCE=local|s3`), `synthetic.ts` + `mirror/writers.ts` (the dev
+  copy's generator; never imported by the API).
+- `src/mapgrid/`: `rainMap.ts` (the grid's JSON form, an in-memory index),
+  `mean.ts` (area-weighted mean, D6 finest grid first), `source.ts`
+  (`MAP_GRID_SOURCE=local|s3://bucket/key`; a new grid is one more
+  `MapGridSource`).
+- `src/http/`: the `{ area }` body check, the result cache, the rate limit,
+  error responses.
+
+Request path: CloudFront shared secret (timing-safe compare) → CORS → 2 MiB
+body limit → per-client rate limit → geometry check (≤ 50 000 positions,
+≤ 1 000 rings, bounded check work) → the result cache, keyed by (geometry
+hash, copy, manifest revision) for CHIRPS and (geometry hash, grids) for the
+MAP grid → the read. Refusals are `{ error }` JSON: 400 bad body or
+geometry, 404, 413, 422 an area the data can't answer (outside the copy,
+over 2 000 cells, no data, grid coverage under 90 %), 429, 503 the data
+isn't configured or isn't answering, 504 the CHIRPS read passed its 25 s
+deadline.
+
+**Per instance, on purpose.** The rate limit (30 CHIRPS / 120 MAP requests
+per client per 10 minutes) and the caches (200 CHIRPS series, 500 MAP means,
+LRU) live in one Lambda instance's memory. They bound what one client can
+make one instance do; the global per-IP limit is the WAF rule on CloudFront,
+and reserved concurrency bounds the rest. The opened CHIRPS copy (array +
+manifest) is kept 5 minutes, so a new manifest `revision` is seen within that
+time; a MAP grid is read once per instance.
 
 ## Deployment targets
 

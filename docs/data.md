@@ -81,7 +81,8 @@ have run for `rnl`. The operator checks `rnl/manifest.json`'s
 `finalThrough` and that its files start in 1981-01 (Pitman's agents can't
 read IC-WBT's account).
 
-**A polygon's monthly series** (Pitman's `POST /chirps/monthly`):
+**A polygon's monthly series** (Pitman's `POST /chirps/monthly`, built in
+Round 4.2 under `backend/src/chirps/`; § Pitman's data API):
 
 1. `boundaryCells(polygon)` (copied, `feeds/boundaryCells.ts`): each 0.05°
    cell the polygon touches, `share` by exact clipping, weight
@@ -98,8 +99,15 @@ read IC-WBT's account).
    result is a few KB.
 4. Per cell, sum days into calendar months by date (leap years), then the
    weighted mean over valid cells per month and the 90 % coverage rule
-   (`extend.md` §§ Steps 2–3). Return `{ months: [{ year, month, mm|null }],
-   cells, weights, coveragePct, finalThrough, revision, product }`.
+   (`extend.md` §§ Steps 2–3). Return `ChirpsMonthly`
+   (`packages/wrsm/src/extend/contract.ts`): `{ months: [{ year, month,
+   mm|null }], cells, weightRemovedPct, areaKm2, product, revision,
+   finalThrough, source }`, every month from 1981-01 to `finalThrough`'s.
+
+As built: the 90 % rule is taken over the weight of the cells **kept** (after
+sea/no-data cells are removed), so a coastal quaternary keeps its months
+(R4-D1); a month with any day after `finalThrough` is `null`; `mm` is rounded
+to 0.001 mm.
 
 IC-WBT's `readCells` answers in its feed cache's shape (`f`/`p`/`-` day
 codes, `encodeCellValue`), which Pitman doesn't need: copy the block
@@ -144,12 +152,27 @@ container (cold start), indexes the cells by their south-west corner indices
 (`evaporationGrid.ts` `originOf`/`indexOf`, the same keying IC-WBT's table
 uses) into a `Float32Array` with NaN for no value, and answers:
 
-- `POST /map-grid/mean` (polygon → `{ mapMm, cells, coveragePct, grid: {
-  dataset, cellDeg, source, attribution } }`) with `gridShares` (copied:
+- `POST /map-grid/mean` (polygon → `MapGridSample` (`packages/wrsm/src/types.ts`:
+  `grid`, `cellSizeM`, `cellCount`, `meanMapMm`, `fetchedOn`) plus `cellDeg`,
+  `coveragePct`, `version`, `attribution`, `source`) with `gridShares` (copied:
   share by exact clipping × the cell's ellipsoidal area; cells without a
-  value excluded; under 90 % coverage → "not covered");
+  value excluded; under 90 % coverage → 422 "no MAP grid covers the area",
+  with each grid's reason). Built in Round 4.2 (`backend/src/mapgrid/`).
+  `cellSizeM` is the square root of the mean area of the cells used;
+  `meanMapMm` is whole mm, as IC-WBT rounds a unit's;
 - `GET /map-grid/points?bbox=` for the map layer, IC-WBT's limits (bbox at
-  most 2° a side, at most 5 000 points, else `tooDense`).
+  most 2° a side, at most 5 000 points, else `tooDense`). **Not built yet**
+  (Round 5.1 needs it).
+
+**Plugging in the real grids.** Neither real grid is in reach yet (WAAS
+pending D-4; CHELSA v2.1, D-5, not yet converted). Each grid is one
+`MapGridSource` (`backend/src/mapgrid/source.ts`) in a catalogue, and the
+mean takes the **finest grid that covers the area** (D6), one grid, never a
+mix. Today the environment configures one grid: `MAP_GRID_SOURCE=local`
+(dev: `.local/map-grid/synthetic.json`) or `MAP_GRID_SOURCE=s3://bucket/key`
+(the WAAS file, once D-4 allows), `MAP_GRID_DATASET` naming it. Adding CHELSA
+means converting its GeoTIFF to this JSON form (or the raw `Float32` grid
+above) and a second source in the catalogue.
 
 IC-WBT's own `GET /projects/:id/map/map-grid` needs an IC-WBT session and
 project, so Pitman can't (and mustn't) call it. If the JSON grows past a
@@ -203,6 +226,14 @@ target.
 
 Quaternary **codes** are public and may appear anywhere; outlines and
 WR2012 values are never committed.
+
+**Until D-1 is settled, Pitman's API serves no `GET /quaternaries*`.** The
+app takes an **uploaded boundary** (GeoJSON Polygon/MultiPolygon in WGS84)
+for the area it extends, and the API takes any checked area. Faking the
+routes on synthetic outlines would only hide the gap. IC-WBT's synthetic
+quaternaries (option 3) are committed at
+`backend/fixtures/geo/quaternaries.synthetic.geojson` for tests and as a dev
+upload; they sit inside the synthetic CHIRPS and MAP copies.
 
 ## DEM: relief and delineation
 
@@ -420,10 +451,10 @@ Notes:
   else, so every sea or empty chunk would fail the read. Scoping the list to
   `rnl/` keeps it minimal. (Don't "fix" this by treating 403 as missing: it
   would hide a real permission error as no rain.)
-- **The root `zarr.json`.** Zarr v3 has no implicit groups; opening
-  `rnl` may read the root group metadata. Grant `…/zarr.json` with row 1 if
-  the reader asks for it (Round 4.2 confirms by test against the fixture
-  copy).
+- **The root `zarr.json`.** Zarr v3 has no implicit groups, but the reader
+  opens the `rnl` array directly and **never asks for the root `zarr.json`**:
+  confirmed by `backend/src/chirps/mirror/store.test.ts` (every key the fake
+  S3 client is asked for is under `rnl/`). Row 1 needs `rnl/*` only.
 - **Principals by exact ARN**, `aws:PrincipalArn`, never the whole Pitman
   account; IC-WBT's `DenyInsecureTransport` statements stay.
 - **Row 6 is an OAC grant across accounts**: Pitman's distribution signs
@@ -447,6 +478,29 @@ Notes:
   other mirror prefix; `reference/*` beyond the one file; `originals/`; any
   write, delete or list outside `rnl/`; any database access.
 
+## Pitman's data API (Round 4.2)
+
+`backend/src/` (`docs/architecture.md` § Data API for the request path and
+limits). Routes are unprefixed (CloudFront strips `/api`, R4-I4).
+
+| Env var | Default (`backend/.env.development`) | Meaning |
+|---|---|---|
+| `CHIRPS_SOURCE` | `local` | `local` or `s3`; unset or empty = not configured, every CHIRPS request 503 |
+| `CHIRPS_LOCAL_DIR` | `.local/mirror` | the local Zarr copy (`pnpm dev:data:synthetic` writes a synthetic one) |
+| `CHIRPS_BUCKET` | — | IC-WBT's mirror bucket (`s3`) |
+| `CHIRPS_PREFIX` | `rnl` | the `rnl` array's key prefix; the store opens at its parent |
+| `MAP_GRID_SOURCE` | `local` | `local` or `s3://bucket/key` (gzipped when `.gz`); unset = not configured |
+| `MAP_GRID_LOCAL_FILE` | `.local/map-grid/synthetic.json` | the local grid |
+| `MAP_GRID_DATASET` | `synthetic` | the grid's name in answers and the sidecar (default: the file name) |
+| `DATA_REGION` | `af-south-1` | the S3 client's region for IC-WBT's buckets (not `AWS_REGION`, which Lambda reserves) |
+
+The S3 client is imported lazily, with 3 s connection / 10 s request
+timeouts (a MAP grid file 60 s), three attempts, and treats only
+`NoSuchKey`/404 as an unwritten chunk; a 403 is an error (§ Cross-account
+access). A CHIRPS read runs 6 chunk GETs at a time and stops at a 25 s
+deadline (504). A quaternary's read is about 46 years × 1–4 chunk groups;
+the worst case (2 000 cells, ~16 chunk groups) is ~740 GETs.
+
 ## Code to copy
 
 IC-WBT is MIT, same author; keep a header line on each copied file naming
@@ -465,6 +519,7 @@ APIs).
 | `mirror/url.ts` | 26 | keep as is |
 | `mirror/readCells.ts` | 170 | **don't copy**: write `readMonthly(store, cells, fromYear, toYear)` on the same block reads, summing to months (`extend.md` §§ Steps 2–3) |
 | `feeds/boundaryCells.ts` | 141 | keep; raise the cell limit to 2 000; take `CHIRPS_CELL_DEG` and `WeightedCell` from a local constants file instead of `feeds/config.ts` |
+| `mirror/manifest.ts` (note) | | IC-WBT validates with **zod**, which Pitman's backend doesn't depend on: Round 4.2 rewrote `parseManifest` by hand with the same finals rules |
 | `feeds/errors.ts` | 103 | only the error classes the reader throws (`FeedFormatError`, `FeedUnavailableError`) as local classes |
 | `backend/fixtures/mirror/` | 255 files, 280 KB | the committed synthetic copy (finals 2023–2025 of an invented grid): the reader's tests |
 
