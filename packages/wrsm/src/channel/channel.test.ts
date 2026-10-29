@@ -155,6 +155,13 @@ describe('channel reach without special features', () => {
 		expect(r.breakdown.lost.values[0]).toBe(1);
 		const short = runChannel(m, { 1: series(1), 2: series(1) }, context(undefined, [file('P.abs', 4)]));
 		expect(short.breakdown.created.values[0]).toBe(2);
+		const limited = runChannel(m, { 1: series(1), 2: series(1) }, context(undefined, [file('P.abs', 4)]), {}, { ...DEFAULT_CHANNEL_OPTIONS, definedShortfall: 'limitToAvailable' });
+		expect(flows(limited, 9)[0]).toBe(2);
+		expect(limited.breakdown.created.values[0]).toBe(0);
+		// Natural mode ignores the defined principal flow and passes the river on (OQ-CR16).
+		const nat = runChannel(m, { 1: series(3), 2: series(2) }, context({ kind: 'natural' }, [file('P.abs', 4)]));
+		expect(flows(nat, 9)[0]).toBe(5);
+		expect(nat.breakdown.lost.values[0]).toBe(0);
 	});
 
 	it('imposes a defined inflow file and leaves an outflow with no demand at zero', () => {
@@ -294,6 +301,19 @@ describe('invalid data throws, naming the module', () => {
 	it('rejects a series of the wrong length or with negative flows', () => {
 		expect(run(reach(), { 1: { startYear: START, values: [1], unit: 'Mm3' } })).toThrow(/covers 2000 for 1 months/);
 		expect(run(reach(), { 1: series(-1) })).toThrow(/flows must be ≥ 0/);
+	});
+
+	it('rejects a defined-flow file without a year of the run, naming the module and route', () => {
+		const m = reach({ inflows: [{ route: 1, definedFlowFile: 'IN.abs' }] });
+		const f = () => simulateChannel(m, {}, context(undefined, [file('IN.abs', 1, [START])]));
+		expect(f).toThrow(ChannelRunError);
+		expect(f).toThrow(/CR7 'Test reach': route 1: IN\.abs: no row for 2001/);
+	});
+
+	it('rejects a negative % MAP in the wetland rainfall', () => {
+		const m = reach({ wetlandType: 1, inflows: [{ route: 1, definedFlowFile: null }] });
+		const ctx = { ...context(), rainfall: () => ({ code: 'X', rows: [{ year: START, months: twelve(-99) }, { year: END, months: twelve(5) }] }) };
+		expect(() => simulateChannel(m, { 1: series(1) }, ctx)).toThrow(/negative or missing % MAP in 2000/);
 	});
 
 	it('rejects a rainfall file without a year of the run', () => {

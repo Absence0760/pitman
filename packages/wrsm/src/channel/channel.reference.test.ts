@@ -50,13 +50,15 @@ describe.skipIf(!dir)('reference channel reaches run and balance', () => {
 		const twelve = () => Array.from({ length: 12 }, () => rnd() * 300) as unknown as Monthly12;
 		const failures: string[] = [];
 		const types = new Map<number, number>();
+		let unreadable = 0;
 		for (const path of paths) {
 			const rel = relative(dir!, path);
 			let module: ChannelModule;
 			try {
 				module = readChannel(readFileSync(path, 'latin1'), basename(path));
 			} catch {
-				continue; // reading is the reader suite's job
+				unreadable++; // reading is the reader suite's job; counted, not hidden
+				continue;
 			}
 			types.set(module.wetlandType, (types.get(module.wetlandType) ?? 0) + 1);
 			const inflows: Record<number, { startYear: number; values: number[]; unit: 'Mm3' }> = {};
@@ -87,7 +89,7 @@ describe.skipIf(!dir)('reference channel reaches run and balance', () => {
 				}
 			}
 		}
-		console.log(`CR: ${paths.length} files listed by a .NET run in 3 modes; wetland types ${JSON.stringify(Object.fromEntries(types))}; failures ${failures.length}`);
+		console.log(`CR: ${paths.length} files listed by a .NET run in 3 modes (${unreadable} unreadable); wetland types ${JSON.stringify(Object.fromEntries(types))}; failures ${failures.length}`);
 		for (const f of failures) console.log(`  ${f}`);
 		expect(failures).toEqual([]);
 	});

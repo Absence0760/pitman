@@ -277,8 +277,11 @@ Qout = 0.25 × 4.466931 = **1.116733**; Aave = 1.414214 × √12.466931 =
 S2 = 8 + 1 + 10 − 1.116733 − 0.449404 − 0.5 = **16.933863**
 (check: (8 + 16.933863)/2 = 12.466931). Qds = 30 − 10 + 1.116733 = **21.116733**.
 
-Empty-wetland case: S1 = 0.2, Qus = 2 (< Qbf), Qabs = 1 → S2 would be −0.8:
-Qabs is cut to **0.2**, S2 = 0, Qds = 2 (OQ-CR11).
+Empty-wetland case: S1 = 0.2, Qus = 2 (< Qbf), Qabs = 1. S2 goes negative, so
+the wetland empties during the month: Save = S1/2 = **0.1**, Aave =
+1.414214 × √0.1 = **0.447214**, Qevap = 0.09 × 0.447214 = **0.040249**,
+S2 = 0.2 − 0.040249 − 1 = −0.840249, so Qabs is cut by 0.840249 to
+**0.159751**; S2 = 0, Qds = 2 (OQ-CR11).
 
 ---
 
@@ -331,6 +334,7 @@ return flow). The water balance every month:
 | Defined outflows, calculated demands, wetland abstraction | zero (abstractions are development) | per R3-2 / as passed |
 | Diversion channel | removed; all to the principal route (OQ-CR12) | simulated |
 | Defined inflow | zero (R3-2), or kept with `definedInflowInNatural: 'keep'` (OQ-CR13) | per R3-2 |
+| Defined principal outflow | ignored: the river passes through (OQ-CR16) | defined flow; surplus lost, shortfall created |
 
 Contract needs (not in `contract.ts` yet):
 
@@ -353,8 +357,8 @@ negative CHBL; type 1 with CHC1 ≤ 0, CHC2 < 0 or CHC3 outside 0–1; type 2
 without L.012, Snom ≤ 0, b ≤ 0, Kin/Kout outside 0–1, local routes not in
 the route lists or the local outflow = principal; type 3 without a diversion
 route, a diversion route that is principal or not an outflow, efficiency
-outside 0–1; a wetland without its rainfall file or a year of it; a missing
-defined-flow file; a series of the wrong length or with negative flows.
+outside 0–1; a wetland without its rainfall file, a year of it or with a negative % MAP;
+a missing defined-flow file or a year it lacks (named with the route); a series of the wrong length or with negative flows.
 
 ---
 
@@ -377,7 +381,8 @@ inflows. **Default (a).** Identical when there's no local inflow route.
 defined routes carry the full flow even when the reach is dry, and p.17 that
 `.ANS` then shows full supply. **Default: supply in full and record the
 created water** (`definedShortfall: 'supplyInFull'`); alternative
-`limitToAvailable` shares Q in proportion. Only 1 reference CR outflow route
+`limitToAvailable` shares Q in proportion. The same option governs a defined
+principal route (OQ-CR16) and a defined wetland abstraction (OQ-CR11). Only 1 reference CR outflow route
 is defined, so this rarely matters.
 
 **OQ-CR4 Where calculated demands come from.** The contract has no slot.
@@ -411,7 +416,9 @@ Save − (S1 + S2(Save))/2 (`wetlandSolver`). Bisection finds the same fixed
 point when the approximations oscillate (b well below 1 with high Enet).
 
 **OQ-CR11 S2 < 0 in the comprehensive wetland.** Not covered. **Default:**
-cut evaporation, then the return flow, then the abstraction; a defined
+the wetland empties during the month, so Save = S1/2 (storage falling
+linearly to 0) sets the return flow and evaporation; then the abstraction is
+cut, then the return flow, then evaporation, until S2 = 0. A defined
 abstraction's shortfall is created as in OQ-CR3.
 
 **OQ-CR12 Natural mode.** D1 removes "irrigation, dams, abstractions".
@@ -436,7 +443,11 @@ ordinary routes.
 
 **OQ-CR16 Defined principal route.** TT 689 p.52 says the primary route
 "cannot be a defined route"; p.168 says it can and describes the result.
-**Default:** simulate p.168 with a warning. None in the reference set.
+**Default:** simulate p.168 with a warning: surplus lost, shortfall created
+(with `definedShortfall: 'limitToAvailable'` the route gets only what
+arrives). In **natural mode** the defined flow is ignored and the river
+passes through, since R3-2's zero would otherwise lose the whole river.
+None in the reference set.
 
 **OQ-CR17 Diversion demand.** **Default:** the route's defined flow or
 calculated demand; else unlimited. qdivcap = 0 diverts nothing (literal).

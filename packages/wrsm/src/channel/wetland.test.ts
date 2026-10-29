@@ -102,12 +102,16 @@ describe('comprehensive wetland, TT 690 ch.10', () => {
 		expect(r.iterations).toBeGreaterThan(0);
 	});
 
-	it('cuts the abstraction when the wetland empties (OQ-CR11)', () => {
+	it('an emptying wetland: Save = S1/2, the abstraction is cut first (OQ-CR11)', () => {
 		const r = comprehensiveWetlandMonth(comp, { s1: 0.2, qus: 2, qloc: 0, qabs: 1, enetM: 0.09 });
 		expect(r.s2).toBe(0);
-		expect(r.qabs).toBeCloseTo(0.2, 12);
-		expect(r.qabsShort).toBeCloseTo(0.8, 12);
+		expect(r.save).toBeCloseTo(0.1, 12);
+		expect(r.area).toBeCloseTo(0.447214, 6);
+		expect(r.qevap).toBeCloseTo(0.040249, 6);
+		expect(r.qabs).toBeCloseTo(0.159751, 6);
+		expect(r.qabsShort).toBeCloseTo(0.840249, 6);
 		expect(r.qds).toBe(2);
+		expect(0.2 - r.qevap - r.qabs - r.s2).toBeCloseTo(0, 12);
 	});
 
 	it('falls back to bisection when successive approximation does not converge (OQ-CR10)', () => {

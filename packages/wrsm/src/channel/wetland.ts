@@ -189,8 +189,8 @@ export const DEFAULT_WETLAND_SOLVER: WetlandSolver = { tolerance: 1e-9, maxItera
  * Qevap (10.4), S2 from the water balance (10.1), and Save = (S1 + S2)/2,
  * until two estimates agree within `solver.tolerance`. If that fails to
  * converge, bisection on the same equation. When S2 would still be
- * negative, evaporation, then the return flow, then the abstraction are cut
- * (OQ-CR11).
+ * negative the wetland empties: Save = S1/2, and the abstraction, then the
+ * return flow, then evaporation are cut until S2 = 0 (OQ-CR11).
  */
 export function comprehensiveWetlandMonth(
 	p: ComprehensiveWetlandParameters,
@@ -229,18 +229,22 @@ export function comprehensiveWetlandMonth(
 	let { qout, qevap, s2 } = fluxes(save);
 	let qabs = input.qabs;
 	if (s2 < 0) {
-		// OQ-CR11: cut evaporation, then the return flow, then the abstraction.
-		let deficit = -s2;
-		const cutEvap = Math.min(deficit, Math.max(qevap, 0));
-		qevap -= cutEvap;
-		deficit -= cutEvap;
-		const cutOut = Math.min(deficit, qout);
-		qout -= cutOut;
-		deficit -= cutOut;
+		// OQ-CR11: the wetland empties during the month. Storage falls from S1
+		// to 0, so Save = S1/2 sets the return flow and evaporation; then the
+		// abstraction is cut, then the return flow, then evaporation.
+		save = input.s1 / 2;
+		({ qout, qevap, s2 } = fluxes(save));
+		let deficit = Math.max(0, -s2);
 		const cutAbs = Math.min(deficit, qabs);
 		qabs -= cutAbs;
 		deficit -= cutAbs;
-		s2 = 0;
+		const cutOut = Math.min(deficit, qout);
+		qout -= cutOut;
+		deficit -= cutOut;
+		const cutEvap = Math.min(deficit, Math.max(qevap, 0));
+		qevap -= cutEvap;
+		deficit -= cutEvap;
+		s2 = Math.max(0, s2 + cutAbs + cutOut + cutEvap);
 		if (deficit > 1e-9) throw new RangeError(`comprehensive wetland: storage would go negative by ${deficit} million m³`);
 	}
 	return {

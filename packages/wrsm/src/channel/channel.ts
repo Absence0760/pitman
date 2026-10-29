@@ -220,7 +220,13 @@ export function runChannel(
 	const definedFile = (c: RouteConnection, mode = ctx.mode): readonly number[] => {
 		const file = ctx.flowFile(c.definedFlowFile!);
 		if (!file) return fail(`route ${c.route}: defined-flow file '${c.definedFlowFile}' is not in the network`);
-		const { series, messages: m } = definedFlowSeries(file, mode, ctx.startYear, ctx.endYear);
+		let result: ReturnType<typeof definedFlowSeries>;
+		try {
+			result = definedFlowSeries(file, mode, ctx.startYear, ctx.endYear);
+		} catch (e) {
+			return fail(`route ${c.route}: ${(e as Error).message}`);
+		}
+		const { series, messages: m } = result;
 		for (const msg of m) messages.push({ ...msg, module: ref, route: c.route });
 		return checkSeries(series, `route ${c.route} file '${c.definedFlowFile}'`)!;
 	};
@@ -262,7 +268,8 @@ export function runChannel(
 		else if (calc) outs.push({ route: c.route, role: 'calculated', demand: natural ? undefined : calc, definedFile: null });
 		else outs.push({ route: c.route, role: 'idle', definedFile: null });
 	}
-	const principalDemand = principalConn?.definedFlowFile ? definedFile(principalConn) : undefined;
+	// A defined principal flow is ignored in natural mode: R3-2 would make it zero and lose the river (OQ-CR16).
+	const principalDemand = principalConn?.definedFlowFile && !natural ? definedFile(principalConn) : undefined;
 	if (principalDemand) {
 		messages.push({ level: 'warning', module: ref, route: module.principalOutflowRoute, text: `${who}: the principal outflow route has a defined flow; surplus water is lost and a shortfall is created (TT 689 §7.2 p.168)` });
 	}
@@ -293,7 +300,11 @@ export function runChannel(
 		rain = ctx.rainfall(file!);
 		if (!rain) fail(`wetland rainfall file '${file}' is not in the network`);
 		for (const row of rain!.rows) rainByYear.set(row.year, row.months);
-		for (let y = ctx.startYear; y <= ctx.endYear; y++) if (!rainByYear.has(y)) fail(`rainfall file '${file}' has no ${y} row`);
+		for (let y = ctx.startYear; y <= ctx.endYear; y++) {
+			const row = rainByYear.get(y);
+			if (!row) fail(`rainfall file '${file}' has no ${y} row`);
+			if (row!.some((v) => !Number.isFinite(v) || v < 0)) fail(`rainfall file '${file}' has a negative or missing % MAP in ${y}`);
+		}
 	}
 
 	// --- outputs -------------------------------------------------------------
@@ -325,6 +336,8 @@ export function runChannel(
 		});
 	};
 
+	const defined = outs.filter((o) => o.role === 'defined');
+	const calc = outs.filter((o) => o.role === 'calculated');
 	let wets = s0;
 	for (let t = 0; t < n; t++) {
 		const inflow = riverIn[t]! + localInflow[t]!;
@@ -337,7 +350,6 @@ export function runChannel(
 		let q = riverIn[t]! - bed;
 
 		// Defined outflows (TT 689 ch.8 p.169).
-		const defined = outs.filter((o) => o.role === 'defined');
 		const dDem = defined.map((o) => o.demand![t]!);
 		const dTotal = dDem.reduce((s, d) => s + d, 0);
 		if (dTotal > q) {
@@ -357,7 +369,6 @@ export function runChannel(
 		}
 
 		// Calculated demands, shared in proportion (TT 689 ch.8 p.170).
-		const calc = outs.filter((o) => o.role === 'calculated');
 		const cDem = calc.map((o) => o.demand?.[t] ?? 0);
 		const cShares = shareProportionally(q, cDem);
 		let cTotal = 0;
@@ -436,9 +447,14 @@ export function runChannel(
 			const want = principalDemand[t]!;
 			if (want > q) {
 				report('defined', module.principalOutflowRoute, t, want, q);
-				b.created[t]! += want - q;
-			} else b.lost[t] = q - want;
-			q = want;
+				if (options.definedShortfall === 'supplyInFull') {
+					b.created[t]! += want - q;
+					q = want;
+				}
+			} else {
+				b.lost[t] = q - want;
+				q = want;
+			}
 		}
 		out[module.principalOutflowRoute]![t] = q;
 		b.principal[t] = q;
