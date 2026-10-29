@@ -33,8 +33,10 @@ pitman/
 │   ├── .env.development      PUBLIC_API_URL, PUBLIC_SITE_URL (committed defaults)
 │   └── src/
 │       ├── app.css           Base styles
+│       ├── env.ts            PUBLIC_API_URL, declared for SvelteKit 3 (read from $app/env/public)
 │       ├── app.html
 │       ├── lib/network/      Load, validate, store, run (worker), save (§ App flow)
+│       ├── lib/extend/       Extend a .RAN with CHIRPS (method A): area upload, the CHIRPS client, the fit screen, apply (§ App flow, step 5)
 │       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
 │       └── routes/           +page.svelte: the app shell
 ├── backend/
@@ -68,7 +70,7 @@ SvelteKit with `adapter-static`. Every route can prerender to static HTML.
 The build emits `.html` files per route, uploaded to S3. CloudFront sits in
 front for caching and TLS termination. No server-side rendering at runtime.
 
-## App flow: load → validate → store → run → save
+## App flow: load → validate → store → extend → run → save
 
 The app is one static page (`frontend/src/routes/+page.svelte`). Everything
 happens in the browser; no network file is ever uploaded (issue #3 rule 7).
@@ -100,7 +102,34 @@ each with a vitest test beside it.
    validation) and the chosen run modes go into IndexedDB (`pitman` /
    `working-copy` / `current`). A reload restores it; **Forget the working
    copy** deletes it. The user's own copy is the saved zip.
-5. **Run** (`modes.ts`, `run-client.ts`, `run.worker.ts`, `run-protocol.ts`).
+5. **Extend rainfall** (`frontend/src/lib/extend/`, method A,
+   `docs/theory/extend.md`). The panel lists every `.RAN` with the modules
+   that read it and any earlier extension (the sidecar's
+   `rainfallExtensions`). For one file the user uploads the area it
+   represents as GeoJSON (`area.ts`: Polygon, MultiPolygon or a
+   FeatureCollection of them, WGS84, inside the CHIRPS copy's region,
+   at most 100 000 vertices; decision D-1, no licensed boundaries yet) and
+   fetches CHIRPS (`api.ts`: `POST ${PUBLIC_API_URL}/chirps/monthly` with the
+   bare geometry, nothing else, rule 7; decision R4-I4; 60 s timeout, Cancel,
+   the backend's `{ error }` shown as it is). The fit (`engine.ts` wires the
+   engine's `fitRainfallExtension`, `applyRainfallExtension`, `checkFactor`,
+   `fitStatistics` and, for a file extended before, `refitFromSidecar`,
+   R4-E2) is shown as the monthly scatter with its 1:1 line and a corrected
+   toggle, the mean monthly bars with each factor, the annual totals with
+   the appended years shaded (`charts.ts`, drawn by `plot.ts` with uPlot,
+   each with a data table), and the numbers before and after. The 12 factors
+   (`factors.ts`) take typed values (a decimal comma too), are checked by
+   `checkFactor` (refused, confirm a 0, warn far from 1) and reset to the
+   computed value; the D5 window narrows the overlap and resets. The
+   preview is the engine's own apply. Every number shows its provenance
+   (`provenance.ts`: product, copy and revision, final day, cells, weight
+   removed, area, fetch date, CHIRPS MAP and overlap). **Apply**
+   (`apply.ts`) replaces the `.RAN` in the bundle, records the sidecar entry
+   (stamped `createdAt`), and the page stores the working copy and clears
+   the old results. When every rainfall file in use now reaches further the
+   panel offers to move the `.NET`'s last year (L.012, at most 150 years),
+   then to rerun.
+6. **Run** (`modes.ts`, `run-client.ts`, `run.worker.ts`, `run-protocol.ts`).
    The mode picker offers present day (year default 2025), natural and
    historical (decision D1); several run in one go so results compare. The
    run happens in a module Web Worker: one request (the bundle without its
@@ -110,7 +139,7 @@ each with a vitest test beside it.
    `data-run-state` (`idle`, `running`, `done`, `failed`) and
    `data-ready="true"` once a run has finished, for end-to-end tests, and
    renders `frontend/src/lib/results/Results.svelte` with the successful runs.
-6. **Save** (`save.ts`). `writeBundle` writes every file back: an unchanged
+7. **Save** (`save.ts`). `writeBundle` writes every file back: an unchanged
    file byte for byte, a changed one in WRSM2000's standard layout
    (decision R2-4), plus every kept file. The sidecar is stamped with
    `writtenBy` (the frontend package version) and `savedAt` and written as
