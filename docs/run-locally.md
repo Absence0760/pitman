@@ -60,6 +60,22 @@ pnpm backend test         # backend only
 pnpm frontend test        # frontend only
 ```
 
+## Using the app locally
+
+`pnpm frontend dev` serves the app at http://localhost:7777. Load a network
+folder or zip (a synthetic one: `docs/formats/examples/network/`), pick the
+run modes and run; **Save as WRSM2000 zip** downloads the network with its
+`pitman.json` sidecar. The flow is described in
+[`architecture.md` § App flow](./architecture.md#app-flow-load--validate--store--run--save).
+
+- Nothing is uploaded: the backend is not involved in loading, running or saving.
+- The browser keeps a working copy in IndexedDB (database `pitman`). **Forget
+  the working copy** deletes it; so does clearing the site's data in the
+  browser's developer tools (Application → Storage).
+- Until Round 3 integration wires the network runner, `run()` in
+  `@pitman/wrsm` is a stub, so each mode reports "run(): network routing is
+  wired at Round 3 integration" as its error. The app's tests use a fake run.
+
 ## The engine CLI (`wrsm`)
 
 `pnpm wrsm-cli wrsm <command>` runs `packages/wrsm-cli` under tsx.
@@ -68,7 +84,7 @@ pnpm frontend test        # frontend only
 - `wrsm compare <networkDir> <outDir> [--reference <dir>]`: pairs simulated and reference `.ANS` files by name and prints, per route, MAR simulated/reference, % difference, NSE, max abs difference and the first diverging month. The reference defaults to `<networkDir>/Out`, else the folder itself. Exit 1 if a route listed as expected to match misses |MAR diff| ≤ 1 % or NSE ≥ 0.99 (`packages/wrsm/src/compare/expectations.ts`).
 - Exit codes: 0 ok, 1 a failed run or comparison, 2 a usage error.
 
-**Reference suite.** Point `WRSM_REFERENCE_DIR` at a folder of real WRSM2000 networks (never committed) and run `pnpm test:wrsm`: every reader then round-trips every real file. Without the variable those tests skip. Don't write `wrsm run` output into a reference folder you don't own: pass `--out`.
+**Reference suite.** Point `WRSM_REFERENCE_DIR` at a folder of real WRSM2000 networks (never committed) and run `pnpm test:wrsm`: every reader then round-trips every real file, and `readBundle`/`writeBundle` round-trip every network folder byte for byte (`src/io/bundle.reference.test.ts`). Without the variable those tests skip. Don't write `wrsm run` output into a reference folder you don't own: pass `--out`.
 
 ## Pushing straight to `main` (for now)
 
