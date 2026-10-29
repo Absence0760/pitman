@@ -1152,34 +1152,68 @@ export interface MapGridSample {
 	readonly fetchedOn: IsoDate;
 }
 
-/** CHIRPS extension of one rainfall file (method A, decision D5). */
+/** One calendar month's bias factor as recorded in the sidecar (extend.md § Step 8). */
+export interface RainfallExtensionFactor {
+	/** Calendar month, `'Oct'` … `'Sep'` (entries are October first). */
+	readonly month: string;
+	/** The factor as computed from the overlap (1 when it couldn't be estimated). */
+	readonly computed: number;
+	/** The factor applied. Differs from `computed` only when the user edited it. */
+	readonly used: number;
+	/** Why the factor is what it is, or the user's edit note ('' when nothing to say). */
+	readonly note: string;
+	/** Present and true when the user edited the factor. */
+	readonly edited?: true;
+}
+
+/**
+ * CHIRPS extension of one rainfall file (method A, decision D5), the
+ * `pitman.json` entry of docs/theory/extend.md § Step 8. Round 4 replaced the
+ * Round 1 placeholder (one quaternary, two factor arrays) with the spec's shape.
+ */
 export interface RainfallExtension {
-	/** The .RAN file extended (upper-cased name). */
+	/** Method version: the algorithm of extend.md as of Round 4. */
+	readonly method: 'extend-1';
+	/** The .RAN file extended (upper-cased name, as the `Sidecar` key). */
 	readonly file: string;
-	/** Quaternary whose boundary CHIRPS was averaged over. */
-	readonly quaternary: string;
-	readonly chirps: {
-		/** Dataset name and version, e.g. "CHIRPS v2.0 monthly". */
-		readonly dataset: string;
-		/** First and last complete months of the record used, `YYYY-MM`. */
-		readonly firstMonth: string;
-		readonly lastMonth: string;
-		/** Mean annual CHIRPS total over its full record, mm. */
-		readonly chirpsMapMm: number;
-		readonly fetchedOn: IsoDate;
+	/** The area CHIRPS was averaged over. */
+	readonly area: {
+		/** Quaternary codes the area was built from (empty for an uploaded or drawn area). */
+		readonly quaternaries: readonly string[];
+		readonly areaKm2: number;
+		/** CHIRPS cells used, after removing sea / no-data cells. */
+		readonly cells: number;
+		/** Share of the area's weight removed as sea / no-data cells, %. */
+		readonly weightRemovedPct: number;
 	};
-	/** Overlap window the factors were fitted on (D5: whole overlap by default). */
-	readonly overlap: { readonly startYear: HydroYear; readonly endYear: HydroYear };
-	/** The 12 bias factors as computed, October first. */
-	readonly computedFactors: Monthly12;
-	/** The 12 factors as applied (equal to `computedFactors` unless edited). */
-	readonly appliedFactors: Monthly12;
-	/** Notes on any edited factor, by month index. */
-	readonly factorNotes?: Readonly<Record<number, string>>;
+	readonly chirps: {
+		/** Product as the copy names it, e.g. "CHIRPS v3 rnl (final)". */
+		readonly product: string;
+		/** Which copy answered, e.g. "IC-WBT rain data copy". */
+		readonly copy: string;
+		/** The copy's manifest revision when fetched (a later revision means values changed). */
+		readonly manifestRevision: number;
+		/** The copy's last final day, `YYYY-MM-DD`. */
+		readonly finalThrough: string;
+		/** CHIRPS3 data DOI, for the attribution the licence asks for. */
+		readonly doi: string;
+		/** When the CHIRPS series was fetched. */
+		readonly accessed: IsoDate;
+	};
+	/** `MAP_c`: mean annual CHIRPS total over its complete hydrological years. Re-applying saved factors uses this value. */
+	readonly chirpsMap: { readonly mm: number; readonly years: readonly [HydroYear, HydroYear] };
+	/** Overlap the factors were fitted on (D5): `window` says whether the user narrowed it. */
+	readonly overlap: { readonly from: HydroYear; readonly to: HydroYear; readonly window: 'default' | 'user' };
+	/** The 12 factors, October first. */
+	readonly factors: Twelve<RainfallExtensionFactor>;
 	/** Hydrological years appended to the file (all CHIRPS-derived). */
-	readonly appendedYears: { readonly first: HydroYear; readonly last: HydroYear };
+	readonly appended: { readonly from: HydroYear; readonly to: HydroYear; readonly rows: number };
 	/** Last year of the original record, before extension (WR2012's period ends here). */
 	readonly originalEndYear: HydroYear;
+	/** The first missing CHIRPS month (0 = October) that stopped the extension, or `null`. */
+	readonly stoppedAt: { readonly year: HydroYear; readonly month: number } | null;
+	/** When the extension was applied; stamped by the app (the engine doesn't read the clock). */
+	readonly createdAt?: IsoDate;
 }
 
 /** One iteration of the MAP calibration loop (decision D2). */
