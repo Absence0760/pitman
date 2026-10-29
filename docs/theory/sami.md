@@ -51,7 +51,7 @@ lagged by GL, and a remainder, lagged by TL. In a Sami module:
    averaged over D9_MMA months) into an **aquifer store** (CAP = thickness × storativity). The aquifer
    loses water to **riparian evaporation**, **regional outflow** and **baseflow**. It gains water from
    **transmission losses** out of the river, and it supplies **abstractions**.
-5. **Final RU runoff** (OQ-S3):
+5. **Final RU runoff** (OQ-S3; switchable in `SamiOptions`, §6):
    `Qfinal = Qsurface + INTERFLOW_lagged + GWBaseflow_net − TL`, where `Qsurface` is the Pitman
    run's surface component, with the FT subsurface term excluded because Sami's interflow replaces it.
 6. **Upstream inflow routed through a Sami RU is not touched.** Sami transmission losses apply only to
@@ -313,6 +313,14 @@ Record names: `TS_SamiGWStorage`, `TS_Recharge`, `TS_AvGWStorage` (area-weighted
 5. Assemble `Qfinal` and hand it to the RU's outflow routes (and, for an SFR parent/child, to the
    land-use reductions; Round 6.3/6.4).
 
+As built (Round 6.5): `simulateSami` in `src/groundwater/sami/index.ts` follows this order exactly
+(see §6). `runRunoffModule` sends groundwater model 2 through it with the run mode's abstractions
+(zero in natural mode, D1), E_m × APF_m (L.004 × L.040; L.005 with a warning when L.040 is absent,
+OQ-S7) and the L.036–L.037 table spread over 12 months (OQ-S9). Free-module reductions are applied to
+`Qfinal`. An SFR parent and its children run together in `runNetwork` (`src/network/sfr-groups.ts`).
+A member run on a smaller area keeps EVAREA as the same share of the catchment
+(B28_GWEvapAreaFactor, R6-R5).
+
 The soil passes (2–3) depend only on S, so they are deterministic and independent of the aquifer.
 The aquifer feeds back only through AQX (excess to interflow), which the soil side then lags.
 
@@ -448,11 +456,26 @@ export function samiAquiferStep(
 ): { state: SamiAquiferState; out: SamiAquiferOutput };
 ```
 
-The thin composition (run Pitman, then `samiSoilPass`, loop `samiAquiferStep`, then `samiInterflow`,
-then `Qfinal`) belongs in the RU runner (`src/runoff/**`). It needs one orchestrator-assigned file, for
-example `src/groundwater/sami/index.ts`, so neither 6.1 nor 6.2 writes it. Both agents can test
-against the §7 table without the other's module: 6.2 feeds the table's `aquiferInflow` column, and 6.1
-checks its RE/PERC columns.
+The composition is `simulateSami(input, parts, options)` in `src/groundwater/sami/index.ts`
+(Round 6.5). It runs the Pitman core (`simulatePitman`, L.035 set, GW = GL = 0), then `soilPass` once,
+`aquiferInit` once, `aquiferStep` once per month in month order, then `interflow` once, and assembles
+`Qfinal`. The parts are injected (`SamiRunParts`: the contract's `SamiParts` plus the soil side's
+options argument and an optional `makeAquiferStep(options)` factory), and `src/runoff/wiring.ts` holds
+the defaults `runRunoffModule` uses. To make the swap possible the Pitman core reports its FT part
+routed on its own (`PitmanMonth.routedFastSubsurface`, `fastSubsurface`). Muskingum routing is linear,
+so `routedFast − routedFastSubsurface` is the lagged surface + spill part. Every reading of OQ-S2,
+OQ-S3 and OQ-S4 is a `SamiOptions` field (§8), and so are the soil and aquifer switches (`soil`,
+`interflow`, `aquifer`), the OQ-S11 constants, GWMAX and R6-R3 (negative Qfinal kept or clamped).
+`samiWaterBalance` closes the composed module's balance (§5 carried through the Pitman core):
+
+```
+rain + ΣRE + ΣSIF (+ Σclamped) = I + E + drain + ΔS + (Pitman flow not passed on) + ΔP + ΔSTORE
+                                 + (interflow lag storage) + ET + OUT + ABS + ΣQfinal
+```
+
+Under OQ-S2 (a), RE and SIF are computed from S without being taken out of it. They are sources in
+the balance, and the Pitman FT runoff they replace is "not passed on". The tests close this to 1e-9
+of rain with conserving fakes and with the real soil and aquifer sides.
 
 ## 7. Worked example (method 2)
 
@@ -577,6 +600,12 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   "swapped" (OQ-S3).
   *Readings:* (a) post-process, no feedback; (b) RE subtracted from S inside the Pitman steps.
   *Default:* (a). Round 6.5 compares both against the reference `.ANS` and records the winner.
+  (b) is `soilFeedback: 'rechargeDrainsS'`: RE(S) is a loss in each Pitman step, cut after E and before
+  Q when S would go negative. *Round 6.5 evidence* (35 reference networks, per-step routing, below):
+  (b) lowers the median RU-route MAR error from 1.88 % to 1.69 % and the overall route median from
+  3.26 % to 3.14 %. The number of routes within thresholds stays at 102/375. Simulated runoff is high
+  on 70 of 92 RU routes under (a), consistent with (a) adding RE on top of the soil balance. That
+  points towards (b) but doesn't settle it.
 - **OQ-S3. What is Q, and how is final runoff assembled?** TT 690 Fig 8.2 and TT 687 Fig 1 are
   truncated or ambiguous ("Surface Runoff = Q − GWBaseflow − Interflow − TL"). The HEAD runoff is "input
   of streamflow" (TT 690 p.87). The spreadsheet's column C was the naturalised flow from a Pitman-GW run
@@ -586,6 +615,25 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   *Readings for HEAD:* (i) Pitman total Q; (ii) surface component.
   *Default:* (a) and (i), with Q and the surface component both lagged by TL as the Pitman core
   produces them. Highest-priority item for 6.5.
+  Options: `finalRunoff` `surfacePlusSami` (a) / `totalPlusBaseflow` (b); `headRunoff` `total` (i) /
+  `surface` (ii); `pitmanParts` `lagged` / `unlagged`. *Round 6.5 evidence* (local suite
+  `src/compare/network.reference.test.ts`, `WRSM_SAMI_VARIANTS=all`, per-step routing; routes within
+  |MAR| ≤ 1 % and NSE ≥ 0.99, median RU-route MAR error, median RU NSE):
+  - (a)(i): 102/375, 1.88 %, 0.950
+  - (b)(i): 102/377, 3.13 %, 0.972 (88 of 92 RU routes high)
+  - (a)(ii): **107/377**, 2.12 %, 0.953
+  - unlagged parts: 102/376, 2.15 %, 0.795
+  These runs use `PitmanOptions.routing: 'perStep'`. Under the OQ-22 default (literal monthly
+  Muskingum), 206 of 210 public Sami modules have TL < 0.5. 15,040 of their 15,703 negative-Qfinal
+  months come from the Pitman TL lag itself. 29 of 35 networks then stop in a reservoir or channel
+  that refuses the negative inflow, against 1–3 with per-step routing. That is the evidence
+  `decisions.md` OQ-22 asked for: WRSM2000 doesn't go negative there.
+  So reading (b) is unlikely, and the unlagged parts are ruled out by NSE. Readings (i) and (ii) are
+  close. The open origin of error is upstream of OQ-S3: 90 of 117 divergence origins are RU routes.
+  Separately, TL > (surface + interflow + baseflow) gives Qfinal < 0 in a few months. That is kept
+  and warned (`negativeRunoff: 'keep'`) or raised to 0 with the water booked
+  (`'clamp'`) (R6-R3). Two networks still stop on such a month in a downstream reservoir or channel
+  under (a)(i).
 - **OQ-S4. Which S value per month?** The Pitman core updates S in 4 sub-steps. Sami's spreadsheet
   takes one S per month (the saved "Pitman S" series).
   *Readings:* end-of-month S; mean of the four sub-step values.
