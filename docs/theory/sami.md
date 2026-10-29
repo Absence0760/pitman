@@ -238,6 +238,15 @@ Three provisional details of this step (Round 6, `aquifer.ts`; §8):
   one (R6-A6; TT 689 p.44: BPOW "should always be −0.05").
 - A negative Q_i (the literal Muskingum lag can produce one, OQ-22) counts as 0 in HEAD and in the
   TL cap, so `0 ≤ TL ≤ Q` holds (R6-A5).
+- TL is also capped at the runoff it comes out of: `TL_i ≤ max(0, Qsurface_i + QLAG_i)` in OQ-S3
+  reading (a) (baseflow is 0 in a TL month), `≤ Q_i` in (b) (R6-A10). TT 687 p.12–13: "a check that
+  transmission losses cannot exceed runoff"; WRSM2000's net catchment runoff (`*ncr.MTS`) and route
+  outputs are never negative in the reference set. HEAD reads the Pitman total Q (reading (i)), most
+  of which can be the FT term Sami swaps for its own interflow, so the `≤ Q` cap alone let Qfinal go
+  negative (two reference networks stopped in a reservoir and a channel on it). QLAG_i depends on
+  this month's AQX, so the aquifer step gets the cap as a function of AQX (`runoffForLoss`); the
+  composition evaluates it with `samiInterflowRouter` (O(1) a month) or, for injected parts without
+  one, by re-running `interflow` on the prefix. TL not taken stays in the river: nothing to book.
 - TL is added to STORE with no capacity cap (TT 690 p.87), so STORE can end the month above CAP. The
   surplus then spills as AQX at the start of the next month, and that month's AQRECH can be negative
   (R6-A2, switchable).
@@ -437,6 +446,7 @@ export interface SamiAquiferInput {
   perc: Mm;            // PERC_i              (from soil.ts, abstraction ratio)
   percBar: Mm;         //                     (from soil.ts)
   runoffForHead: Mm;   // Q_i                 (Pitman core, OQ-S3)
+  runoffForLoss?: (aqx: Mm) => Mm; // R6-A10: the runoff TL comes out of, given this month's AQX
   rain: Mm;            // RAIN_i
   petGw: Mm;           // E_m * APF_m          (OQ-S7)
   abstraction: Mm;     // ABS_i, already 0 in natural mode
@@ -446,7 +456,7 @@ export interface SamiAquiferOutput {
   aquiferRecharge: Mm;   // AQRECH_i
   et: Mm; outflow: Mm;   // ET_i, OUT_i (OUT may be < 0)
   baseflow: Mm;          // GWBF_net_i (after depletion)
-  transmissionLoss: Mm;  // TL_i (≤ runoffForHead)
+  transmissionLoss: Mm;  // TL_i (≤ runoffForHead, ≤ runoffForLoss(AQX), R6-A10)
   depletion: Mm; fromStorage: Mm; pctFromGw: number;
   store: Mm;             // STORE at month end
 }
@@ -630,10 +640,12 @@ reference network: no abstraction, LAG = 0, MMA 1–18, HGSL 0 or small, TL and 
   `decisions.md` OQ-22 asked for: WRSM2000 doesn't go negative there.
   So reading (b) is unlikely, and the unlagged parts are ruled out by NSE. Readings (i) and (ii) are
   close. The open origin of error is upstream of OQ-S3: 90 of 117 divergence origins are RU routes.
-  Separately, TL > (surface + interflow + baseflow) gives Qfinal < 0 in a few months. That is kept
-  and warned (`negativeRunoff: 'keep'`) or raised to 0 with the water booked
-  (`'clamp'`) (R6-R3). Two networks still stop on such a month in a downstream reservoir or channel
-  under (a)(i).
+  Separately, TL > (surface + interflow + baseflow) gave Qfinal < 0 in a few months under (a)(i),
+  stopping two networks in a downstream reservoir or channel. That was the TL cap reading a different
+  runoff (Q) from the one TL is taken out of; R6-A10 (§3.10) caps TL at the latter, and all 34
+  sequence-valid networks run. A negative Qfinal can still come from a negative lagged part (OQ-22);
+  that is kept and warned (`negativeRunoff: 'keep'`) or raised to 0 with the water booked
+  (`'clamp'`) (R6-R3).
 - **OQ-S4. Which S value per month?** The Pitman core updates S in 4 sub-steps. Sami's spreadsheet
   takes one S per month (the saved "Pitman S" series).
   *Readings:* end-of-month S; mean of the four sub-step values.

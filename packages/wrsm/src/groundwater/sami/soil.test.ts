@@ -4,6 +4,7 @@ import type { SamiSoilParams } from './contract.js';
 import {
 	DEFAULT_SAMI_SOIL_OPTIONS,
 	samiInterflow,
+	samiInterflowRouter,
 	samiMovingAverage,
 	samiPercolation,
 	samiRecharge,
@@ -161,6 +162,21 @@ describe('Sami soil equations, by hand', () => {
 		// Q0 = (1/3)·2; Q1 = Q0 + (2/3)(2 − Q0) + (1/3)(4 − 2).
 		const q0 = 2 / 3;
 		expectSeries(samiInterflow([1, 3], [1, 1], 1, { initialLagState: 'zero' }), [q0, q0 + (2 / 3) * (2 - q0) + 2 / 3], 1e-15);
+	});
+
+	it.each(['steady', 'zero'] as const)('R6-A10: the month-by-month router gives samiInterflow exactly; peek does not move it (%s start)', (initialLagState) => {
+		const r = random(11);
+		const sif = Array.from({ length: 40 }, () => 3 * r());
+		const aqx = sif.map(() => (r() < 0.3 ? 2 * r() : 0));
+		for (const lag of [0, 0.3, 1, 2.5]) {
+			const whole = samiInterflow(sif, aqx, lag, { initialLagState });
+			const router = samiInterflowRouter(lag, { initialLagState });
+			sif.forEach((v, i) => {
+				router.peek(v, aqx[i]! + 7); // a trial AQX, discarded
+				expect(router.peek(v, aqx[i]!)).toBe(whole[i]);
+				expect(router.push(v, aqx[i]!)).toBe(whole[i]);
+			});
+		}
 	});
 
 	it('§3.7 k = 0 passes INTERFLOW = SIF + AQX through; mismatched lengths throw', () => {

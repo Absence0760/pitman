@@ -244,6 +244,31 @@ describe("Sami aquifer: one equation at a time (hand-worked)", () => {
     expect(r.out.transmissionLoss).toBe(0);
   });
 
+  it("R6-A10: TL is also capped at the runoff it comes out of, given the month's AQX (TT 687 p.12–13)", () => {
+    // HEAD = 80 − 60 − 30 = −10 → F = 0.78694 ≤ Q = 30, but the loss base is only 0.25.
+    const seen: number[] = [];
+    const r = step(
+      state(80),
+      { runoffForHead: 30, runoffForLoss: (aqx) => (seen.push(aqx), 0.25) },
+      { HGRAD: 0 },
+    );
+    expect(r.out.transmissionLoss).toBe(0.25);
+    expect(r.out.store).toBeCloseTo(80 + 0.25, 12); // only what was taken reaches STORE
+    // The callback sees this month's AQX: a store pushed over CAP = 100 spills 5 first.
+    const spill = step(
+      state(95),
+      { aquiferInflow: 10, runoffForHead: 60, runoffForLoss: (aqx) => (seen.push(aqx), 1e6) },
+      { HGRAD: 0 },
+    );
+    expect(seen).toEqual([0, 5]);
+    expect(spill.out.excessToInterflow).toBe(5);
+    expect(spill.out.transmissionLoss).toBeCloseTo((1 - Math.exp(-1)) * 2, 12); // HEAD −20: the curve binds
+    // A negative loss base takes nothing; a month with baseflow never asks.
+    expect(step(state(80), { runoffForHead: 30, runoffForLoss: () => -1 }, { HGRAD: 0 }).out.transmissionLoss).toBe(0);
+    const effluent = step(state(80), { runoffForLoss: () => { throw new Error("asked"); } }, { HGRAD: 0 });
+    expect(effluent.out.baseflow).toBeGreaterThan(0);
+  });
+
   it("R6-A6: the curve uses −|BPOW|, so a positive BPOW still saturates at BFMAX", () => {
     const neg = step(state(80), {}, { HGRAD: 0 });
     const pos = step(state(80), {}, { HGRAD: 0, BPOW: 0.05 });

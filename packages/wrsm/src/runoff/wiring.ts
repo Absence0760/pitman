@@ -21,7 +21,7 @@ import { forestReduction } from '../landuse/forest.js';
 import { alienTargetModel, alienVegetationReduction } from '../landuse/alien.js';
 import type { ChildTargetModel } from '../landuse/sfr.js';
 import { makeSamiAquiferStep, samiAquiferInit, samiAquiferStep } from '../groundwater/sami/aquifer.js';
-import { samiInterflow, samiSoilPass } from '../groundwater/sami/soil.js';
+import { samiInterflow, samiInterflowRouter, samiSoilPass } from '../groundwater/sami/soil.js';
 
 function notWired(part: string): never {
 	throw new Error(`Sami ${part} is not wired yet (Round 6 integration: src/runoff/wiring.ts)`);
@@ -44,6 +44,7 @@ export const SAMI_PARTS_NOT_WIRED: SamiRunParts = Object.freeze({
 export const SAMI_PARTS: SamiRunParts = Object.freeze({
 	soilPass: samiSoilPass,
 	interflow: samiInterflow,
+	interflowRouter: samiInterflowRouter, // R6-A10
 	aquiferInit: samiAquiferInit,
 	aquiferStep: samiAquiferStep,
 	makeAquiferStep: makeSamiAquiferStep
