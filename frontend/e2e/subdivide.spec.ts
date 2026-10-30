@@ -85,6 +85,7 @@ test('split by a MAP zone, calibrate, apply, run, and the save reopens with the 
 	const [saved] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save as WRSM2000 zip' }).click()]);
 	const zip = await readFile((await saved.path())!);
 	await page.getByRole('button', { name: 'Forget the working copy' }).click();
+	await expect(page.getByRole('heading', { name: 'Network SY' })).toHaveCount(0);
 	await page.getByLabel('Network zip', { exact: true }).setInputFiles({ name: 'saved.zip', mimeType: 'application/zip', buffer: zip });
 	await expect(page.getByRole('heading', { name: 'Network SY' })).toBeVisible();
 	await expect(page.getByRole('navigation', { name: 'Steps' })).toContainText('1 quaternary split');
