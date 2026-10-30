@@ -19,7 +19,7 @@ describe('the Lambda bundle', () => {
 		const inputs = Object.keys(r.metafile.inputs);
 		expect(inputs.some((p) => p.includes('/dotenv/'))).toBe(false);
 		expect(inputs.some((p) => p.endsWith('server.ts'))).toBe(false);
-		expect(inputs.some((p) => /chirps\/(synthetic|mirror\/writers)\.ts$/.test(p) || p.endsWith('mapgrid/synthetic.ts'))).toBe(false);
+		expect(inputs.some((p) => /chirps\/(synthetic|mirror\/writers)\.ts$/.test(p) || p.endsWith('mapgrid/synthetic.ts') || p.endsWith('delineation/syntheticDem.ts'))).toBe(false);
 		expect(inputs.some((p) => p.includes('@aws-sdk/client-s3'))).toBe(true);
 	}, 30_000);
 });

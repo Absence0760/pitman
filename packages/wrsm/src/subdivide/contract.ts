@@ -63,6 +63,8 @@ export interface DelineateRequest {
 	readonly point: readonly [number, number];
 	/** The piece being split (the quaternary, or a piece of it). */
 	readonly within: AreaGeometry;
+	/** Answers a `larger_channel` refusal: the small channel was meant (R5-D4). */
+	readonly keepPoint?: boolean;
 }
 
 /** IC-WBT's refusal codes, kept (subdivide.md § Hydrological split, step 2). */
@@ -72,6 +74,8 @@ export interface DemProvenance {
 	readonly label: string;
 	readonly fingerprint: string;
 	readonly zoom: number;
+	/** The DEM licence's notice, carried with every polygon it produced (R5-D4). */
+	readonly attribution?: string;
 }
 
 export interface DelineateResponse {
@@ -88,6 +92,8 @@ export interface DelineateResponse {
 	readonly warning: string | null;
 	/** How far the click moved to reach the channel, m. */
 	readonly snapM: number;
+	/** Pans inside the tributary that don't contribute, km² (R5-D4). */
+	readonly pansKm2?: number;
 	readonly dem: DemProvenance;
 }
 
