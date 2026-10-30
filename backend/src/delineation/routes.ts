@@ -59,7 +59,8 @@ export function parseBbox(q: string | undefined): [number, number, number, numbe
 	if (parts.length !== 4 || parts.some((v) => !Number.isFinite(v))) throw new ApiError(400, 'ask for one box as bbox=west,south,east,north (degrees)');
 	const [w, s, e, n] = parts as [number, number, number, number];
 	if (w < -180 || e > 180 || s < -90 || n > 90 || w >= e || s >= n) throw new ApiError(400, 'the box must be west,south,east,north, in degrees, west of east and south of north');
-	if (e - w > MAX_CHANNEL_BOX_DEG || n - s > MAX_CHANNEL_BOX_DEG) throw new ApiError(400, `the box is too large: at most ${MAX_CHANNEL_BOX_DEG}° a side; zoom in`);
+	// The tiny allowance is a box on the client's 0.4° grid, whose difference floats a hair over it.
+	if (e - w > MAX_CHANNEL_BOX_DEG + 1e-9 || n - s > MAX_CHANNEL_BOX_DEG + 1e-9) throw new ApiError(400, `the box is too large: at most ${MAX_CHANNEL_BOX_DEG}° a side; zoom in`);
 	return [w, s, e, n];
 }
 
