@@ -336,9 +336,9 @@ return flow). The water balance every month:
 | Defined inflow | zero (R3-2), or kept with `definedInflowInNatural: 'keep'` (OQ-CR13) | per R3-2 |
 | Defined principal outflow | ignored: the river passes through (OQ-CR16) | defined flow; surplus lost, shortfall created |
 
-Contract needs (not in `contract.ts` yet):
+Contract needs:
 
-- **C-1** calculated demands. 146 of the reference networks' CR outflow
+- **C-1** (done, R7-I2: `ChannelSimulator`'s fourth argument) calculated demands. 146 of the reference networks' CR outflow
   routes are irrigation abstraction routes; the channel needs each month's
   demand before it can share water. `simulateChannel` takes an optional
   fourth argument `demands: RouteFlows` (assignable to `ChannelSimulator`).
@@ -385,8 +385,9 @@ created water** (`definedShortfall: 'supplyInFull'`); alternative
 principal route (OQ-CR16) and a defined wetland abstraction (OQ-CR11). Only 1 reference CR outflow route
 is defined, so this rarely matters.
 
-**OQ-CR4 Where calculated demands come from.** The contract has no slot.
-**Default:** optional fourth argument `demands` (contract change C-1).
+**OQ-CR4 Where calculated demands come from.** Settled by R7-I2: the
+optional fourth argument `demands` (C-1), filled by the network runner from
+each irrigation module's demand (`irrigation.md` §2).
 
 **OQ-CR5 Eq. 9.1's √Qr.** Printed inside the CHC3 bracket (TT 690 p.112);
 TT 691 p.156 says recharge is "the product of CHC3 and the available
