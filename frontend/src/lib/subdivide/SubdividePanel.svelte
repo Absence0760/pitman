@@ -142,7 +142,7 @@
 	let typed = $state.raw<Readonly<Record<string, string>>>({});
 	let showBlockers = $state(false);
 	const dams = $derived(set ? damsByPiece(bundle.sidecar?.dams ?? [], set.pieces) : []);
-	const shares = $derived(planShares(dams));
+	const shares = planShares();
 	const areas = $derived(set && module && set.pieces.length > 1 ? attempt(() => engine.scalePieceAreas(module.areaKm2, set?.pieces.map((p) => p.polygonKm2) ?? [])) : undefined);
 	const rowInput = $derived<RowInput | undefined>(set ? { set, samples, typed, areas: areas?.ok ? areas.value : undefined, dams, preview: undefined } : undefined);
 	const plan = $derived.by(() => {
@@ -413,7 +413,14 @@
 		unsplitError = result.ok ? undefined : result.error;
 	}
 
+	// A plan the engine would refuse stops here, before a calibration that could never be applied.
+	const refusal = $derived(preview?.ok ? preview.value.refused : undefined);
+
 	function toCalibrate() {
+		if (refusal) {
+			void focusById('subdivide-refused');
+			return;
+		}
 		if (blockers.length > 0 || !plan) {
 			showBlockers = true;
 			const first = rows[(blockers[0]?.number ?? 1) - 1];
@@ -427,7 +434,7 @@
 
 	async function calibrate() {
 		readUnsplit();
-		if (!plan || !unsplit) return;
+		if (!plan || !unsplit || refusal) return;
 		const resolved = resolveTarget(marText, citation, unsplit);
 		if (!resolved.ok) {
 			targetError = { field: resolved.field, text: resolved.error };
@@ -719,7 +726,9 @@
 					{#each shareLines(shares) as line (line)}<li>{line}</li>{/each}
 				</ul>
 				<h4>Changes to the network</h4>
-				{#if preview?.ok}
+				{#if refusal}
+					<p id="subdivide-refused" class="error" role="alert" tabindex="-1">This split can’t be applied: {refusal}</p>
+				{:else if preview?.ok}
 					{#each preview.value.messages.filter((m) => !(areas?.ok && m === areas.value.warning)) as message (message)}
 						<p class="warn"><strong>Check:</strong> {message}</p>
 					{/each}

@@ -158,9 +158,8 @@ describe('dams and shares', () => {
 		]);
 	});
 
-	it('shares dams by location only when some are located, and land use by area until it has polygons', () => {
-		expect(planShares([{ count: 1, capacityMm3: 1 }, { count: 0, capacityMm3: 0 }])).toEqual({ afforestation: 'area', alien: 'area', dams: 'location' });
-		expect(planShares([{ count: 0, capacityMm3: 0 }]).dams).toBe('area');
+	it('shares every table by area until a plan can carry location shares', () => {
+		expect(planShares()).toEqual({ afforestation: 'area', alien: 'area', dams: 'area' });
 	});
 
 	it('says, per table, which basis was used', () => {
@@ -230,7 +229,7 @@ describe('pieceBlockers', () => {
 });
 
 describe('the plan', () => {
-	const shares = planShares([]);
+	const shares = planShares();
 
 	it('is series with a tributary anywhere, side by side otherwise', () => {
 		expect(planLayout([{ kind: 'zone-drawn' }])).toBe('sideBySide');

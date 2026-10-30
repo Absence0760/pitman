@@ -314,7 +314,8 @@ function rewire(bundle: NetworkBundle, plan: SplitPlan, maps: readonly number[])
 	const numbers = pieces.map((_, i) => (i === outlet ? module.number : d.number('RU')));
 	const dam = farmDam(d, module);
 	const entry = subdivisionOf(bundle, plan.quaternary);
-	if (dam && entry && entry.shares.dams !== plan.shares.dams) {
+	// R5-E7 binds a quaternary where there are dams: a piece left with none has no basis to mix.
+	if (dam?.reservoir.capacity.some((row) => row.fullSupplyVolumeMm3 > 0) && entry && entry.shares.dams !== plan.shares.dams) {
 		throw new SubdivisionError(`${plan.quaternary}'s farm dams were shared by ${entry.shares.dams}: within one quaternary either every dam is located or the total is shared`);
 	}
 
@@ -541,7 +542,8 @@ function splitIrrigation(
 	at: { damKey: Key | null; numbers: readonly number[]; outlet: number; areaShares: readonly number[]; reservoirKeys: ReadonlyMap<number, Key>; self: Key; foreign: ReadonlySet<number>; own: ReadonlySet<number> }
 ): { readonly basis: ShareBasis; readonly owners: readonly { readonly number: number; readonly piece: number }[] } | undefined {
 	const blocks = d.finish().modules.filter((m): m is IrrigationModule => m.kind === 'RR' && (at.own.has(m.number) || (at.damKey !== null && d.route(m.abstractionRoute)?.up === at.damKey && !at.foreign.has(m.number))));
-	const live = blocks.filter((rr) => rr.areaKm2.some((row) => row.value > 0));
+	// Rounded as the file holds it (R5-E3): a block too small to write has nothing to share out.
+	const live = blocks.filter((rr) => rr.areaKm2.some((row) => fileRound(row.value, IRRIGATION_DECIMALS) > 0));
 	if (live.length === 0) return undefined;
 	const located = plan.pieces.every((p) => p.locationShares?.irrigation !== undefined);
 	const shares = located ? locationShares(plan, 'irrigation') : at.areaShares;
@@ -607,7 +609,7 @@ export const previewSplit: PreviewSplit = (bundle, plan): SplitPreview => {
 			]
 		};
 	} catch (error) {
-		if (error instanceof SubdivisionError) return { pieces: [], changes: [], messages: [error.message] };
+		if (error instanceof SubdivisionError) return { pieces: [], changes: [], messages: [error.message], refused: error.message };
 		throw error;
 	}
 };

@@ -109,7 +109,7 @@ Stop at about five findings.
   first, then round half away from zero in decimal (U-18); leading `0` for
   |x| < 1; `0.00`, never `-0.00`; overflow is an error, never asterisks;
   writers compute from unrounded float32 values and round only at print.
-- **What writers always produce:** runoff file version 7, irrigation
+- **What writers produce:** a runoff module keeps its file version (`docs/formats.md` § 5.2), irrigation
   version 32, demands as defined-flow files (never `'*'` monthly
   abstractions), a negative `.obs` value means missing (decisions § Notes).
 - **Readers are lenient where WRSM2000 is** (leading-dot reals, the two read

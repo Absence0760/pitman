@@ -185,10 +185,9 @@ export function damsByPiece(dams: readonly DamRecord[], pieces: readonly Piece[]
 	return counts;
 }
 
-/** Every dam located or the total shared, never a mix (subdivide.md § Farm dams). Land-use polygons don't exist yet, so those share by area. */
-export function planShares(counts: readonly DamCount[]): SplitPlan['shares'] {
-	const dams: ShareBasis = counts.some((c) => c.count > 0) ? 'location' : 'area';
-	return { afforestation: 'area', alien: 'area', dams };
+/** Every table by area until a plan can carry location shares (Round 7): `buildPlan` sends none, and the engine refuses a location basis without them. */
+export function planShares(): SplitPlan['shares'] {
+	return { afforestation: 'area', alien: 'area', dams: 'area' };
 }
 
 /** How each table is shared out, in words (subdivide.md § Fields: "the screen says which was used, per table"). */

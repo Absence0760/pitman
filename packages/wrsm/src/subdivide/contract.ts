@@ -167,6 +167,8 @@ export interface SplitPreview {
 	/** New modules and routes, and rewiring the user must confirm, in plain language. */
 	readonly changes: readonly string[];
 	readonly messages: readonly string[];
+	/** Why this plan can't be applied, in plain language: calibrating it would be wasted. Absent when it can. */
+	readonly refused?: string;
 }
 
 export type PreviewSplit = (bundle: NetworkBundle, plan: SplitPlan) => SplitPreview;
