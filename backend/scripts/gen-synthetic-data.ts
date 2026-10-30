@@ -1,17 +1,20 @@
-// Writes the local-first data the dev server reads when CHIRPS_SOURCE=local and MAP_GRID_SOURCE=local
-// (the defaults in backend/.env.development): a deterministic synthetic CHIRPS copy from 1981 to the
-// last complete month, and a synthetic MAP grid over the same invented area. Invented values only.
+// Writes the local-first data the dev server reads when CHIRPS_SOURCE, MAP_GRID_SOURCE and DEM_SOURCE
+// are `local` (the defaults in backend/.env.development): a deterministic synthetic CHIRPS copy from 1981
+// to the last complete month, and a synthetic MAP grid and DEM over the same invented area. Invented
+// values only.
 //
 //   pnpm dev:data:synthetic                      (root; = pnpm -C backend exec tsx scripts/gen-synthetic-data.ts)
 //   … --out .local --through 2026-09 --seed 20261029
 //
-// Output (gitignored, backend/.gitignore): <out>/mirror/ (Zarr v3 + rnl/manifest.json, ~2 MB) and
-// <out>/map-grid/synthetic.json. Paths are relative to backend/, where the dev server runs.
+// Output (gitignored, backend/.gitignore): <out>/mirror/ (Zarr v3 + rnl/manifest.json, ~2 MB),
+// <out>/map-grid/synthetic.json and <out>/dem/synthetic.pmtiles (~5 MB). Paths are relative to backend/,
+// where the dev server runs.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { DEFAULT_SEED, lastCompleteMonthEnd, writeSyntheticChirps } from '../src/chirps/synthetic.js';
 import { daysInMonth } from '../src/chirps/mirror/calendar.js';
+import { syntheticDemArchive } from '../src/delineation/syntheticDem.js';
 import { syntheticMapGridJson } from '../src/mapgrid/synthetic.js';
 
 const { values } = parseArgs({
@@ -42,3 +45,10 @@ const gridFile = resolve(out, 'map-grid', 'synthetic.json');
 mkdirSync(dirname(gridFile), { recursive: true });
 writeFileSync(gridFile, syntheticMapGridJson());
 console.log(`synthetic MAP grid: ${gridFile}`);
+
+const demFile = resolve(out, 'dem', 'synthetic.pmtiles');
+const t1 = Date.now();
+const archive = syntheticDemArchive();
+mkdirSync(dirname(demFile), { recursive: true });
+writeFileSync(demFile, archive);
+console.log(`synthetic DEM: ${demFile} (${(archive.length / 1024 / 1024).toFixed(1)} MB, ${Date.now() - t1} ms)`);

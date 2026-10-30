@@ -25,6 +25,9 @@ importers:
       hono:
         specifier: 4.13.14
         version: 4.13.14
+      polyclip-ts:
+        specifier: 0.16.8
+        version: 0.16.8
       zarrita:
         specifier: 0.7.5
         version: 0.7.5
@@ -857,6 +860,9 @@ packages:
   bidi-js@1.0.3:
     resolution: {integrity: sha512-RKshQI1R3YQ+n9YJz2QQ147P66ELpa1FQEg20Dk8oW9t2KgLbpDLLp9aGZ7y8WHSshDknG0bknqGw5/tyCs5tw==}
 
+  bignumber.js@9.3.1:
+    resolution: {integrity: sha512-Ko0uX15oIUS7wJ3Rb30Fs6SkVbLmPBAKdlm7q9+ak9bbIeFf0MwuBsQV6z7+X768/cHsfg+WlysDWJcmthjsjQ==}
+
   bowser@2.15.0:
     resolution: {integrity: sha512-xic6KSZglg/I4ymp45fdM4GWfYpBK79Fxd/TOvJktlaPgQqqDxvmGwOPZl2V0dyeS3Lj5c180bLhXF43iyAjZQ==}
 
@@ -1145,6 +1151,9 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
+  polyclip-ts@0.16.8:
+    resolution: {integrity: sha512-JPtKbDRuPEuAjuTdhR62Gph7Is2BS1Szx69CFOO3g71lpJDFo78k4tFyi+qFOMVPePEzdSKkpGU3NBXPHHjvKQ==}
+
   postcss@8.5.32:
     resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
     engines: {node: ^10 || ^12 || >=14}
@@ -1184,6 +1193,9 @@ packages:
   source-map-js@1.2.2:
     resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
     engines: {node: '>=0.10.0'}
+
+  splaytree-ts@1.0.2:
+    resolution: {integrity: sha512-0kGecIZNIReCSiznK3uheYB8sbstLjCZLiwcQwbmLhgHJj2gz6OnSPkVzJQCMnmEz1BQ4gPK59ylhBoEWOhGNA==}
 
   std-env@4.3.0:
     resolution: {integrity: sha512-OtU/EgQ1kIm5KwqQpBC6ZEMXrZRui11w8zgfTWp8cdO9B8OaPsbA8bTHO2P+HNo1VlUTGMVBwPhydu6poeXiag==}
@@ -2020,6 +2032,8 @@ snapshots:
       require-from-string: 2.0.2
     optional: true
 
+  bignumber.js@9.3.1: {}
+
   bowser@2.15.0: {}
 
   chai@6.3.0: {}
@@ -2299,6 +2313,11 @@ snapshots:
     dependencies:
       playwright-core: 1.64.1
 
+  polyclip-ts@0.16.8:
+    dependencies:
+      bignumber.js: 9.3.1
+      splaytree-ts: 1.0.2
+
   postcss@8.5.32:
     dependencies:
       nanoid: 3.3.20
@@ -2352,6 +2371,8 @@ snapshots:
       totalist: 3.0.1
 
   source-map-js@1.2.2: {}
+
+  splaytree-ts@1.0.2: {}
 
   std-env@4.3.0: {}
 
