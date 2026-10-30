@@ -47,22 +47,25 @@ export interface Sibling {
 /**
  * The quaternary's other pieces when the plan splits a piece again: one
  * factor scales every piece (D2), so they calibrate with it (R5-E7).
- * Refuses a plan past the 8 pieces of B8, or one for a module the
- * quaternary's existing entry doesn't hold.
+ * Refuses a plan past the 8 pieces of B8, one for a module the quaternary's
+ * existing entry doesn't hold, one for a module another quaternary holds
+ * (which would dodge D2's one factor and B8), and a second grid.
  */
 export function siblingsOf(bundle: NetworkBundle, plan: SplitPlan): Sibling[] {
 	const entry = subdivisionOf(bundle, plan.quaternary);
 	if (plan.pieces.length < 2) throw new SubdivisionError('a split needs at least two pieces');
 	if (plan.pieces.some((p) => !(p.polygonKm2 > 0))) throw new SubdivisionError('every piece needs an area above zero');
+	for (const [code, other] of Object.entries(bundle.sidecar?.subdivisions ?? {})) {
+		if (code !== plan.quaternary && (other.module.number === plan.module.number || other.pieces.some((p) => p.number === plan.module.number))) {
+			throw new SubdivisionError(`RU ${plan.module.number} belongs to ${code}, not ${plan.quaternary}: split it under ${code}`);
+		}
+	}
 	const others = entry?.pieces.filter((p) => p.number !== plan.module.number) ?? [];
 	if (entry && others.length === entry.pieces.length) {
 		throw new SubdivisionError(`${plan.quaternary} is already sub-divided and RU ${plan.module.number} is not one of its pieces`);
 	}
 	if (entry && (entry.grid.dataset !== plan.grid.dataset || entry.grid.cellDeg !== plan.grid.cellDeg)) {
-		throw new SubdivisionError(`${plan.quaternary} was sub-divided on ${entry.grid.dataset}: every piece of a quaternary uses one grid`);
-	}
-	if (entry && entry.shares.dams !== plan.shares.dams) {
-		throw new SubdivisionError(`${plan.quaternary}'s farm dams were shared by ${entry.shares.dams}: within one quaternary either every dam is located or the total is shared`);
+		throw new SubdivisionError(`${plan.quaternary} was sub-divided on ${entry.grid.dataset} at ${entry.grid.cellDeg}°: every piece of a quaternary uses one grid`);
 	}
 	const count = plan.pieces.length + others.length;
 	if (count > MAX_PIECES) throw new SubdivisionError(`this would make ${count} pieces in ${plan.quaternary}; a quaternary takes at most ${MAX_PIECES}`);

@@ -286,7 +286,7 @@ The "Present when" column assumes the file version is high enough; [§5.2](#52-f
 
 ### 5.2 File versions 0–7
 
-TT 691 states the version rules only as "read if version > *n*". Only **v7** files exist in any data we have. So the v0–v6 rows below are **manual-derived [M]**, and the v5–v7 distinctions are **[U]**: the manual never says what v5, v6 or v7 added. TT 691 p.103 fixes `CURRENTFILEVERSION = 7`, so **writers always write v7**.
+TT 691 states the version rules only as "read if version > *n*". Only **v7** files exist in any data we have. So the v0–v6 rows below are **manual-derived [M]**, and the v5–v7 distinctions are **[U]**: the manual never says what v5, v6 or v7 added. TT 691 p.103 fixes `CURRENTFILEVERSION = 7`, so a **new** file is v7. `writeRunoff` writes a module in the layout of the `fileVersion` it holds, so a v0–v6 module read from a file keeps its version and its lines (an L.021 inflow route needs v ≥ 3, which is why a sub-division refuses to join a piece through an older module, R5-E5).
 
 | Line(s) | v0 | v1 | v2 | v3 | v4 | v5–v6 | v7 |
 |---|---|---|---|---|---|---|---|
@@ -310,7 +310,7 @@ Reading policy:
 - **v5, v6:** read as v7, with a warning that the layout is assumed.
 - **v0–v4:** read by the matrix above. If the line count doesn't come out exact, fail with an error naming the first line that doesn't fit and the version assumed.
 - **v8:** an **error**. It belongs to the daily-time-step build (version 2.6) and adds a daily-rainfall file name in an unknown position (TT 691 §11.15 fig.11-4; U-5).
-- **Upgrading old versions to v7 on write.** Fill the missing blocks with the values WRSM2000 itself carries in GW-model-0 files **[F]**, so an upgraded file looks like a native one:
+- **Upgrading old versions to v7 (not done on write yet).** The upgrade would fill the missing blocks with the values WRSM2000 itself carries in GW-model-0 files **[F]**, so an upgraded file looks like a native one:
 
   ```
   L.011   0   0   0.00

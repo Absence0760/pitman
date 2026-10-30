@@ -98,8 +98,9 @@ recorded in the sidecar in order, so the pieces can be rebuilt.
 
 A plan may hold all its pieces at once (2 to 8), or split a piece of a
 quaternary already sub-divided: then every piece is calibrated again, since
-one factor scales them all (R5-E7), on the same grid and the same dam basis or
-it is refused. `calibrateMap`'s MAPs are the plan's pieces
+one factor scales them all (R5-E7), on the same grid and, where there are
+dams, the same dam basis, or it is refused. So is a plan for a module that
+belongs to another quaternary's entry. `calibrateMap`'s MAPs are the plan's pieces
 in order, then the quaternary's other pieces in sidecar order.
 
 ## Areas
@@ -274,9 +275,11 @@ EVAREA/AREA, TT 691 p.49). A third term depends on the area itself: the regional
 outflow's depth, `OUT = T · HG · Δt · W / AREA` with `W = 4·√AREA` (TT 690 p.87
 eq. 8.7; W reconstructed, OQ-S11), goes as `HGRAD / √AREA`. A piece copying
 HGRAD would lose water faster the smaller it is and break invariant 6, so its
-HGRAD is scaled by `√(A_i / A)`, which keeps the depth and so the volume. The
-file holds HGRAD to 8 decimals (`F10.8`), the one rounding left in invariant 6
-for a Sami module. If WRSM2000's real W isn't ∝ √AREA, WRSM2000's run of a saved
+HGRAD is scaled by `√(A_i / A)`, which keeps the depth and so the volume. Two
+roundings are left in invariant 6 for a Sami module: HGRAD to 8 decimals
+(`F10.8`) and EVAREA to 0.01 km² (`F9.2`), which changes `EVAREA_i / A_i` when
+EVAREA is small (0.05 km² on a 120/280 split: about 2e-7 Mm³ a month, against
+2e-8 from HGRAD alone). If WRSM2000's real W isn't ∝ √AREA, WRSM2000's run of a saved
 split differs from Pitman's: DP-5. Everything else in the block is a depth, rate
 or ratio. A Hughes module's abstractions (L.027, L.029) are split; its reach
 count stays copied, and the engine can't run Hughes yet, so `calibrateMap`
@@ -366,7 +369,9 @@ piece's area upstream of its dams. The sidecar records which.
 runoff module).
 
 **Gauges** stay on their routes. A gauge on a route leaving `M` then sees only
-the outlet piece's runoff, so the preview warns (R5-E11).
+the outlet piece's runoff, so the preview warns (R5-E11). When every other
+piece joins through the outlet's inflow route the route still carries all the
+water, so there is no warning.
 
 **Irrigation modules** drawing from `V` are split by the irrigated area in
 each piece (Cape Farm Mapper fields located in it, Round 7; else by area
@@ -374,8 +379,10 @@ share): each piece with irrigation gets an RR copy drawing from its own
 `V_i` (or, with no dams of its own, a new route from `V`: an RR has one inflow,
 so two can't share a route, R5-E10), with its area-by-crop table; its
 allocation (RRMA, L.013, and L.022–L.024) splits with the area, and its return
-flow goes where the original's did. A later split takes only the blocks of the
-piece it splits, though another piece's block may draw from the same `V`. A piece with no irrigation gets no RR
+flow goes where the original's did. Only pieces that get a block share its
+allocation. A later split takes the blocks of the piece it splits, wherever they
+draw from, and leaves another piece's block whole though it may draw from the
+same `V`. A piece with no irrigation gets no RR
 module; if that is the outlet, the original RR goes with its routes. **Main-stem reservoirs, channel reaches, demand files and
 gauges are never split**: they stay on their routes.
 
@@ -396,9 +403,11 @@ to no surface area (R5-E4).
 2. `MAP_i / MAP_j = MAP⁰_i / MAP⁰_j` for every pair (before rounding,
    to 1e-12).
 3. Every split table's total is preserved per year (afforestation, alien
-   vegetation, paved, abstraction volumes, irrigated area per crop, farm-dam
-   capacity and surface area, plus the Sami evaporation area and a
-   reservoir's initial storage).
+   vegetation, paved, abstraction volumes, irrigated area per crop, irrigation
+   allocations (RRMA and the allocation table), farm-dam capacity and surface
+   area, plus the Sami evaporation area). A reservoir's initial storage too,
+   except that a piece's share is capped at its first year's capacity, so the
+   total can fall when a dam starts nearly full (R5-E4).
 4. Every piece references the original `.RAN` and zone.
 5. The network stays acyclic, every route's ends exist, every runoff
    module's outflow `%` sum to 100, and module and route numbers are unique.

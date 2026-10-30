@@ -313,6 +313,10 @@ function rewire(bundle: NetworkBundle, plan: SplitPlan, maps: readonly number[])
 	const outlet = outletIndex(plan);
 	const numbers = pieces.map((_, i) => (i === outlet ? module.number : d.number('RU')));
 	const dam = farmDam(d, module);
+	const entry = subdivisionOf(bundle, plan.quaternary);
+	if (dam && entry && entry.shares.dams !== plan.shares.dams) {
+		throw new SubdivisionError(`${plan.quaternary}'s farm dams were shared by ${entry.shares.dams}: within one quaternary either every dam is located or the total is shared`);
+	}
 
 	// Extensive tables and the area-dependent groundwater fields (subdivide.md § Fields; R5-E1, R5-E2).
 	const aff = splitYearTable(module.afforestation.areaKm2, module.afforestation.areaKm2.length > 0 ? tableShares(plan, plan.shares.afforestation, 'afforestation', areaShares) : areaShares, TABLE_DECIMALS);
@@ -429,13 +433,26 @@ function rewire(bundle: NetworkBundle, plan: SplitPlan, maps: readonly number[])
 
 	const children = splitChildren(d, bundle, plan, module, { maps, numbers, outlet, areaShares });
 
-	const foreign = new Set((subdivisionOf(bundle, plan.quaternary)?.irrigation ?? []).filter((o) => o.piece !== module.number).map((o) => o.number));
-	const irrigation = dam ? splitIrrigation(d, plan, { dam, numbers, outlet, areaShares, reservoirKeys, self, foreign }) : undefined;
+	// A piece with no dams of its own may own blocks on another piece's `V`: its split takes those, whatever the pattern says (R5-E10).
+	const owned = entry?.irrigation ?? [];
+	const irrigation = splitIrrigation(d, plan, {
+		damKey: dam?.key ?? null,
+		numbers,
+		outlet,
+		areaShares,
+		reservoirKeys,
+		self,
+		foreign: new Set(owned.filter((o) => o.piece !== module.number).map((o) => o.number)),
+		own: new Set(owned.filter((o) => o.piece === module.number).map((o) => o.number))
+	});
 
 	// R5-E11: the outlet keeps the routes, so a gauge on one now sees only the outlet's share of the quaternary's water.
-	for (const gauge of bundle.network.gauges) {
-		if (module.outflows.some((o) => o.route === gauge.route)) {
-			d.messages.push(`The gauge on route ${gauge.route} leaves RU ${module.number}: after the split it sees only that piece's runoff, so its observed flow no longer compares with the route.`);
+	// Not when every other piece joins through its inflow route: then the routes still carry it all.
+	if (joining.length < pieces.length - 1) {
+		for (const gauge of bundle.network.gauges) {
+			if (module.outflows.some((o) => o.route === gauge.route)) {
+				d.messages.push(`The gauge on route ${gauge.route} leaves RU ${module.number}: after the split it sees only that piece's runoff, so its observed flow no longer compares with the route.`);
+			}
 		}
 	}
 
@@ -517,13 +534,13 @@ function splitChildren(
 	return records;
 }
 
-/** Irrigation drawing from the farm dams (subdivide.md § Routes): each piece with irrigation gets its own block. A block another piece owns stays whole, though it may draw from these dams (R5-E10). Returns the basis used and the new blocks, or `undefined` when there is none. */
+/** Irrigation of the module being split (subdivide.md § Routes): blocks on its farm dams and blocks it owns on another piece's. Each piece with irrigation gets its own block. A block another piece owns stays whole, though it may draw from these dams (R5-E10). Returns the basis used and the new blocks, or `undefined` when there is none. */
 function splitIrrigation(
 	d: Draft,
 	plan: SplitPlan,
-	at: { dam: FarmDam; numbers: readonly number[]; outlet: number; areaShares: readonly number[]; reservoirKeys: ReadonlyMap<number, Key>; self: Key; foreign: ReadonlySet<number> }
+	at: { damKey: Key | null; numbers: readonly number[]; outlet: number; areaShares: readonly number[]; reservoirKeys: ReadonlyMap<number, Key>; self: Key; foreign: ReadonlySet<number>; own: ReadonlySet<number> }
 ): { readonly basis: ShareBasis; readonly owners: readonly { readonly number: number; readonly piece: number }[] } | undefined {
-	const blocks = d.finish().modules.filter((m): m is IrrigationModule => m.kind === 'RR' && d.route(m.abstractionRoute)?.up === at.dam.key && !at.foreign.has(m.number));
+	const blocks = d.finish().modules.filter((m): m is IrrigationModule => m.kind === 'RR' && (at.own.has(m.number) || (at.damKey !== null && d.route(m.abstractionRoute)?.up === at.damKey && !at.foreign.has(m.number))));
 	const live = blocks.filter((rr) => rr.areaKm2.some((row) => row.value > 0));
 	if (live.length === 0) return undefined;
 	const located = plan.pieces.every((p) => p.locationShares?.irrigation !== undefined);
@@ -531,8 +548,11 @@ function splitIrrigation(
 	const owners: { number: number; piece: number }[] = [];
 	for (const rr of live) {
 		const tables = splitYearTable(rr.areaKm2, shares, IRRIGATION_DECIMALS);
-		const allocations = 'maxAllocationMm3PerYear' in rr ? largestRemainder(rr.maxAllocationMm3PerYear, shares, IRRIGATION_DECIMALS) : undefined;
-		const allocationTables = 'allocation' in rr ? splitYearTable(rr.allocation.values, shares, ALLOCATION_DECIMALS) : undefined;
+		// Only pieces that get a block share its allocation, or a block too small to reach one would lose that part.
+		const blockShares = shares.map((s, i) => (tables[i]!.some((row) => row.value > 0) ? s : 0));
+		const allocations = 'maxAllocationMm3PerYear' in rr ? largestRemainder(rr.maxAllocationMm3PerYear, blockShares, IRRIGATION_DECIMALS) : undefined;
+		const allocationTables = 'allocation' in rr ? splitYearTable(rr.allocation.values, blockShares, ALLOCATION_DECIMALS) : undefined;
+		const blockSource = d.route(rr.abstractionRoute)?.up ?? null;
 		const fieldsFor = (i: number) =>
 			({
 				...rr,
@@ -545,7 +565,7 @@ function splitIrrigation(
 			if (i === at.outlet || !tables[i]!.some((row) => row.value > 0)) return;
 			const number = d.number('RR');
 			const key = keyOf('RR', number);
-			const sourceKey = at.reservoirKeys.get(i) ?? at.dam.key;
+			const sourceKey = at.reservoirKeys.get(i) ?? blockSource!;
 			const route = d.addRoute(sourceKey, key);
 			const source = d.module(sourceKey) as ReservoirModule;
 			d.set({ ...source, outflows: [...source.outflows, { route, definedFlowFile: null }] });
@@ -702,8 +722,10 @@ export function applySplit<B extends NetworkBundle>(bundle: B, plan: SplitPlan, 
 		throw new SubdivisionError(`the calibration did not converge (${calibration.message ?? 'no factor found'}): use the best factor, change the target or cancel`);
 	}
 	const { best } = calibration;
-	const off = Math.abs(best.marMm3 - target.marMm3) / target.marMm3;
-	if (calibration.status === 'converged' && !(off <= MAR_TOLERANCE)) throw new SubdivisionError('this calibration was made for another target: calibrate again');
+	const logged = ((best.marMm3 - target.marMm3) / target.marMm3) * 100;
+	if (Math.abs(logged - best.errorPct) > 1e-6) throw new SubdivisionError('this calibration was made for another target: calibrate again');
+	const off = Math.abs(calibration.finalMarMm3 - target.marMm3) / target.marMm3;
+	if (calibration.status === 'converged' && !(off <= MAR_TOLERANCE)) throw new SubdivisionError('as saved, this calibration is more than 2 % from the target: calibrate again');
 	const siblings = siblingsOf(bundle, plan);
 	const maps = calibration.finalMapsMm;
 	if (maps.length !== plan.pieces.length + siblings.length) throw new SubdivisionError(`the calibration has ${maps.length} MAPs for ${plan.pieces.length + siblings.length} pieces: calibrate this plan again`);
@@ -785,5 +807,9 @@ export function mergePieces(bundle: NetworkBundle, quaternary: string): { readon
 		return { ...mergeRunoff(parts, base, c.areaKm2, c.mapMm), number: c.number };
 	});
 	if (entry.children) module = { ...module, sfrChildren: entry.children.map((c) => c.number) };
+	// A piece that joined through the outlet's inflow route (R5-E5): the original had none, or the join would have been refused.
+	const inflow = bundle.network.routes.find((r) => r.number === outlet.inflowRoute);
+	const from = inflow ? bundle.network.modules[inflow.upstreamPosition - 1] : undefined;
+	if (from?.type === 'RU' && entry.pieces.some((p) => p.number === from.number)) module = { ...module, inflowRoute: 0 };
 	return { module, children };
 }

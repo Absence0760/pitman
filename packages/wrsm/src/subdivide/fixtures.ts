@@ -10,7 +10,7 @@
 
 import { syntheticNetwork } from '../synthetic/index.js';
 import type { AreaGeometry } from '../extend/contract.js';
-import type { ChannelModule, IrrigationPitmanLayout, Monthly12, NetworkBundle, ReservoirModule, RunoffModule, SamiParameters } from '../types.js';
+import type { ChannelModule, IrrigationModule, IrrigationPitmanLayout, IrrigationWqtLayout, Monthly12, NetworkBundle, ReservoirModule, RunoffModule, SamiParameters } from '../types.js';
 import type { CalibrationTarget, PiecePlan, SplitPlan } from './contract.js';
 
 const twelve = (v: number) => Array.from({ length: 12 }, () => v) as unknown as Monthly12;
@@ -30,7 +30,8 @@ export const SQUARE: AreaGeometry = {
 
 export interface ExampleOptions {
 	readonly years?: number;
-	readonly irrigation?: boolean;
+	/** Add RR 7 on RV 2: `true` the old Pitman layout, `'wqt'` the v32 layout with RRMA, allocations and IRRSW. */
+	readonly irrigation?: boolean | 'wqt';
 	readonly mapMm?: number;
 	readonly initialStorageMm3?: number;
 }
@@ -124,7 +125,42 @@ export function exampleBundle(options: ExampleOptions = {}): NetworkBundle {
 		returnFlowRoute: 21,
 		returnFlowPercent: 10
 	};
-	const withRr = options.irrigation === true;
+	const wqt: IrrigationWqtLayout = {
+		...irrigation,
+		layout: 'wqt',
+		fileVersion: 32,
+		modelType: 2,
+		droughtReduction: false,
+		curtailByClipping: false,
+		areaInterpolation: 1,
+		maxAllocationMm3PerYear: 3.33,
+		allocationPoints: 2,
+		allocationInterpolation: 1,
+		runoffModule: 3,
+		canalSeepageToReturn: 0,
+		netReturnFlows: false,
+		canalFlowLoss: 0,
+		canalSaltLoss: 0,
+		efficiencyFactor: 1,
+		returnFlowFactor: 0.1,
+		returnFlowUpperZone: 0.5,
+		returnFlowLowerZone: 0.5,
+		saltParameters: [0, 0, 0, 0],
+		initialSaltLoad: [0, 0],
+		soilMoistureCapacityUpperMm: 100,
+		soilMoistureCapacityLowerMm: 200,
+		soilMoistureTargetMm: 80,
+		soilMoistureInitialMm: 50,
+		rainfallFactors: twelve(0.7),
+		aPanFactors: twelve(0.8),
+		crops: [{ factors: twelve(0.8), percent: 100, description: 'composite' }],
+		effectiveRainfallLimits: [0, 0],
+		allocation: { interpolation: 1, values: years.map((year) => ({ year, value: 1.001 })) },
+		returnFlowGrowth: { interpolation: 1, values: [] },
+		efficiency: { interpolation: 1, values: [] }
+	};
+	const block: IrrigationModule = options.irrigation === 'wqt' ? wqt : irrigation;
+	const withRr = options.irrigation === true || options.irrigation === 'wqt';
 	const routeList = [
 		[5, 'CR4', ''],
 		[10, 'RU3', 'RV2'],
@@ -145,7 +181,7 @@ export function exampleBundle(options: ExampleOptions = {}): NetworkBundle {
 		modules: [
 			ru15,
 			ru3,
-			...(withRr ? [irrigation] : []),
+			...(withRr ? [block] : []),
 			withRr ? { ...rv2, outflows: [...rv2.outflows, { route: 20, definedFlowFile: null }] } : rv2,
 			rv8,
 			withRr ? { ...channel, inflows: [...channel.inflows, { route: 21, definedFlowFile: null }] } : channel

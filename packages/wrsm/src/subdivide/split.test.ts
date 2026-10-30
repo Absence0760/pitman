@@ -5,7 +5,7 @@ import { placeModules } from '../network/modules.js';
 import { validateNetwork } from '../network/validate.js';
 import { run } from '../run.js';
 import type { AreaGeometry } from '../extend/contract.js';
-import type { IrrigationModule, Module, NetworkBundle, ReservoirModule, RunoffModule } from '../types.js';
+import type { IrrigationModule, IrrigationWqtLayout, Module, NetworkBundle, ReservoirModule, RunoffModule } from '../types.js';
 import { calibrateMap, planNaturalMar, unsplitNaturalMar } from './calibrate.js';
 import type { ApplySplit, ApplySplitOptions, CalibrationResult, PiecePlan, PreviewSplit, SplitPlan } from './contract.js';
 import { exampleBundle, examplePlan, hand, piece, samiBlock } from './fixtures.js';
@@ -32,13 +32,14 @@ function acceptMaps(bundle: NetworkBundle, plan: SplitPlan, maps: readonly numbe
 	const siblings = bundle.sidecar?.subdivisions?.[plan.quaternary]?.pieces.filter((p) => p.number !== plan.module.number) ?? [];
 	const grid = [...plan.pieces.map((p) => p.gridMapMm), ...siblings.map((p) => p.gridMapMm)];
 	const s = maps[0]! / grid[0]!;
-	const iteration = { n: 0, s, maps: grid.map((g) => g * s), marMm3: 10, errorPct: 0, step: 'start' as const };
 	const finalMarMm3 = maps.length === grid.length ? planNaturalMar(bundle, plan, maps) : 10;
+	const iteration = { n: 0, s, maps: grid.map((g) => g * s), marMm3: finalMarMm3, errorPct: 0, step: 'start' as const };
 	return { status: 'converged', message: null, iterations: [iteration], best: iteration, finalMapsMm: maps, finalMarMm3, period: { startYear: 1990, endYear: 2009 } };
 }
 
 function options(bundle: NetworkBundle, plan: SplitPlan, maps: readonly number[]): ApplySplitOptions {
-	return { calibration: acceptMaps(bundle, plan, maps), target: hand(10), crossCheck: { marMm3: 10, source: 'unsplit module, natural run' } };
+	const calibration = acceptMaps(bundle, plan, maps);
+	return { calibration, target: hand(calibration.finalMarMm3!), crossCheck: { marMm3: 10, source: 'unsplit module, natural run' } };
 }
 
 const applyMaps = <B extends NetworkBundle>(bundle: B, plan: SplitPlan, maps: readonly number[]): B => applySplit(bundle, plan, options(bundle, plan, maps));
@@ -137,7 +138,7 @@ describe('the worked example', () => {
 			{ role: 'outlet', number: 3, polygonKm2: 282.6, areaKm2: 280, gridMapMm: 610, mapMm: 569, mapSource: 'grid' }
 		]);
 		expect(entry.grid).toEqual(plan.grid);
-		expect(entry.calibration.target).toEqual(hand(10));
+		expect(entry.calibration.target).toEqual(hand(entry.calibration.finalMarMm3));
 		expect(entry.calibration.status).toBe('converged');
 		expect(entry.calibration.period).toEqual([1990, 2009]);
 		expect(entry.shares).toEqual({ afforestation: 'location', alien: 'area', dams: 'location' });
@@ -150,8 +151,21 @@ describe('the worked example', () => {
 		expect(JSON.stringify(bundle)).toBe(before);
 	});
 
-	it('records the natural MAR of the MAPs as saved', () => {
-		expect(applied.sidecar!.subdivisions!['Z01A']!.calibration.finalMarMm3).toBeCloseTo(planNaturalMar(bundle, plan, [765, 569]), 12);
+	it('records the natural MAR of the MAPs as saved, through a repeat split too', () => {
+		const recorded = (b: NetworkBundle) => b.sidecar!.subdivisions!['Z01A']!.calibration.finalMarMm3;
+		expect(recorded(applied)).toBeCloseTo(unsplitNaturalMar(applied, { type: 'RU', number: 3 }).marMm3, 9);
+		const located = { locationShares: { afforestation: 0.5, damCapacity: 0.5 } };
+		const again = examplePlan({ pieces: [piece('zone', 80, 900, located), piece('rest', 200, 560, located)], layout: 'sideBySide', splits: [{ kind: 'zone-drawn' }] });
+		const two = applyMaps(applied, again, [810, 504, 738]);
+		expect(recorded(two)).not.toBeCloseTo(recorded(applied), 3);
+		expect(recorded(two)).toBeCloseTo(unsplitNaturalMar(two, { type: 'RU', number: 16 }).marMm3, 9);
+		expect(recorded(roundTrip(two))).toBeCloseTo(unsplitNaturalMar(roundTrip(two), { type: 'RU', number: 3 }).marMm3, 9);
+		// With the real loop the rounded MAPs give a different MAR from the iteration they round.
+		const small = examplePlan({ pieces: [piece('tributary', 121.1, 820.4), piece('remainder', 282.6, 610.4)], shares: { afforestation: 'area', alien: 'area', dams: 'area' } });
+		const opts = selfCalibrated(bundle, small);
+		const real = applySplit(bundle, small, opts);
+		expect(recorded(real)).not.toBe(opts.calibration.best!.marMm3);
+		expect(recorded(real)).toBeCloseTo(unsplitNaturalMar(real, { type: 'RU', number: 3 }).marMm3, 9);
 	});
 
 	it('moves a located dam of the sidecar to the piece it lies in', () => {
@@ -209,10 +223,22 @@ describe('invariants', () => {
 		const b = exampleBundle({ initialStorageMm3: 6 });
 		const shared = examplePlan({ pieces: [piece('tributary', 100, 800, { locationShares: { damCapacity: 0, afforestation: 0.5 } }), piece('remainder', 300, 600, { locationShares: { damCapacity: 1, afforestation: 0.5 } })] });
 		expect(rv(applyMaps(b, shared, [800, 600]), 2).initialStorageMm3).toBe(6);
-		const small = { ...b, modules: b.modules.map((m) => (m.kind === 'RV' && m.number === 2 ? { ...m, capacity: m.capacity.map((c) => ({ ...c, fullSupplyVolumeMm3: 0.05 })), initialStorageMm3: 0.05 } : m)) };
+		const withDams = (capacity: number, area: number, initialStorageMm3: number) => ({
+			...b,
+			modules: b.modules.map((m) => (m.kind === 'RV' && m.number === 2 ? { ...m, capacity: m.capacity.map((c) => ({ ...c, fullSupplyVolumeMm3: capacity, fullSupplyAreaKm2: area })), initialStorageMm3 } : m))
+		});
 		const three = examplePlan({ pieces: [piece('tributary', 100, 800), piece('tributary', 100, 800), piece('remainder', 200, 600)], shares: ALL_AREA });
-		const split = applyMaps(small, three, [800, 800, 600]);
-		for (const n of [2, 9, 10]) expect(rv(split, n).initialStorageMm3!).toBeLessThanOrEqual(rv(split, n).capacity[0]!.fullSupplyVolumeMm3);
+		const split = applyMaps(withDams(0.05, 1.2, 0.05), three, [800, 800, 600]);
+		const reservoirs = [2, 9, 10].map((n) => rv(split, n));
+		expect(reservoirs.map((v) => v.initialStorageMm3)).toEqual(reservoirs.map((v) => Math.min(v.capacity[0]!.fullSupplyVolumeMm3, v.initialStorageMm3!)));
+		expect(reservoirs.some((v) => v.capacity[0]!.fullSupplyVolumeMm3 === 0.01)).toBe(true); // the cap has work to do
+		// A share above zero that rounds to no capacity: T has no reservoir, so all the water stays in R's.
+		const twenty = examplePlan({ pieces: [piece('tributary', 80, 800), piece('remainder', 320, 600)], shares: ALL_AREA });
+		const small = applyMaps(withDams(0.02, 0.01, 0.02), twenty, [800, 600]);
+		expect(rv(small, 9)).toBeUndefined();
+		expect(rv(small, 2).initialStorageMm3).toBe(0.02);
+		// No piece has any capacity: the storage stays on the reservoir there is.
+		expect(rv(applyMaps(withDams(0, 0, 0.5), twenty, [800, 600]), 2).initialStorageMm3).toBe(0.5);
 	});
 
 	it('saves a Sami split so it runs the same after writeBundle and readBundle', () => {
@@ -288,6 +314,32 @@ describe('invariants', () => {
 		rr(start, 7).areaKm2.forEach((row, k) => expect(blocks.reduce((s, b) => s + Math.round(b.areaKm2[k]!.value * 100), 0)).toBe(Math.round(row.value * 100)));
 	});
 
+	it('3: RRMA and the allocation table keep their totals, and IRRSW names the piece', () => {
+		const b = exampleBundle({ irrigation: 'wqt' });
+		const plan = examplePlan({ pieces: [piece('tributary', 100, 700), piece('tributary', 100, 800), piece('remainder', 200, 600)], shares: ALL_AREA });
+		const split = applyMaps(b, plan, [700, 800, 600]);
+		const blocks = [rr(split, 8), rr(split, 9), rr(split, 7)].map((m) => m as IrrigationWqtLayout);
+		expect(blocks.reduce((s, m) => s + Math.round(m.maxAllocationMm3PerYear * 100), 0)).toBe(333);
+		for (const k of [0, 1]) expect(blocks.reduce((s, m) => s + Math.round(m.allocation.values[k]!.value * 1000), 0)).toBe(1001);
+		expect(blocks.map((m) => m.runoffModule)).toEqual([16, 17, 3]);
+		expect(blocks[0]!.maxAllocationMm3PerYear).toBeLessThan(1);
+		expect(blocks[0]!.allocation.values[0]!.value).toBeLessThan(0.3);
+		const back = roundTrip(split);
+		for (const m of blocks) expectWritten(m, rr(back, m.number));
+		expectSoundNetwork(back);
+	});
+
+	it('3: a piece too small to get a block takes no part of its allocation', () => {
+		const b = exampleBundle({ irrigation: 'wqt' });
+		const tiny = { ...b, modules: b.modules.map((m) => (m.kind === 'RR' ? { ...m, areaKm2: m.areaKm2.map((row) => ({ ...row, value: 0.02 })) } : m)) };
+		const plan = examplePlan({ pieces: [piece('tributary', 10, 700), piece('remainder', 390, 600)], shares: ALL_AREA });
+		const split = applyMaps(tiny, plan, [700, 600]);
+		expect(split.modules.filter((m) => m.kind === 'RR')).toHaveLength(1);
+		const block = rr(split, 7) as IrrigationWqtLayout;
+		expect(block.maxAllocationMm3PerYear).toBe(3.33);
+		expect(block.allocation.values.map((row) => row.value)).toEqual([1.001, 1.001]);
+	});
+
 	it('4: every piece reads the original .RAN and zone', () => {
 		const applied = applyMaps(bundle, examplePlan(), [765, 569]);
 		expect(ru(applied, 16).rainfallFile).toBe(ru(bundle, 3).rainfallFile);
@@ -353,14 +405,21 @@ describe('invariants', () => {
 			expectSame(sumOutflow(split, [16, 3]), sumOutflow(b, [3]), 1e-9);
 		});
 
-		it('for a Sami module at any split, the only residue is HGRAD at the file precision', () => {
+		it('for a Sami module at any split, the residue is HGRAD and EVAREA at the file precision', () => {
 			const base = exampleBundle();
 			const m = ru(base, 3);
-			const sami = { ...samiBlock({ ...m.pitman, GW: 0, GL: 0 }), abstractions: [], abstractionMode: 0 as const, gwEvaporationArea: 8 };
-			const b: NetworkBundle = { ...base, modules: base.modules.map((x) => (x === m ? { ...m, groundwaterModel: 2 as const, sami } : x)) };
-			const plan = sameMaps(b, [120, 280]);
-			const split = applySplit(b, plan, selfCalibrated(b, plan));
-			expectSame(sumOutflow(split, [16, 3]), sumOutflow(b, [3]), 1e-6);
+			const residue = (gwEvaporationArea: number) => {
+				const sami = { ...samiBlock({ ...m.pitman, GW: 0, GL: 0 }), abstractions: [], abstractionMode: 0 as const, gwEvaporationArea };
+				const b: NetworkBundle = { ...base, modules: base.modules.map((x) => (x === m ? { ...m, groundwaterModel: 2 as const, sami } : x)) };
+				const plan = sameMaps(b, [120, 280]);
+				const split = applySplit(b, plan, selfCalibrated(b, plan));
+				const whole = sumOutflow(b, [3]);
+				return Math.max(...sumOutflow(split, [16, 3]).map((v, i) => Math.abs(v - whole[i]!)));
+			};
+			// 8 km² splits exactly (2.4 and 5.6), leaving HGRAD alone; 0.05 km² rounds to 0.02 and 0.03.
+			expect(residue(8)).toBeLessThan(5e-8);
+			expect(residue(0.05)).toBeGreaterThan(residue(8));
+			expect(residue(0.05)).toBeLessThan(1e-6);
 		});
 
 		it('holds for an SFR parent, whose children go with it', () => {
@@ -462,6 +521,22 @@ describe('SFR parents and children', () => {
 		expectSoundNetwork(split);
 		const { children } = mergePieces(split, 'Z01A');
 		expect(children[0]).toEqual({ ...ru(b, 11), outflows: ru(split, 17).outflows, name: ru(split, 17).name });
+	});
+
+	it('adds a new child\'s route to the module it ends at', () => {
+		const m = ru(b, 11);
+		const cr = b.modules.find((x) => x.kind === 'CR')!;
+		const crPosition = b.network.modules.findIndex((e) => e.type === 'CR') + 1;
+		const toChannel: NetworkBundle = {
+			...b,
+			network: { ...b.network, routes: b.network.routes.map((r) => (r.number === 30 ? { ...r, downstreamPosition: crPosition } : r)) },
+			modules: b.modules.map((x) => (x === cr && cr.kind === 'CR' ? { ...cr, inflows: [...cr.inflows, { route: 30, definedFlowFile: null }] } : x))
+		};
+		expect(ru(toChannel, 11)).toEqual(m);
+		const split = applyMaps(toChannel, examplePlan({ pieces: [piece('tributary', 100, 800), piece('remainder', 300, 600)], shares: ALL_AREA }), [800, 600]);
+		const route = ru(split, 17).outflows[0]!.route;
+		expect(ends(split, route)).toEqual(['RU17', 'CR4']);
+		expectSoundNetwork(split);
 	});
 
 	it('refuses to split a child on its own', () => {
@@ -567,6 +642,20 @@ describe('layouts', () => {
 		expect(ends(split, 72)).toEqual(['RU16', 'RU17']);
 		expect(ends(split, 73)).toEqual(['RU17', 'RU3']);
 		expectSoundNetwork(split);
+	});
+
+	it('merges a join back: the original had no inflow route (invariant 8)', () => {
+		const b = feedsRunoff(bundle);
+		const plan = examplePlan({ pieces: [piece('tributary', 100, 640), piece('tributary', 100, 640), piece('remainder', 200, 640)], shares: ALL_AREA });
+		const split = applyMaps(b, plan, [640, 640, 640]);
+		expect(ru(split, 3).inflowRoute).toBe(73);
+		expect(mergePieces(split, 'Z01A').module).toEqual(ru(b, 3));
+	});
+
+	it('keeps a real inflow route when merging', () => {
+		const b = rtin(bundle);
+		const split = applyMaps(b, examplePlan(), [765, 569]);
+		expect(mergePieces(split, 'Z01A').module.inflowRoute).toBe(70);
 	});
 
 	it('refuses a join through a file version with no inflow route', () => {
@@ -681,46 +770,108 @@ describe('repeated splits', () => {
 		expectSoundNetwork(two);
 	});
 
+	it('rescales the other pieces and their children, in the network and the sidecar, and tracks a child split twice', () => {
+		const b = withChild(exampleBundle());
+		const plan = examplePlan({ pieces: [piece('tributary', 120, 800), piece('remainder', 280, 600)], shares: ALL_AREA });
+		const one = applyMaps(b, plan, [800, 600]);
+		expect(ru(one, 16).sfrChildren).toEqual([17]);
+		const before = ru(one, 17).mapMm;
+		const second = again(3, [piece('zone', 80, 900), piece('rest', 200, 560)]);
+		const two = applyMaps(one, second, [810, 504, 720]);
+		const entry = two.sidecar!.subdivisions!['Z01A']!;
+		expect(ru(two, 16).mapMm).toBe(720);
+		expect(entry.pieces.find((p) => p.number === 16)!.mapMm).toBe(720);
+		expect(ru(two, 17).mapMm).toBe(Math.round((before * 720) / 800));
+		expect(entry.children).toEqual([{ number: 11, areaKm2: 12.1, mapMm: 800, pieces: [17, 19, 11] }]);
+		expectSoundNetwork(two);
+		const { module, children } = mergePieces(two, 'Z01A');
+		expect(module).toEqual(ru(b, 3));
+		expect(children[0]).toEqual(ru(b, 11));
+	});
+
 	it('merges back to the original through two splits', () => {
 		const one = first();
 		const two = applyMaps(one, again(3, [piece('zone', 80, 900), piece('rest', 200, 560)]), [900, 560, 800]);
 		expect(mergePieces(two, 'Z01A').module).toEqual({ ...ru(bundle, 3) });
 	});
 
-	it('leaves a block another piece owns whole when its dams are split again', () => {
+	describe('irrigation a piece owns on another piece\'s dams', () => {
 		const b = exampleBundle({ irrigation: true });
-		const dams = { afforestation: 'location', alien: 'area', dams: 'location' } as const;
+		const locatedShares = { afforestation: 'location', alien: 'area', dams: 'location' } as const;
 		const firstPlan = examplePlan({
 			pieces: [piece('tributary', 120, 800, { locationShares: { damCapacity: 0, afforestation: 0.5, irrigation: 0.5 } }), piece('remainder', 280, 600, { locationShares: { damCapacity: 1, afforestation: 0.5, irrigation: 0.5 } })]
 		});
 		const one = applyMaps(b, firstPlan, [800, 600]);
 		const owned = rr(one, 8);
-		expect(ends(one, owned.abstractionRoute)).toEqual(['RV2', 'RR8']);
-		const second = examplePlan({
-			pieces: [piece('zone', 100, 900, { locationShares: { damCapacity: 0.5, afforestation: 0.5 } }), piece('rest', 180, 560, { locationShares: { damCapacity: 0.5, afforestation: 0.5 } })],
-			layout: 'sideBySide',
-			splits: [{ kind: 'zone-drawn' }],
-			shares: dams
+		const zones = (module: number, a: number, c: number, irrigation?: readonly [number, number]) =>
+			examplePlan({
+				module: { type: 'RU', number: module },
+				pieces: [piece('zone', a, 900, { locationShares: { damCapacity: 0.5, afforestation: 0.5, ...(irrigation ? { irrigation: irrigation[0] } : {}) } }), piece('rest', c, 560, { locationShares: { damCapacity: 0.5, afforestation: 0.5, ...(irrigation ? { irrigation: irrigation[1] } : {}) } })],
+				layout: 'sideBySide',
+				splits: [{ kind: 'zone-drawn' }],
+				shares: locatedShares
+			});
+
+		it('stays whole when its dams are split again', () => {
+			expect(ends(one, owned.abstractionRoute)).toEqual(['RV2', 'RR8']);
+			const two = applyMaps(one, zones(3, 100, 180), [900, 560, 800]);
+			expect(rr(two, 8).areaKm2).toEqual(owned.areaKm2);
+			expect(two.sidecar!.subdivisions!['Z01A']!.irrigation).toEqual([
+				{ number: 8, piece: 16 },
+				{ number: 9, piece: 17 }
+			]);
+			expect(rr(two, 7).areaKm2[0]!.value + rr(two, 9).areaKm2[0]!.value + rr(two, 8).areaKm2[0]!.value).toBeCloseTo(5.01, 9);
+			expectSoundNetwork(two);
 		});
-		const two = applyMaps(one, second, [900, 560, 800]);
-		expect(rr(two, 8).areaKm2).toEqual(owned.areaKm2);
-		expect(two.sidecar!.subdivisions!['Z01A']!.irrigation).toEqual([
-			{ number: 8, piece: 16 },
-			{ number: 9, piece: 17 }
-		]);
-		expect(rr(two, 7).areaKm2[0]!.value + rr(two, 9).areaKm2[0]!.value + rr(two, 8).areaKm2[0]!.value).toBeCloseTo(5.01, 9);
-		expectSoundNetwork(two);
+
+		it('splits with its piece, though that piece has no dams to match the pattern', () => {
+			const two = applyMaps(one, zones(16, 40, 80), [900, 560, 600]);
+			expect(rr(two, 9).areaKm2[0]!.value + rr(two, 8).areaKm2[0]!.value).toBeCloseTo(owned.areaKm2[0]!.value, 9);
+			expect(rr(two, 9).areaKm2[0]!.value).toBeGreaterThan(0);
+			expect(ends(two, rr(two, 9).abstractionRoute)).toEqual(['RV2', 'RR9']);
+			expect(two.sidecar!.subdivisions!['Z01A']!.irrigation).toEqual([
+				{ number: 8, piece: 16 },
+				{ number: 9, piece: 17 }
+			]);
+			expectSoundNetwork(two);
+		});
+
+		it('leaves the sidecar when the block moves wholly to another piece', () => {
+			const two = applyMaps(one, zones(16, 40, 80, [1, 0]), [900, 560, 600]);
+			expect(rr(two, 8)).toBeUndefined();
+			expect(two.sidecar!.subdivisions!['Z01A']!.irrigation).toEqual([{ number: 9, piece: 17 }]);
+			expect(rv(two, 2).outflows.map((o) => o.route)).toContain(rr(two, 9).abstractionRoute);
+			expectSoundNetwork(two);
+		});
 	});
 
 	it('records each later split\'s shares and refuses a second grid or a mixed dam basis', () => {
 		const one = first();
 		const plan = again(3, [piece('zone', 80, 900), piece('rest', 200, 560)]);
-		expect(previewSplit(one, { ...plan, grid: { ...plan.grid, dataset: 'another grid' } }).messages[0]).toMatch(/one grid/);
+		expect(previewSplit(one, { ...plan, grid: { ...plan.grid, dataset: 'another grid' } }).messages[0]).toMatch(/synthetic grid at 0\.001°.*one grid/);
+		expect(previewSplit(one, { ...plan, grid: { ...plan.grid, cellDeg: 0.01 } }).messages[0]).toMatch(/at 0\.001°.*one grid/);
 		expect(previewSplit(one, { ...plan, shares: { ...ALL_AREA, dams: 'location' } }).messages[0]).toMatch(/either every dam is located/);
 		const located = { ...plan, pieces: plan.pieces.map((p) => ({ ...p, locationShares: { afforestation: 0.5 } })), shares: { ...ALL_AREA, afforestation: 'location' as const } };
 		const entry = applyMaps(one, located, [900, 560, 800]).sidecar!.subdivisions!['Z01A']!;
 		expect(entry.shares.afforestation).toBe('area');
 		expect(entry.laterShares).toEqual([located.shares]);
+	});
+
+	it('takes no dam basis to mix when the quaternary has no dams', () => {
+		const dry = noDams(bundle);
+		const plan = examplePlan({ pieces: [piece('tributary', 120, 800), piece('remainder', 280, 600)], shares: ALL_AREA });
+		const one = applyMaps(dry, plan, [800, 600]);
+		const second = { ...again(3, [piece('zone', 80, 900), piece('rest', 200, 560)]), shares: { ...ALL_AREA, dams: 'location' as const } };
+		expect(previewSplit(one, second).pieces).toHaveLength(2);
+	});
+
+	it('refuses a piece of one quaternary split under another, which would dodge one factor and the cap', () => {
+		const one = first();
+		const stray = { ...again(16, [piece('zone', 40, 900), piece('rest', 80, 700)]), quaternary: 'Z01B' };
+		expect(previewSplit(one, stray).messages[0]).toMatch(/RU 16 belongs to Z01A/);
+		expect(calibrateMap(one, stray, hand(10)).status).toBe('refused');
+		expect(previewSplit(one, { ...stray, module: { type: 'RU', number: 3 } }).messages[0]).toMatch(/RU 3 belongs to Z01A/);
+		expect(() => applySplit(one, stray, options(one, stray, [900, 700]))).toThrow(/belongs to Z01A/);
 	});
 
 	it('refuses a ninth piece, and a second module in one quaternary', () => {
@@ -753,9 +904,25 @@ describe('applySplit refuses', () => {
 
 	it('a calibration for another target or another plan', () => {
 		expect(() => applySplit(bundle, plan, { ...options(bundle, plan, [765, 569]), target: hand(99) })).toThrow(/another target/);
+		expect(() => applySplit(bundle, plan, { ...options(bundle, plan, [765, 569]), calibration: notConverged, acceptNotConverged: true, target: hand(99) })).toThrow(/another target/);
 		expect(() => applySplit(bundle, plan, options(bundle, plan, [765]))).toThrow(/calibrate this plan again/);
 		const mismatched = acceptMaps(bundle, plan, [765, 569]);
 		expect(() => applySplit(bundle, plan, { ...options(bundle, plan, [765, 569]), calibration: { ...mismatched, finalMapsMm: [800, 569] } })).toThrow(/don't match/);
+	});
+
+	it('a converged result whose rounded MAPs are past 2 %', () => {
+		const good = acceptMaps(bundle, plan, [765, 569]);
+		const saved = good.finalMarMm3!;
+		const target = hand(saved * 1.05);
+		const best = { ...good.best!, marMm3: target.marMm3 };
+		expect(() => applySplit(bundle, plan, { ...options(bundle, plan, [765, 569]), target, calibration: { ...good, best } })).toThrow(/as saved/);
+	});
+
+	it('a split that would break the network', () => {
+		const b = definedInflowFirst(exampleBundle());
+		expect(validateNetwork(b).filter((m) => m.level === 'error')).toEqual([]);
+		const plan = examplePlan({ shares: { afforestation: 'location', alien: 'area', dams: 'area' } });
+		expect(() => applyMaps(b, plan, [765, 569])).toThrow(/would break the network: sequence error/);
 	});
 
 	it('a calibration made before the boundary moved', () => {
@@ -783,6 +950,13 @@ describe('previewSplit', () => {
 		const bundle = exampleBundle();
 		const gauged = { ...bundle, network: { ...bundle.network, gauges: [{ route: 11, label: 'G1', observedFile: 'G1.OBS' }] } };
 		expect(previewSplit(gauged, examplePlan()).messages.join(' ')).toMatch(/gauge on route 11/);
+	});
+
+	it('does not warn about a gauge when every piece joins through the inflow route, which then carries all the water', () => {
+		const b = feedsRunoff(exampleBundle());
+		const gauged = { ...b, network: { ...b.network, gauges: [{ route: 11, label: 'G1', observedFile: 'G1.OBS' }] } };
+		const { messages } = previewSplit(gauged, examplePlan({ shares: ALL_AREA }));
+		expect(messages.join(' ')).not.toMatch(/gauge on route 11 leaves/);
 	});
 
 	it('carries the area warning and any new route-limit warning', () => {
@@ -828,6 +1002,25 @@ function twoDestinations(b: NetworkBundle): NetworkBundle {
 		...c,
 		network: { ...c.network, routes: [...c.network.routes, { number: 70, upstreamPosition: pos, downstreamPosition: 0, cost: 0 }] },
 		modules: c.modules.map((x) => (x === m ? { ...m, outflows: [{ route: 11, percent: 40 }, { route: 70, percent: 60 }] } : x))
+	};
+}
+
+/** Route 11 into CR 4 reads a defined-flow file, so CR 4 may stand before RU 3: nothing else may be routed in. */
+function definedInflowFirst(b: NetworkBundle): NetworkBundle {
+	const c = noDams(b);
+	const file = 'Z1RQ11.ABS';
+	const order = ['RU15', 'RV8', 'CR4', 'RU3'];
+	const was = c.network.modules.map((e) => `${e.type}${e.number}`);
+	const moved = (p: number) => (p === 0 ? 0 : order.indexOf(was[p - 1]!) + 1);
+	return {
+		...c,
+		network: {
+			...c.network,
+			modules: order.map((k) => c.network.modules[was.indexOf(k)]!),
+			routes: c.network.routes.map((r) => ({ ...r, upstreamPosition: moved(r.upstreamPosition), downstreamPosition: moved(r.downstreamPosition) }))
+		},
+		modules: c.modules.map((m) => (m.kind === 'CR' ? { ...m, inflows: m.inflows.map((i) => (i.route === 11 ? { ...i, definedFlowFile: file } : i)) } : m)),
+		flowFiles: { [file]: { fileName: file, rows: [], hasTotals: false, hasAverage: false } }
 	};
 }
 
