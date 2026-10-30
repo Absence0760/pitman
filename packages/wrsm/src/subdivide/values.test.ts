@@ -29,9 +29,15 @@ describe('carryValues', () => {
 		expect(out[0]!.splits![0]!.how).toBe('copied');
 	});
 
-	it('covers the paths below a listed field', () => {
-		const out = carryValues([{ target: { module: RU3, field: 'outflows.percent' }, source }], carry);
-		expect(out).toEqual([{ target: { field: 'outflows.percent' }, source, retired: { quaternary: 'Z01A', from: RU3, reason: 'the sub-division set a new value on each piece' } }]);
+	it('covers the paths below a listed field, and leaves a module its own wiring', () => {
+		const entry: ValueEntry = { target: { module: RU3, field: 'outflows.percent' }, source };
+		expect(carryValues([entry], carry)).toEqual([entry]);
+	});
+
+	it('retires a note on a module’s own value the split changed', () => {
+		const changed = after.map((m): Module => (m.kind === 'RU' && m.number === 3 ? { ...m, inflowRoute: 70 } : m));
+		const out = carryValues([{ target: { module: RU3, field: 'inflowRoute' }, source }], { ...carry, after: { network, modules: changed } });
+		expect(out[0]!.retired?.reason).toBe('the sub-division changed this value');
 	});
 
 	it('keeps the order of the log, one entry’s copies together', () => {

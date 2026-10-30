@@ -569,7 +569,8 @@ function splitIrrigation(
 		// Only pieces that get a block share its allocation, or a block too small to reach one would lose that part.
 		const blockShares = shares.map((s, i) => (tables[i]!.some((row) => row.value > 0) ? s : 0));
 		const allocations = 'maxAllocationMm3PerYear' in rr ? largestRemainder(rr.maxAllocationMm3PerYear, blockShares, IRRIGATION_DECIMALS) : undefined;
-		const allocationTables = 'allocation' in rr ? splitYearTable(rr.allocation.values, blockShares, ALLOCATION_DECIMALS) : undefined;
+		// Type 4's table is the allocation itself; for types 2-3 it is a growth factor on RRMA, which has been shared already (R7-I7).
+		const allocationTables = 'allocation' in rr && rr.modelType === 4 ? splitYearTable(rr.allocation.values, blockShares, ALLOCATION_DECIMALS) : undefined;
 		const blockSource = d.route(rr.abstractionRoute)?.up ?? null;
 		const fieldsFor = (i: number) =>
 			({

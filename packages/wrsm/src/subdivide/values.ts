@@ -32,27 +32,29 @@ export interface ValueCarry {
 const DIVIDED: Readonly<Record<SplitModuleKind, readonly string[]>> = {
 	runoff: ['areaKm2', 'afforestation.areaKm2', 'alienVegetation.areaKm2', 'sami.abstractions', 'sami.gwEvaporationArea', 'hughes.upperAbstraction.annual', 'hughes.riparianAbstraction.annual'],
 	child: ['areaKm2', 'afforestation.areaKm2', 'alienVegetation.areaKm2'],
-	reservoir: ['capacity', 'initialStorageMm3'],
+	reservoir: ['capacity.fullSupplyVolumeMm3', 'capacity.fullSupplyAreaKm2', 'initialStorageMm3'],
 	irrigation: ['areaKm2', 'maxAllocationMm3PerYear', 'allocation.values']
 };
 
-/** Fields whose value is the split's own: the MAP comes from the grid and the factor, and the wiring is rebuilt. */
-const REPLACED: Readonly<Record<SplitModuleKind, readonly string[]>> = {
-	runoff: ['mapMm', 'name', 'outflows', 'inflowRoute', 'sfrChildren'],
-	child: ['mapMm', 'name', 'outflows'],
+/** Fields each module has for itself: a new piece gets its own, so a note can only stay on the module it was on, while that still holds the value. */
+const OWN: Readonly<Record<SplitModuleKind, readonly string[]>> = {
+	runoff: ['name', 'outflows', 'inflowRoute', 'upstreamGroundwaterModule', 'sfrChildren'],
+	child: ['name', 'outflows'],
 	reservoir: ['name', 'spillRoute', 'inflows', 'outflows'],
 	irrigation: ['name', 'abstractionRoute', 'returnFlowRoute', 'runoffModule']
 };
 
 const SCALED = 'sami.maxHydraulicGradient';
 const MAP_REPLACED = 'the sub-division set a new MAP';
-const WIRING_REPLACED = 'the sub-division set a new value on each piece';
+const OWN_REPLACED = 'the sub-division changed this value';
 const MODULE_GONE = 'its module is no longer in the network';
 
 const within = (fields: readonly string[], field: string) => fields.some((f) => field === f || field.startsWith(`${f}.`));
 const refKey = (ref: ModuleRef) => `${ref.type}${ref.number}`;
 const sameRef = (a: ModuleRef, b: ModuleRef) => a.type === b.type && a.number === b.number;
 const findModule = (modules: readonly Module[], ref: ModuleRef) => modules.find((m) => moduleType(m) === ref.type && m.number === ref.number);
+
+const isType4 = (module: Module | undefined) => module?.kind === 'RR' && module.modelType === 4;
 
 /** The number a field holds in a module, in `year` for a table; `null` when there is none, as for a year the table doesn't list. */
 function heldValue(module: Module | undefined, field: string, year: HydroYear | undefined): number | null {
@@ -75,11 +77,17 @@ function retire(entry: ValueEntry, from: ModuleRef, quaternary: string, reason: 
 function carryEntry(entry: ValueEntry, line: SplitLineage, carry: ValueCarry): ValueEntry[] {
 	const { field, year } = entry.target;
 	const { quaternary, before, after } = carry;
-	if (within(REPLACED[line.kind], field)) return [retire(entry, line.from, quaternary, field === 'mapMm' ? MAP_REPLACED : WIRING_REPLACED)];
-	const whole = heldValue(findModule(before, line.from), field, year);
+	if ((line.kind === 'runoff' || line.kind === 'child') && field === 'mapMm') return [retire(entry, line.from, quaternary, MAP_REPLACED)];
+	const was = findModule(before, line.from);
+	const whole = heldValue(was, field, year);
 	const part = (piece: ModuleRef) => heldValue(findModule(after.modules, piece), field, year);
-	// A negative initial storage means 50 % of full supply, and is copied (R5-E4).
-	const divided = within(DIVIDED[line.kind], field) && !(field === 'initialStorageMm3' && whole !== null && whole < 0);
+	if (within(OWN[line.kind], field)) {
+		const kept = findModule(after.modules, line.from) !== undefined && part(line.from) === whole;
+		return [kept ? entry : retire(entry, line.from, quaternary, findModule(after.modules, line.from) ? OWN_REPLACED : MODULE_GONE)];
+	}
+	// A negative initial storage means 50 % of full supply (R5-E4), and types 2-3's allocation table is a growth factor on RRMA (R7-I7): both are copied.
+	const shares = !(field === 'initialStorageMm3' && whole !== null && whole < 0) && !(field.startsWith('allocation.') && !isType4(was));
+	const divided = within(DIVIDED[line.kind], field) && shares;
 	const scaled = line.kind === 'runoff' && field === SCALED;
 	// A piece that got none of a value holds nothing to give a source for.
 	const sharing = divided ? line.pieces.filter((p) => (part(p) ?? 0) !== 0) : line.pieces;

@@ -316,16 +316,16 @@ describe('invariants', () => {
 		rr(start, 7).areaKm2.forEach((row, k) => expect(blocks.reduce((s, b) => s + Math.round(b.areaKm2[k]!.value * 100), 0)).toBe(Math.round(row.value * 100)));
 	});
 
-	it('3: RRMA and the allocation table keep their totals, and IRRSW names the piece', () => {
+	it('3: RRMA keeps its total, the growth table stays as it is, and IRRSW names the piece', () => {
 		const b = exampleBundle({ irrigation: 'wqt' });
 		const plan = examplePlan({ pieces: [piece('tributary', 100, 700), piece('tributary', 100, 800), piece('remainder', 200, 600)], shares: ALL_AREA });
 		const split = applyMaps(b, plan, [700, 800, 600]);
 		const blocks = [rr(split, 8), rr(split, 9), rr(split, 7)].map((m) => m as IrrigationWqtLayout);
 		expect(blocks.reduce((s, m) => s + Math.round(m.maxAllocationMm3PerYear * 100), 0)).toBe(333);
-		for (const k of [0, 1]) expect(blocks.reduce((s, m) => s + Math.round(m.allocation.values[k]!.value * 1000), 0)).toBe(1001);
+		// Types 2-3 multiply RRMA by the table (R7-I7): a shared table would take the share twice.
+		for (const m of blocks) expect(m.allocation.values).toEqual((rr(b, 7) as IrrigationWqtLayout).allocation.values);
 		expect(blocks.map((m) => m.runoffModule)).toEqual([16, 17, 3]);
 		expect(blocks[0]!.maxAllocationMm3PerYear).toBeLessThan(1);
-		expect(blocks[0]!.allocation.values[0]!.value).toBeLessThan(0.3);
 		const back = roundTrip(split);
 		for (const m of blocks) expectWritten(m, rr(back, m.number));
 		expectSoundNetwork(back);
@@ -977,6 +977,13 @@ describe('sidecar values follow their value (R7-C14)', () => {
 		expectNoDangling(split);
 	});
 
+	it('keeps a note on a module\'s own wiring there while it holds the value, and retires it when the module goes', () => {
+		const plan = examplePlan({ pieces: [piece('tributary', 100, 800, { locationShares: { damCapacity: 0.5, afforestation: 0.5, irrigation: 1 } }), piece('remainder', 300, 600, { locationShares: { damCapacity: 0.5, afforestation: 0.5, irrigation: 0 } })] });
+		const split = applyMaps(noted(exampleBundle({ irrigation: true }), note(RU3, 'inflowRoute'), note(RR7, 'returnFlowRoute')), plan, [800, 600]);
+		expect(split.sidecar!.values!.map((v) => v.target.module ?? v.retired?.reason)).toEqual([RU3, 'its module is no longer in the network']);
+		expectNoDangling(split);
+	});
+
 	it('retires a note on the MAP, which the split replaced, and keeps it readable', () => {
 		const split = applyMaps(noted(exampleBundle(), note(RU3, 'mapMm')), AREA, [800, 600]);
 		const [entry] = split.sidecar!.values!;
@@ -1032,8 +1039,9 @@ describe('sidecar values follow their value (R7-C14)', () => {
 		expect(block!.splits![0]!.part! + outlet!.splits![0]!.part!).toBeCloseTo(6, 9);
 		expect(on(split, 'RR', 8, 'crops.percent')[0]!.splits![0]!.how).toBe('copied');
 		expect(on(split, 'RR', 8, 'maxAllocationMm3PerYear')[0]!.splits![0]).toMatchObject({ how: 'divided', whole: 3.33 });
-		expect(on(split, 'RR', 8, 'allocation.values')[0]!.splits![0]).toMatchObject({ how: 'divided', whole: 1.001 });
-		expect(split.sidecar!.values!.find((v) => v.target.field === 'abstractionRoute')!.retired?.from).toEqual(RR7);
+		expect(on(split, 'RR', 8, 'allocation.values')[0]!.splits![0]!.how).toBe('copied');
+		expect(on(split, 'RR', 7, 'abstractionRoute')[0]!.splits).toBeUndefined();
+		expect(on(split, 'RR', 8, 'abstractionRoute')).toEqual([]);
 		expectNoDangling(split);
 	});
 
@@ -1052,6 +1060,16 @@ describe('sidecar values follow their value (R7-C14)', () => {
 		expect(on(again, 'RR', 8, 'areaKm2').map((v) => v.source.note)).toEqual(['Later census']);
 		expect(on(again, 'RR', 8, 'areaKm2')[0]!.splits).toBeUndefined();
 		expect(on(again, 'RR', 7, 'areaKm2')[0]!.source).toEqual(census);
+	});
+
+	it('shares a type 4 block\'s allocation table, which is the allocation itself (R7-I7)', () => {
+		const base = exampleBundle({ irrigation: 'wqt' });
+		const b = noted({ ...base, modules: base.modules.map((m) => (m.kind === 'RR' ? { ...m, modelType: 4 as const } : m)) }, note(RR7, 'allocation.values', 2009));
+		const plan = examplePlan({ pieces: [piece('tributary', 100, 800), piece('remainder', 300, 600)], shares: ALL_AREA });
+		const split = applyMaps(b, plan, [800, 600]);
+		const tables = [rr(split, 8), rr(split, 7)].map((m) => (m as IrrigationWqtLayout).allocation.values[1]!.value);
+		expect(Math.round((tables[0]! + tables[1]!) * 1000)).toBe(1001);
+		expect(on(split, 'RR', 8, 'allocation.values')[0]!.splits![0]).toMatchObject({ how: 'divided', whole: 1.001, part: tables[0] });
 	});
 
 	it('moves an RR\'s notes when the block goes wholly to another piece', () => {

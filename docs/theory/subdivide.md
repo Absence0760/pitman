@@ -378,9 +378,10 @@ each piece (Cape Farm Mapper fields located in it, Round 7; else by area
 share): each piece with irrigation gets an RR copy drawing from its own
 `V_i` (or, with no dams of its own, a new route from `V`: an RR has one inflow,
 so two can't share a route, R5-E10), with its area-by-crop table; its
-allocation (RRMA, L.013, and L.022–L.024) splits with the area, and its return
-flow goes where the original's did. Only pieces that get a block share its
-allocation. A later split takes the blocks of the piece it splits, wherever they
+allocation splits with the area, and its return flow goes where the original's
+did. That is RRMA (L.013) and, for type 4, the L.022–L.024 table; for types 2–3
+that table is a growth factor on RRMA (R7-I7), so it is copied. Only pieces that
+get a block share its allocation. A later split takes the blocks of the piece it splits, wherever they
 draw from, and leaves another piece's block whole though it may draw from the
 same `V`. A piece with no irrigation gets no RR
 module; if that is the outlet, the original RR goes with its routes. **Main-stem reservoirs, channel reaches, demand files and
@@ -404,7 +405,7 @@ to no surface area (R5-E4).
    to 1e-12).
 3. Every split table's total is preserved per year (afforestation, alien
    vegetation, paved, abstraction volumes, irrigated area per crop, irrigation
-   allocations (RRMA and the allocation table), farm-dam capacity and surface
+   allocations (RRMA, and a type 4 block's allocation table), farm-dam capacity and surface
    area, plus the Sami evaporation area). A reservoir's initial storage too,
    except that a piece's share is capped at its first year's capacity, so the
    total can fall when a dam starts nearly full (R5-E4).
@@ -420,8 +421,9 @@ to no surface area (R5-E4).
    only with `|e| / T ≤ 0.02`.
 8. Splitting and then merging the pieces (the inverse) gives back the
    original module's fields.
-9. Every `sidecar.values` entry names a module in the network or is retired
-   and names none, and that survives saving and reloading (R7-C14).
+9. Every `sidecar.values` entry on a module names one in the network, or is
+   retired and names none, and that survives saving and reloading (R7-C14).
+   Entries on a file (`{ file, … }`) never name a module.
 
 ## Provenance (sidecar)
 
@@ -488,15 +490,16 @@ copy gains a record in `splits`, oldest first, because a piece can be split agai
 |---|---|---|
 | `copied` | a **Copied** field of § Fields, and an RR's or RV's other parameters | the same value |
 | `moved` | the value went wholly to one other module (`pieces` has one) | all of it |
-| `divided` | a **Split** field of § Fields, an SFR child's area and tables, an RR's area and allocations, an RV's capacity and initial storage | `part` of `whole`; a piece that got none gets no copy |
+| `divided` | a **Split** field of § Fields, an SFR child's area and tables, an RR's area and RRMA (and a type 4 block's allocation table), an RV's capacity and initial storage | `part` of `whole`; a piece that got none gets no copy |
 | `scaled` | HGRAD | `part`, from `whole` |
 
-A value that stays whole on the module it was on keeps its entry as it was. A
+A value that stays whole on the module it was on keeps its entry as it was, and
+so does a module's own wiring (its name and routes) while it still holds it. A
 **retired** entry is one whose value no longer exists: the MAP, which the split
 sets (on the quaternary's other pieces too when a repeat split rescales them),
-and the routes. It loses `target.module`, so nothing reads it as a value in use,
-and gains `retired: { quaternary, from, reason }`. So does an entry on a module
-no longer in the network, which only a sidecar saved before this can hold.
+and the wiring of a module that lost it. It loses `target.module`, so nothing
+reads it as a value in use, and gains `retired: { quaternary, from, reason }`.
+So does an entry on a module no longer in the network.
 Nothing is deleted. A divided or scaled value's own history starts at the
 piece's share: resetting a piece gives it that share, never the whole, and the
 screen shows the whole's last edit and that it was divided (R7-T3).
