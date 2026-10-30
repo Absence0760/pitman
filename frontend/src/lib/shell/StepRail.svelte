@@ -16,6 +16,8 @@
 	let followed = $state<string | undefined>();
 	const current = $derived(followed ?? seen ?? steps[0]?.id);
 
+	const pageEnd = () => scrollY + innerHeight >= document.documentElement.scrollHeight - 2;
+
 	$effect(() => {
 		const sections = new Map(steps.flatMap((step) => {
 			const node = document.getElementById(step.id);
@@ -26,14 +28,15 @@
 		const top = Math.round((document.querySelector('header')?.getBoundingClientRect().height ?? 0) + 60);
 		const line = new IntersectionObserver(
 			(entries) => {
-				for (const entry of entries) if (entry.isIntersecting) seen = sections.get(entry.target);
+				// The observer and the scroll event arrive in either order, so the end of the page wins in both.
+				for (const entry of entries) if (entry.isIntersecting) seen = pageEnd() ? steps.at(-1)?.id : sections.get(entry.target);
 			},
 			{ rootMargin: `-${top}px 0px -${Math.max(0, innerHeight - top - 1)}px 0px` }
 		);
 		for (const card of sections.keys()) line.observe(card);
 		const release = () => (followed = undefined);
 		const atEnd = () => {
-			if (scrollY + innerHeight >= document.documentElement.scrollHeight - 2) seen = steps.at(-1)?.id;
+			if (pageEnd()) seen = steps.at(-1)?.id;
 		};
 		addEventListener('scroll', atEnd, { passive: true });
 		for (const event of ['wheel', 'touchmove', 'keydown'] as const) addEventListener(event, release, { passive: true });

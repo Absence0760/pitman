@@ -323,7 +323,7 @@
 
 <AppBar network={summary?.code} {years} run={bundle ? runStatus(steps) : undefined} onsave={bundle ? save : undefined} />
 
-<main>
+<main id="main" tabindex="-1">
 	{#if !bundle}
 		<Landing onload={loadSources} busy={phase === 'reading' || runState === 'running'} />
 	{/if}

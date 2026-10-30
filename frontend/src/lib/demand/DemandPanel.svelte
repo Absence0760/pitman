@@ -7,6 +7,7 @@
 	updated bundle (`onupdate`), as the extension does.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { tick } from 'svelte';
 	import { applyDemand, demandSourcesOf, type DemandPlan, type LoadedBundle } from '@pitman/wrsm';
 	import { plural } from '#lib/network/format.js';
@@ -96,7 +97,7 @@
 	{#if files.length === 0}
 		<p class="note">This network has no demand files yet.</p>
 	{:else}
-		<div class="scroll">
+		<div class="scroll" use:scrollable>
 			<table class="files" aria-label="Demand files">
 				<thead>
 					<tr>

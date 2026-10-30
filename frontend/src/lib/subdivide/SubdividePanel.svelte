@@ -11,6 +11,7 @@
 	its results then, so the panel keeps the runs from before for the compare.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { onMount, tick, untrack, type Snippet } from 'svelte';
 	import type { AreaGeometry, ChannelCollection, MapGridCells, RunResult, SplitPreview, SplitRecord } from '@pitman/wrsm';
 	import { API_BASE_URL } from '#lib/extend/api-base.js';
@@ -533,7 +534,7 @@
 	</p>
 
 	{#if done.length > 0}
-		<div class="scroll">
+		<div class="scroll" use:scrollable>
 			<table class="done" aria-label="Quaternaries already sub-divided">
 				<thead>
 					<tr><th scope="col">Quaternary</th><th scope="col">Module split</th><th scope="col">Pieces</th><th scope="col">Target natural MAR</th><th scope="col">Calibration</th></tr>

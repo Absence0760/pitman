@@ -188,6 +188,23 @@ body {
 	outline: 3px solid var(--focus);
 	outline-offset: 2px;
 }
+/* The skip link's target takes the focus without looking like a control. */
+main:focus {
+	outline: none;
+}
+.skip {
+	position: absolute;
+	z-index: 20;
+	left: 0.5rem;
+	top: -4rem;
+	padding: 0.5rem 0.9rem;
+	border-radius: var(--radius);
+	background: var(--surface);
+	color: var(--text);
+}
+.skip:focus {
+	top: 0.5rem;
+}
 
 a {
 	color: var(--accent);
@@ -280,6 +297,13 @@ input[type='radio'] {
 	height: 1.125rem;
 	margin: 0;
 	flex: none;
+}
+/* A box inside its label: the label is the target, so it keeps 24 px (WCAG 2.5.8). */
+label:has(> input[type='checkbox'], > input[type='radio']) {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+	min-height: 1.5rem;
 }
 /* A file input's own face can't be restyled or reworded, so its label is the button: the input stays
    in the page, focusable, and comes first (`<input class="file-pick"> <label>`). */

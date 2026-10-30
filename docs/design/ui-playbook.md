@@ -171,6 +171,25 @@ with them.
 - **Say what an edit does beyond its own cell.** A new last year turns a flat tail
   into a line, so it changes every year back to the row before it; the row says so.
 
+## Access (WCAG 2.2 AA)
+
+`e2e/a11y.spec.ts` and `a11y-keyboard.spec.ts` measure these on the page with every
+card open; add to them, not to a checklist.
+
+- **A skip link comes first,** and takes the keyboard past the bar and the rail.
+- **Headings step down one at a time** across the merged cards: a chart's `h4` needs
+  an `h3` above it.
+- **A box that scrolls can be reached.** `use:scrollable` on a `.scroll` box gives
+  it a tab stop and a name, only while it overflows and holds nothing focusable.
+- **A map's box is a group, not a landmark:** one page has three.
+- **A message beside a box is tied to it** with `aria-describedby`, and what stops
+  Apply is said in a live region that's always in the page, because a region added
+  with its text isn't heard.
+- **The focus ring has its own contrast** (3:1), so it changes colour on the dark bar.
+- **A focused control that goes away takes the focus somewhere:** a confirmation
+  moves it to the safe choice and gives it back after.
+- **A box's label is its target,** 24 px or more, so a one-line tick needs the height.
+
 ## Before calling a screen done
 
 Screenshot it at 1440×960, 1280×800 and 390×844, light and dark: a throwaway

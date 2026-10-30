@@ -448,7 +448,7 @@
 </script>
 
 <div class="map-wrap" class:labels-off={zoomedOut} data-status={status} data-view={view || undefined} data-tool={tool} data-fields={fields.length} data-theme-drawn={dark ? 'dark' : 'light'}>
-	<div class="map" role="region" aria-label="Map" bind:this={el} data-testid="map">
+	<div class="map" role="group" aria-label="Map" bind:this={el} data-testid="map">
 		{#if crosshair}
 			<!-- Where Enter acts: the map's middle; the arrow keys move the map under it. -->
 			<span class="crosshair" aria-hidden="true" data-testid="map-crosshair"></span>

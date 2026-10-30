@@ -5,6 +5,7 @@
 	and the panel keys this on the answer.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { DEFAULT_MATCH_RADIUS_M, applyDams, damsRow, overrideDam, type DamRecord, type LoadedBundle } from '@pitman/wrsm';
 	import { parseNumber } from '#lib/calibrate/validate.js';
 	import { isoDate } from '#lib/extend/apply.js';
@@ -101,7 +102,7 @@
 		<span class="note">{DEFAULT_MATCH_RADIUS_M} m by default.</span>
 	</div>
 
-	<div class="scroll">
+	<div class="scroll" use:scrollable>
 		<table class="data dams" aria-label="Matched dams">
 			<thead>
 				<tr>
@@ -135,6 +136,7 @@
 								class="capacity"
 								aria-label={`Your capacity for ${damName(dams[i]!)}, million m³`}
 								aria-invalid={failed ? 'true' : undefined}
+								aria-describedby={failed ? `landuse-dam-${i}-msg` : undefined}
 								value={noteOf(dam.id).text}
 								oninput={(e) => edit(dam.id, { text: e.currentTarget.value })}
 								disabled={busy}
@@ -149,7 +151,7 @@
 								oninput={(e) => edit(dam.id, { note: e.currentTarget.value })}
 								disabled={busy}
 							/>
-							{#if failed}<span class="error said" role="alert">{failed}</span>{/if}
+							{#if failed}<span id={`landuse-dam-${i}-msg`} class="error said" role="alert">{failed}</span>{/if}
 						</td>
 					</tr>
 				{/each}

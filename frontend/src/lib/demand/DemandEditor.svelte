@@ -237,6 +237,7 @@
 								autocomplete="off"
 								value={share}
 								aria-invalid={message ? 'true' : undefined}
+								aria-describedby={message ? `demand-share-${k}-msg` : undefined}
 								oninput={(e) => setShare(k, e.currentTarget.value)}
 							/>
 						</div>
@@ -245,7 +246,7 @@
 				<p class="sum" role="status" data-sum-ok={check.messages.shares === undefined && check.sum !== null}>{sumLabel(check.sum)}</p>
 				{#each MONTH_NAMES as _, k (k)}
 					{#if check.messages[`share-${k}`]}
-						<p class="msg">{check.messages[`share-${k}`]}</p>
+						<p class="msg" id={`demand-share-${k}-msg`}>{check.messages[`share-${k}`]}</p>
 					{/if}
 				{/each}
 				<div class="actions">
@@ -275,20 +276,20 @@
 						<div class="pair">
 							<div class="field year">
 								<label for={yearId}>Year</label>
-								<input id={yearId} type="text" inputmode="numeric" autocomplete="off" value={row.year} aria-invalid={yearMessage ? 'true' : undefined} oninput={(e) => setRow(row.id, { year: e.currentTarget.value })} />
+								<input id={yearId} type="text" inputmode="numeric" autocomplete="off" value={row.year} aria-invalid={yearMessage ? 'true' : undefined} aria-describedby={yearMessage ? `${yearId}-msg` : undefined} oninput={(e) => setRow(row.id, { year: e.currentTarget.value })} />
 								<span class="sub">{yearLabel(row.year) || 'hydrological year'}</span>
 							</div>
 							<div class="field">
 								<label for={volumeId}>Volume<span class="sr"> in {row.year}</span></label>
 								<div class="line">
-									<input id={volumeId} type="text" inputmode="decimal" autocomplete="off" value={row.text} aria-invalid={volumeMessage ? 'true' : undefined} oninput={(e) => setRow(row.id, { text: e.currentTarget.value })} />
+									<input id={volumeId} type="text" inputmode="decimal" autocomplete="off" value={row.text} aria-invalid={volumeMessage ? 'true' : undefined} aria-describedby={volumeMessage ? `${volumeId}-msg` : undefined} oninput={(e) => setRow(row.id, { text: e.currentTarget.value })} />
 									<span class="unit">million m³/a</span>
 									<button type="button" onclick={() => removeRow(row.id)}>Remove<span class="sr"> {row.year || 'this row'}</span></button>
 								</div>
 							</div>
 						</div>
-						{#if yearMessage}<p class="msg">{yearMessage}</p>{/if}
-						{#if volumeMessage}<p class="msg">{volumeMessage}</p>{/if}
+						{#if yearMessage}<p class="msg" id={`${yearId}-msg`}>{yearMessage}</p>{/if}
+						{#if volumeMessage}<p class="msg" id={`${volumeId}-msg`}>{volumeMessage}</p>{/if}
 						{#if check.blankRows.includes(row.id)}
 							<p class="note">Left out until it has a volume. Without it the demand stays at the last volume above.</p>
 						{:else}
@@ -322,16 +323,18 @@
 
 		<div class="preview" aria-labelledby="demand-preview-h" role="group">
 			<h4 id="demand-preview-h">What Apply would write</h4>
-			{#if plan === null || emptyFile}
-				<div class="paused" data-preview="paused">
-					<p><strong>Preview paused.</strong> {problems.length === 1 ? 'One thing to fix:' : 'To go on:'}</p>
-					<ul>
-						{#each problems as problem (problem)}
-							<li>{problem}</li>
-						{/each}
-					</ul>
-				</div>
-			{/if}
+			<div aria-live="polite" data-preview-live>
+				{#if plan === null || emptyFile}
+					<div class="paused" data-preview="paused">
+						<p><strong>Preview paused.</strong> {problems.length === 1 ? 'One thing to fix:' : 'To go on:'}</p>
+						<ul>
+							{#each problems as problem (problem)}
+								<li>{problem}</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+			</div>
 			{#if plan}
 				<dl class="facts provenance">
 					<div><dt>File</dt><dd data-fact="file">{plan.fileName}</dd></div>

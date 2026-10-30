@@ -5,6 +5,7 @@
 	another. Only modes in both sets compare, over the years both ran.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import type { NetworkBundle, RunResult } from '@pitman/wrsm';
 	import ChartFigure from '#lib/results/ChartFigure.svelte';
 	import { ANNUAL_FLOW_UNIT, formatNumber } from '#lib/results/format.js';
@@ -23,7 +24,7 @@
 	const chart = $derived(pair && route !== undefined ? outletChart(pair, route) : undefined);
 </script>
 
-<h4 id="subdivide-outlet-h">Before and after at the outlet</h4>
+<h3 id="subdivide-outlet-h">Before and after at the outlet</h3>
 {#if pairs.length === 0}
 	<p class="note">The rerun used different modes from the run before the split, so there is nothing to compare. Run the same modes to see the difference.</p>
 {:else}
@@ -34,7 +35,7 @@
 		</select>
 	</div>
 	<p class="note">Pitman starts at the first route all of the module’s water reaches. Choose another to look elsewhere.</p>
-	<div class="scroll">
+	<div class="scroll" use:scrollable>
 		<table class="data" data-table="outlet">
 			<caption>Mean annual flow at route {route}, {ANNUAL_FLOW_UNIT}</caption>
 			<thead>
@@ -77,7 +78,7 @@
 {/if}
 
 <style>
-	h4 {
+	h3 {
 		margin: 1rem 0 0.25rem;
 	}
 	.field {

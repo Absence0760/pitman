@@ -42,6 +42,8 @@
 
 <style>
 	.bar {
+		/* The page's focus colour is lost on the dark bar. */
+		--focus: var(--bar-accent);
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;

@@ -6,6 +6,7 @@
 	under it at the table's full width. State is in words as well as the edge.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { tick } from 'svelte';
 	import { hydroYearLabel } from '#lib/results/format.js';
 	import { seriesChart } from './chart.js';
@@ -96,7 +97,7 @@
 			{#if rows.length === 0}
 				<p class="note">No years in this table. {offer.open ? 'Add one below.' : ''}</p>
 			{:else}
-				<div class="scroll rows">
+				<div class="scroll rows" use:scrollable>
 					<table class="data">
 						<caption>{offer.origin}, unless a row says otherwise.</caption>
 						<thead>

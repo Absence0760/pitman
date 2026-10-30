@@ -31,7 +31,7 @@
 <div class="fold" data-open={open} data-fold={id}>
 	<div class="head">
 		<span class="state">{status}</span>
-		<button type="button" aria-expanded={open} onclick={() => ontoggle(id)}>{open ? 'Hide' : 'Show'}<span class="sr"> {title}</span></button>
+		<button type="button" aria-expanded={open} onclick={() => ontoggle(id)}>{open ? 'Hide' : 'Show'} <span class="sr">{title}</span></button>
 	</div>
 	{@render children()}
 </div>

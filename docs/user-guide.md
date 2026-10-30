@@ -33,6 +33,10 @@ If the working copy holds changes that aren't in a saved zip, **Forget the worki
 copy** asks first, and loading another network warns you. Applying a change clears
 old results; the card you applied it in offers **Rerun the network**.
 
+Everything works from the keyboard. **Skip to the page** is the first stop. On a map,
+the arrow keys move it under a crosshair and Enter acts there; a quaternary can also be
+chosen from its list, and a shape pasted as GeoJSON or WKT.
+
 ## Extend rainfall with CHIRPS
 
 Optional. **Extend rainfall with CHIRPS** lists each `.RAN` with the modules that

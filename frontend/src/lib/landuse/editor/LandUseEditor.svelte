@@ -56,6 +56,8 @@
 
 	/** A refusal stays in view at Apply, however long the table holding its row. */
 	const refused = $derived(review ? refusedRows(review) : []);
+	/** What stops Apply, in one always-present live region: a refusal appears beside a box that keeps the focus. */
+	const blocked = $derived(review === null ? '' : ([...refused, ...review.errors, ...(review.missingNotes > 0 ? [`${plural(review.missingNotes, 'value')} still ${review.missingNotes === 1 ? 'needs' : 'need'} a source.`] : [])][0] ?? ''));
 	const canApply = $derived(review !== null && review.changes.length > 0 && review.valid && review.missingNotes === 0 && review.saved.problem === null && !busy);
 
 	let applied = $state<string | undefined>();
@@ -139,6 +141,8 @@
 			</select>
 		</div>
 	{/if}
+
+	<p class="sr" role="status" data-live>{blocked}</p>
 
 	{#if waiting.length > 0}
 		<div class="waiting">

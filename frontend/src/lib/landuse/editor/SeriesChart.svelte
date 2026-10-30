@@ -5,6 +5,7 @@
 	dashed line, so they show without colour; the table says it in words.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { seriesDataTable, X_LABEL, type SeriesChartSpec } from './chart.js';
 	import { EDITED_STYLE, FILE_STYLE, seriesPlot } from './plot.js';
 	import type { RowView } from './review.js';
@@ -48,7 +49,7 @@
 	<details bind:open>
 		<summary>Data table: {spec.title.toLowerCase()} every year</summary>
 		{#if table}
-			<div class="scroll">
+			<div class="scroll" use:scrollable>
 				<table class="data">
 					<caption>{table.caption}</caption>
 					<thead>

@@ -4,6 +4,7 @@
 	so a new fetch starts it afresh.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { applyIrrigatedAreas, irrigatedRowKm2, sumIrrigatedAreas, type LandUseAnswer, type LoadedBundle } from '@pitman/wrsm';
 	import { formatNumber, hydroYearLabel } from '#lib/results/format.js';
 	import { confirmedMapping, countedHa, cropRows, irrigationChoices, startingChoice, undecidedCrops, type CropChoice } from './plan.js';
@@ -100,7 +101,7 @@
 		{#if module?.refused}<p class="warn">{module.refused}</p>{/if}
 	{/if}
 
-	<div class="scroll">
+	<div class="scroll" use:scrollable>
 		<table class="data crops" aria-label="Fields by crop">
 			<thead>
 				<tr>
@@ -167,7 +168,7 @@
 	{#if module && !module.refused}
 		<h4>The row</h4>
 		{#if areas.length > 0}
-			<div class="scroll">
+			<div class="scroll" use:scrollable>
 				<table class="data preview" aria-label="Irrigated area by crop type">
 					<thead><tr><th scope="col">Crop type</th><th scope="col" class="num">Area, km²</th><th scope="col" class="num">Share, %</th></tr></thead>
 					<tbody>
@@ -251,5 +252,6 @@
 		display: inline-flex;
 		align-items: center;
 		min-height: var(--control-h);
+		min-width: var(--control-h);
 	}
 </style>

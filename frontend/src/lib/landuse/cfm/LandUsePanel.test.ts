@@ -14,7 +14,7 @@ describe('LandUsePanel', () => {
 		const bundle = syntheticBundle() as LoadedBundle;
 		const { body } = render(LandUsePanel, { props: { bundle, onupdate: () => {}, onrerun: () => {}, client: { quaternaries: async () => ({ type: 'FeatureCollection' as const, features: [], source: 'none' }), landUse: async () => ANSWER } } });
 		expect(body).toContain('id="landuse-h"');
-		expect(body).toContain('Land use');
+		expect(body).toContain('Crop fields and farm dams');
 		expect(body).toContain('class="card"');
 		expect(body).not.toContain('Synthetic data.');
 	});

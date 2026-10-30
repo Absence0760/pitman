@@ -5,6 +5,7 @@
 	content.test.ts holds to the engine and the docs. Text column about 75ch.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import AppBar from '#lib/shell/AppBar.svelte';
 	import { AGREEMENT, COMPARISON_DATE, DATA_SOURCES, DEPARTURES, FEATURE_GROUPS, MANUALS, READINGS, type FeatureStatus } from './content.js';
 
@@ -28,7 +29,7 @@
 
 <AppBar />
 
-<main class="page">
+<main id="main" tabindex="-1" class="page">
 	<p class="back"><a href="/">Back to Pitman</a></p>
 	<h1>Methods</h1>
 	<p class="lede">
@@ -55,7 +56,7 @@
 			Correctness here means the documented hydrology plus a comparison with WRSM2000’s own outputs on a local set of reference networks. A difference is either
 			explained under <a href="#departures">departures</a> or treated as a bug. The latest comparison, of {COMPARISON_DATE}, with default settings:
 		</p>
-		<div class="scroll">
+		<div class="scroll" use:scrollable>
 			<table class="wide">
 				<caption>Comparison with WRSM2000 outputs, in percentages</caption>
 				<thead>
@@ -144,7 +145,7 @@
 
 	<section aria-labelledby="features">
 		<h2 id="features">What is modelled and what isn’t</h2>
-		<div class="scroll">
+		<div class="scroll" use:scrollable>
 			<table class="wide matrix">
 				<caption>Supported features</caption>
 				<thead>

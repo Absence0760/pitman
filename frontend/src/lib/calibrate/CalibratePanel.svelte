@@ -7,6 +7,7 @@
 	screen's own code (comparison.ts). docs/user-guide.md § Calibrate.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { tick, untrack } from 'svelte';
 	import type { LoadedBundle } from '@pitman/wrsm';
 	import { plural } from '#lib/network/format.js';
@@ -370,7 +371,7 @@
 				{/if}
 
 				{#if stats}
-					<div class="scroll">
+					<div class="scroll" use:scrollable>
 						<table class="data fit">
 							<caption>{stats.caption}</caption>
 							<thead>
@@ -433,7 +434,8 @@
 		</div>
 
 		{#if charts.length > 0 && target}
-			<div class="charts" aria-label="Charts at the chosen route" role="group">
+			<h3 class="charts-h">Charts at the chosen route</h3>
+			<div class="charts">
 				{#each charts as spec (spec.id)}
 					<ChartFigure {spec} idPrefix="calibrate-{target.id}" />
 				{/each}
@@ -648,6 +650,9 @@
 	.fit .sub.outside {
 		color: var(--danger);
 		font-weight: 600;
+	}
+	.charts-h {
+		margin: 1.25rem 0 0.5rem;
 	}
 	.period {
 		display: flex;

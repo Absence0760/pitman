@@ -5,6 +5,7 @@
 	offers exactly three things, and only "Use the best factor" reaches Apply.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { formatNumber } from '#lib/results/format.js';
 	import { TOLERANCE_PCT, formatMar, formatScale, iterationRows, mayApply, outcomeSentence, roundingWarning, type CalibrationOutcome } from './calibration.js';
 	import type { PieceRow } from './pieces.js';
@@ -143,7 +144,7 @@
 		{/if}
 
 		{#if log.length > 0}
-			<div class="scroll">
+			<div class="scroll" use:scrollable>
 				<table class="data log" data-table="iterations">
 					<caption>Every try, with the factor applied to each piece’s MAP</caption>
 					<thead>
@@ -177,7 +178,7 @@
 		{/if}
 
 		{#if outcome.result.status !== 'refused' && outcome.result.finalMapsMm.length > 0}
-			<div class="scroll">
+			<div class="scroll" use:scrollable>
 				<table class="data" data-table="final-maps">
 					<caption>The MAPs {mayApply(outcome) ? 'that will be written' : 'at the best factor'}, rounded to whole mm as the file holds them</caption>
 					<thead>

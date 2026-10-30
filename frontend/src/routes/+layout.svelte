@@ -8,4 +8,5 @@
 	let { children }: { children: Snippet } = $props();
 </script>
 
+<a class="skip" href="#main">Skip to the page</a>
 {@render children()}

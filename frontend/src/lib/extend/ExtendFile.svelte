@@ -5,6 +5,7 @@
 	modules beside this file (tested there); this component holds the state.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { tick } from 'svelte';
 	import { stripExtension, type ChirpsMonthly, type ExtensionFit, type ExtensionResult, type FitStatistics, type RainfallSeries } from '@pitman/wrsm';
 	import { calendarYear, formatNumber, hydroYearLabel } from '#lib/results/format.js';
@@ -434,7 +435,7 @@
 		<FitChart spec={means} />
 		<FitChart spec={annual} />
 
-		<div class="scroll">
+		<div class="scroll" use:scrollable>
 			<table class="data" data-table="fit-statistics">
 				<caption>Fit over the overlap, before (p) and after (f × p)</caption>
 				<thead>
@@ -453,7 +454,7 @@
 				</tbody>
 			</table>
 		</div>
-		<div class="scroll">
+		<div class="scroll" use:scrollable>
 			<table class="data" data-table="monthly-bias">
 				<caption>Bias by month, 100 × (Σ CHIRPS − Σ file) / Σ file</caption>
 				<thead>
@@ -493,7 +494,7 @@
 			</p>
 		{/if}
 		{#if fit.appendable && preview?.ok}
-			<div class="scroll">
+			<div class="scroll" use:scrollable>
 				<table class="data preview" data-table="preview">
 					<caption>Preview: the rows the apply adds to {entry.name}</caption>
 					<thead>
