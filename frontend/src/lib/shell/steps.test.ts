@@ -71,6 +71,19 @@ describe('workflowSteps', () => {
 		expect(step({}, 'tables-h')).toMatchObject({ state: 'todo', detail: 'Optional' });
 	});
 
+	it('counts one edit once after a split copied its note to the pieces', () => {
+		const from = { type: 'RU', number: 3 } as const;
+		const pieces = [{ type: 'RU', number: 16 }, from] as const;
+		const source = { kind: 'manual', note: 'Land use: 12 → 16; Survey', date: '2026-10-30' } as const;
+		const split = { quaternary: 'Z01A', from, how: 'divided', pieces } as const;
+		const progress = sidecarProgress({
+			schema: 'pitman-sidecar',
+			schemaVersion: 1,
+			values: pieces.map((module) => ({ target: { module, field: 'afforestation.areaKm2', year: 2009 }, source, splits: [split] }))
+		});
+		expect(progress.tableEdits).toBe(1);
+	});
+
 	it('a partly failed run is reported as failed, with the count', () => {
 		expect(step({ run: 'done', modesRun: 2, modesFailed: 1 }, 'run-h')).toMatchObject({ state: 'failed', detail: '1 of 3 modes failed' });
 	});

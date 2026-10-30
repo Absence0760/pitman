@@ -12,13 +12,15 @@
  * in Calibrate the note carries the change, `Land use: 5.2 → 6; 2024 survey`,
  * with `none` for a year that wasn't or no longer is in the table, because
  * `ValueSource` has no structured from and to. `tableCellHistory` reads it
- * back. A log entry says what the cell held then, not what it holds now: a
- * sub-division scales the table under it (R5-E16 leaves `values` alone), so
- * only the run of entries that ends at the cell's value counts (R7-T3).
+ * back. A log entry says what the cell held then, not what it holds now, so
+ * only the run of entries that ends at the cell's value counts (R7-T3). A
+ * sub-division carries a cell's entries to the pieces and, where it divided
+ * the value, records what each got (`ValueEntry.splits`, R7-C14): that share
+ * is where a piece's own history starts.
  */
 
 import { readRunoff, writeRunoff } from '../io/runoff.js';
-import type { HydroYear, NetworkBundle, RunoffModule, Sidecar, ValueSourceKind, YearTable } from '../types.js';
+import type { HydroYear, NetworkBundle, RunoffModule, Sidecar, ValueSourceKind, ValueSplit, YearTable } from '../types.js';
 import type { ApplyTableEdits, TableEdit } from './round7-contract.js';
 
 export type LandUseTable = TableEdit['target']['table'];
@@ -157,17 +159,20 @@ export interface TableLogEntry {
 	readonly kind: ValueSourceKind;
 	readonly date: string;
 	readonly by?: string;
+	/** The last sub-division that divided this value: the entry is about the whole, and this module has a share. */
+	readonly division?: ValueSplit;
 }
 
 /** Every edit this module's sidecar holds for the cell, oldest first. Entries of another kind are skipped. */
 export function tableCellLog(sidecar: Sidecar | undefined, moduleNumber: number, table: LandUseTable, year: HydroYear): TableLogEntry[] {
 	const { field } = LAND_USE_TABLES[table];
 	const entries: TableLogEntry[] = [];
-	for (const { target, source } of sidecar?.values ?? []) {
+	for (const { target, source, splits } of sidecar?.values ?? []) {
 		if (target.field !== field || target.year !== year || target.module?.type !== 'RU' || target.module.number !== moduleNumber) continue;
 		const match = NOTE.exec(source.note ?? '');
 		if (match === null) continue;
-		entries.push({ from: readValue(match[1]!), to: readValue(match[2]!), note: match[3] ?? '', kind: source.kind, date: source.date ?? '', ...(source.by !== undefined && { by: source.by }) });
+		const division = splits?.filter((s) => s.how === 'divided').at(-1);
+		entries.push({ from: readValue(match[1]!), to: readValue(match[2]!), note: match[3] ?? '', kind: source.kind, date: source.date ?? '', ...(source.by !== undefined && { by: source.by }), ...(division && { division }) });
 	}
 	return entries;
 }
@@ -180,17 +185,20 @@ export function tableLoggedYears(sidecar: Sidecar | undefined, moduleNumber: num
 }
 
 export interface TableCellHistory {
-	/** What the network file had, `null` for a year it didn't list. */
+	/** What the network file had, `null` for a year it didn't list. On a value a sub-division divided, this module's share as the split left it. */
 	readonly file: number | null;
 	/** The edits that led from `file` to the working copy, oldest first. */
 	readonly edits: readonly TableLogEntry[];
+	/** The last edit of the whole, when `file` is a share of it (R7-C14). */
+	readonly divided?: TableLogEntry;
 }
 
 /**
  * Where a cell's value came from. Only the entries that chain from the file to
  * `current` count: if the last one doesn't end at `current`, something else
  * has changed the cell since (a sub-division, a hand-edited file) and the value
- * in use is the file's, for all this log can say.
+ * in use is the file's, for all this log can say. A divided value's share is
+ * where the chain starts: resetting a piece gives it its share, never the whole.
  */
 export function tableCellHistory(sidecar: Sidecar | undefined, moduleNumber: number, table: LandUseTable, year: HydroYear, current: number | null): TableCellHistory {
 	const log = tableCellLog(sidecar, moduleNumber, table, year);
@@ -198,6 +206,7 @@ export function tableCellHistory(sidecar: Sidecar | undefined, moduleNumber: num
 	let expected = current;
 	for (let k = log.length - 1; k >= 0; k--) {
 		const entry = log[k]!;
+		if (entry.division) return (entry.division.part ?? null) === expected ? { file: expected, edits: chain, divided: entry } : { file: expected, edits: chain };
 		if (entry.to !== expected) break;
 		chain.unshift(entry);
 		expected = entry.from;

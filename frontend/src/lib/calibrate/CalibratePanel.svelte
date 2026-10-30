@@ -208,6 +208,8 @@
 						In the file <strong class="number">{formatValue(field, file)}</strong> <span class="place">({field.line})</span>
 						{#if current !== file && latest}
 							<span class="place">Applied {formatValue(field, current)} on {latest.date.slice(0, 10)}{latest.reason ? `: ${latest.reason}` : ''}</span>
+						{:else if latest?.reshaped}
+							<span class="place">Applied {formatValue(field, latest.to)} on {latest.date.slice(0, 10)}{latest.reason ? `: ${latest.reason}` : ''}, then {latest.reshaped}</span>
 						{/if}
 					</p>
 					<button type="button" class="reset" onclick={() => resetField(field)} disabled={value === formatValue(field, file)}>

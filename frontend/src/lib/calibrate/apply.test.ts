@@ -75,6 +75,21 @@ describe('fileValue and calibrationLog', () => {
 		]);
 	});
 
+	it('keeps the file’s value of a note a split copied, but not of one it divided or scaled', () => {
+		const ru = (number: number) => ({ type: 'RU', number }) as const;
+		const split = (how: 'copied' | 'divided') => ({ quaternary: 'Z01A', from: ru(module.number), how, pieces: [ru(16), ru(module.number)], ...(how === 'divided' ? { whole: 400, part: 100 } : {}) });
+		const sidecar = (how: 'copied' | 'divided'): Sidecar => ({
+			schema: 'pitman-sidecar',
+			schemaVersion: 1,
+			values: [{ target: { module: ru(module.number), field: 'pitman.ST' }, source: { kind: 'manual', note: 'Calibration: 150 → 400; peak flows', date: NOW.toISOString() }, splits: [split(how)] }]
+		});
+		const piece: RunoffModule = { ...module, pitman: { ...module.pitman, ST: 100 } };
+		expect(fileValue(sidecar('copied'), piece, 'pitman.ST')).toBe(150);
+		expect(fileValue(sidecar('divided'), piece, 'pitman.ST')).toBe(100);
+		expect(calibrationLog(sidecar('copied'), module.number, 'pitman.ST')[0]?.reshaped).toBeUndefined();
+		expect(calibrationLog(sidecar('divided'), module.number, 'pitman.ST')[0]?.reshaped).toBe(`divided among RU 16 and RU ${module.number} when Z01A was sub-divided: 100 here of 400`);
+	});
+
 	it('remembers the network file’s value through later edits', () => {
 		expect(fileValue(second.sidecar, twice, 'pitman.ST')).toBe(module.pitman.ST);
 	});

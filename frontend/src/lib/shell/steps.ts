@@ -4,7 +4,7 @@
  * state is always said in words as well as shown (WCAG 1.4.1).
  */
 
-import type { Sidecar } from '@pitman/wrsm';
+import { distinctValues, type Sidecar } from '@pitman/wrsm';
 
 export type StepState = 'done' | 'active' | 'failed' | 'todo';
 
@@ -44,7 +44,8 @@ export interface SidecarProgress {
 }
 
 export function sidecarProgress(sidecar: Sidecar | undefined): SidecarProgress {
-	const notes = (sidecar?.values ?? []).map((v) => v.source.note ?? '');
+	// A split keeps one copy of a note per piece: one edit still counts as one.
+	const notes = distinctValues(sidecar?.values ?? []).map((v) => v.source.note ?? '');
 	return {
 		rowsWritten: sidecar?.capeFarmMapper !== undefined || (sidecar?.dams?.length ?? 0) > 0,
 		tableEdits: notes.filter((n) => n.startsWith('Land use:')).length,

@@ -1175,6 +1175,42 @@ export interface ValueTarget {
 	readonly month?: number;
 }
 
+/**
+ * What a sub-division did to a value with a note (R7-C14, subdivide.md §
+ * Provenance). `from` is the module split, `pieces` every module holding the
+ * value now. `copied`: each holds the same value. `moved`: one module holds
+ * it all. `divided`: each holds a share. `scaled`: each holds it rescaled
+ * (Sami's HGRAD, R5-E1).
+ */
+export interface ValueSplit {
+	/** The `subdivisions` key, whose entry says how the shares were made. */
+	readonly quaternary: string;
+	readonly from: ModuleRef;
+	readonly how: 'copied' | 'moved' | 'divided' | 'scaled';
+	readonly pieces: readonly ModuleRef[];
+	/** `divided` and `scaled`: what `from` held at the split; `null` for a year its table didn't list. */
+	readonly whole?: number | null;
+	/** `divided` and `scaled`: what this entry's module got. */
+	readonly part?: number | null;
+}
+
+/** A note whose value no longer exists: the split replaced it, or its module went. */
+export interface ValueRetired {
+	readonly quaternary: string;
+	/** The module the note was on: `target.module` is removed, so nothing reads it as a value in use. */
+	readonly from: ModuleRef;
+	readonly reason: string;
+}
+
+/** One provenance note. `splits` and `retired` are additive: an entry from before they existed has neither, and reads as it always did. */
+export interface ValueEntry {
+	readonly target: ValueTarget;
+	readonly source: ValueSource;
+	/** Each sub-division the value went through, oldest first. */
+	readonly splits?: readonly ValueSplit[];
+	readonly retired?: ValueRetired;
+}
+
 /** A gridded-MAP lookup over a boundary (method B, decision D6). */
 export interface MapGridSample {
 	/** Grid name, e.g. the national or provincial MAP surface. */
@@ -1370,5 +1406,5 @@ export interface Sidecar {
 	/** Demand-editor specs, by upper-cased demand file name. */
 	readonly demands?: Readonly<Record<string, DemandSpec>>;
 	/** Per-value source notes. */
-	readonly values?: readonly { readonly target: ValueTarget; readonly source: ValueSource }[];
+	readonly values?: readonly ValueEntry[];
 }
