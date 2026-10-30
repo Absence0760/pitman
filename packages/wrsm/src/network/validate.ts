@@ -236,7 +236,7 @@ export function validateNetwork(bundle: NetworkBundle): RunMessage[] {
 				}
 			}
 		}
-		if ((m.kind === 'RU' || m.kind === 'RV') && !lookupFile(bundle.rainfall, m.rainfallFile)) {
+		if ((m.kind === 'RU' || m.kind === 'RV' || m.kind === 'RR') && !lookupFile(bundle.rainfall, m.rainfallFile)) {
 			error(`${label}: rainfall file '${m.rainfallFile}' is not in the network`, ref);
 		}
 		if (m.kind === 'CR' && m.wetlandType !== 0 && m.wetlandRainfallFile && !lookupFile(bundle.rainfall, m.wetlandRainfallFile)) {

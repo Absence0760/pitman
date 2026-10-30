@@ -19,8 +19,9 @@ function ru(bundle: NetworkBundle, n: number): RunoffModule {
 }
 
 /**
- * Network water balance per month: runoff generated + defined inflows =
- * flow leaving (to the zero sink, or into a module that isn't simulated)
+ * Network water balance per month: runoff generated + defined inflows +
+ * irrigation return flows = flow leaving (to the zero sink, or into a module
+ * that isn't simulated, an irrigation block taking what its route brings)
  * + storage change + losses the simulators report.
  */
 function balance(bundle: NetworkBundle, result: RunResult, ledger: Ledger): number[] {
@@ -38,7 +39,7 @@ function balance(bundle: NetworkBundle, result: RunResult, ledger: Ledger): numb
 		let leave = 0;
 		for (const r of network.routes) {
 			const v = result.routeFlows[r.number]!.values[i]!;
-			if (r.upstreamPosition === 0) gain += v;
+			if (r.upstreamPosition === 0 || network.modules[r.upstreamPosition - 1]?.type === 'RR') gain += v;
 			if (consumes(r.downstreamPosition) && r.upstreamPosition !== 0) leave += v;
 		}
 		let storage = 0;
@@ -96,11 +97,10 @@ describe('runNetwork on the synthetic bundle', () => {
 		const { simulators, ledger } = fakeSimulators();
 		const result = runNetwork(syntheticBundle(), { kind: 'historical' }, { simulators });
 		expect(ledger.calls).toEqual(['RV5', 'CR4']);
-		const rr = result.messages.findIndex((m) => m.module?.type === 'RR');
-		const firstRunoff = result.messages.findIndex((m) => m.module?.type === 'RU');
-		expect(rr).toBeGreaterThan(-1);
-		expect(result.messages[rr]).toMatchObject({ level: 'warning', text: expect.stringMatching(/RR 6 \(SYRR6\.DAT\): irrigation is not simulated yet/) });
-		if (firstRunoff > -1) expect(firstRunoff).toBeLessThan(rr);
+		// The demand reached CR4, which is listed after RR6, and the supply came back.
+		const demand = result.irrigation![6]!.demand.values.reduce((s, v) => s + v, 0);
+		expect(demand).toBeGreaterThan(0);
+		expect(result.irrigation![6]!.supply.values).toEqual(result.routeFlows[7]!.values);
 	});
 
 	it('adds the RTIN inflow to the generated runoff and splits the total by the L.020 percentages', () => {

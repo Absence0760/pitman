@@ -34,8 +34,6 @@ describe('wrsm run', () => {
 		expect(await main(['run', dir], c.io, wrsmEngine)).toBe(EXIT_OK);
 		expect((await readdir(join(dir, 'Out.pitman'))).sort()).toEqual([...ROUTES.map((r) => `SYRQ${r}.ANS`), 'SYRV5.ANS'].sort());
 		expect(c.out.at(-1)).toBe('wrote 10 answer files to Out.pitman\n');
-		// Irrigation is not simulated until Round 7: the run says so (R3-N6).
-		expect(c.err.join('')).toMatch(/warning: RR6: /);
 
 		const expected = expectedRun(files, { kind: 'historical' });
 		expect(await answerText(dir, 'SYRQ4.ANS')).toBe(writeAnswer(answerFromSeries('RQ', 4, expected.routeFlows[4]!)));

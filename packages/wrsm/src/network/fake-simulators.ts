@@ -5,12 +5,14 @@
  *
  * - Reservoir: a bucket of capacity `capacity[0]` (0 in natural mode, so
  *   the dam is removed and inflow passes to the spill route, contract.ts),
- *   starting at `initialStorageMm3`; spills what's above capacity down the
- *   spill route; other outflows carry zero.
+ *   starting at `initialStorageMm3`; meets a calculated demand from storage
+ *   as far as it goes; spills what's above capacity down the spill route;
+ *   other outflows carry zero.
  * - Channel: sums its simulated inflows and its defined inflows
  *   (`definedFlowSeries` in the run mode), loses up to `bedLossMm3PerMonth`
- *   each month, meets defined outflows from what's left, and passes the
- *   rest down the principal route; other outflows carry zero.
+ *   each month, meets defined outflows and then calculated demands from
+ *   what's left, and passes the rest down the principal route; other
+ *   outflows carry zero.
  *
  * Every loss and every initial storage is recorded in `ledger`.
  */
@@ -40,7 +42,7 @@ export function fakeSimulators(): { simulators: ModuleSimulators; ledger: Ledger
 		while (ledger.lossPerMonth.length <= i) ledger.lossPerMonth.push(0);
 		ledger.lossPerMonth[i]! += v;
 	};
-	const reservoir = (m: ReservoirModule, inflows: RouteFlows, ctx: ModuleRunContext) => {
+	const reservoir = (m: ReservoirModule, inflows: RouteFlows, ctx: ModuleRunContext, demands: RouteFlows = {}) => {
 		ledger.calls.push(`RV${m.number}`);
 		const length = zeroSeries(ctx.startYear, ctx.endYear).values.length;
 		const natural = ctx.mode.kind === 'natural';
@@ -50,8 +52,14 @@ export function fakeSimulators(): { simulators: ModuleSimulators; ledger: Ledger
 		const inflow = sumInflows(inflows, length);
 		const spill: number[] = [];
 		const stored: number[] = [];
+		const drafts = Object.entries(demands).map(([route, s]) => ({ route: Number(route), demand: s.values, supply: [] as number[] }));
 		for (let i = 0; i < length; i++) {
 			storage += inflow[i]!;
+			for (const d of drafts) {
+				const take = Math.min(storage, d.demand[i]!);
+				d.supply.push(take);
+				storage -= take;
+			}
 			const s = Math.max(0, storage - capacity);
 			storage -= s;
 			spill.push(s);
@@ -59,10 +67,11 @@ export function fakeSimulators(): { simulators: ModuleSimulators; ledger: Ledger
 		}
 		const outflows: Record<number, MonthlySeries> = {};
 		for (const o of m.outflows) outflows[o.route] = zeroSeries(ctx.startYear, ctx.endYear);
+		for (const d of drafts) outflows[d.route] = series(ctx, d.supply);
 		outflows[m.spillRoute] = series(ctx, spill);
 		return { outflows, storage: series(ctx, stored), messages: [] };
 	};
-	const channel = (m: ChannelModule, inflows: RouteFlows, ctx: ModuleRunContext) => {
+	const channel = (m: ChannelModule, inflows: RouteFlows, ctx: ModuleRunContext, demands: RouteFlows = {}) => {
 		ledger.calls.push(`CR${m.number}`);
 		const length = zeroSeries(ctx.startYear, ctx.endYear).values.length;
 		const total = sumInflows(inflows, length);
@@ -70,6 +79,7 @@ export function fakeSimulators(): { simulators: ModuleSimulators; ledger: Ledger
 		for (const c of m.inflows) if (c.definedFlowFile) read(c.definedFlowFile).forEach((v, i) => (total[i]! += v));
 		const outflows: Record<number, MonthlySeries> = {};
 		const defined = m.outflows.filter((o) => o.definedFlowFile).map((o) => ({ route: o.route, demand: read(o.definedFlowFile!), supply: [] as number[] }));
+		for (const [route, s] of Object.entries(demands)) defined.push({ route: Number(route), demand: [...s.values], supply: [] });
 		const principal: number[] = [];
 		for (let i = 0; i < length; i++) {
 			const loss = Math.min(total[i]!, m.bedLossMm3PerMonth);
