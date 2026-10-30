@@ -84,6 +84,9 @@ with them.
   in the chip and the canvas's name as well as drawn.
 - **Don't tint what carries a ramp.** A selection fill over the MAP grid changed
   the colours the key explains; the selected quaternary is outlined only.
+- **What is there isn't drawn like what is proposed.** A dash means "not accepted
+  yet", so crop fields, which are the data, take a solid edge and their own layer;
+  the key under the map names only the marks on it, in words.
 - **The wheel belongs to the page.** On the one long page a map must not trap
   scrolling, so it takes `cooperativeGestures`.
 - **Load the heavy thing when it is near the view.** Every section stays

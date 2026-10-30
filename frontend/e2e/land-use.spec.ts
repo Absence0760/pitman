@@ -89,6 +89,37 @@ test('fetch, confirm the crops, write both rows, and the saved zip says where th
 	expect(sidecar.dams).toMatchObject([{ capacityMm3: 0.7, source: { note: 'Site visit' } }]);
 });
 
+test('the fields are drawn as fields, not as a proposal, and the key says what each mark is', async ({ page }) => {
+	const panel = await start(page, (route) => route.fulfill({ json: ANSWER }));
+	const key = panel.getByRole('list', { name: 'Map key' });
+	await expect(key.getByRole('listitem')).toHaveText(['Quaternary', 'The quaternary chosen']);
+	await fetchButton(panel).click();
+	await expect(panel.getByRole('heading', { name: 'What came back' })).toBeFocused();
+	await expect(key.getByRole('listitem')).toHaveText(['Quaternary', 'The quaternary chosen', 'Field, irrigated', 'Field, the layer doesn’t say', 'Field, dryland', 'Dam, the matched source']);
+
+	const map = panel.locator('.map-wrap');
+	await map.scrollIntoViewIfNeeded();
+	await expect(map).toHaveAttribute('data-status', 'ready');
+	await expect(map).toHaveAttribute('data-fields', '4');
+
+	// The pointer on the irrigated field: its crop and state, in words (the frame's move ended when the view stops changing).
+	await expect(map).toHaveAttribute('data-view', /./);
+	let view = '';
+	await expect
+		.poll(async () => {
+			const before = view;
+			view = (await map.getAttribute('data-view')) ?? '';
+			return view === before;
+		})
+		.toBe(true);
+	const [w, s, e, n] = view.split(',').map(Number) as [number, number, number, number];
+	const area = (await panel.getByTestId('map').boundingBox())!;
+	const lng = west + 0.03;
+	const lat = south + 0.03;
+	await page.mouse.move(area.x + (area.width * (lng - w)) / (e - w), area.y + (area.height * (n - lat)) / (n - s));
+	await expect(panel.getByTestId('map-chip')).toHaveText('Wine grapes, irrigated');
+});
+
 test('a server with no data says so and how to go on, and another try works', async ({ page }) => {
 	let down = true;
 	const panel = await start(page, (route) => (down ? route.fulfill({ status: 503, json: { error: 'Cape Farm Mapper is not configured here.' } }) : route.fulfill({ json: ANSWER })));

@@ -8,6 +8,10 @@ import {
 	basemapLayerIds,
 	BASEMAP_ATTRIBUTION,
 	channelData,
+	FIELD_LAYER,
+	fieldData,
+	fieldLayers,
+	fieldState,
 	mapGridData,
 	mapGridLabelMinZoom,
 	mapGridStride,
@@ -51,6 +55,7 @@ const DATA = {
 	quaternaries: quaternaryData([]),
 	channels: channelData(null),
 	pieces: pieceData([]),
+	fields: fieldData([]),
 	proposal: proposalData(null),
 	modules: moduleData([]),
 	mapGrid: mapGridData(null),
@@ -69,7 +74,7 @@ describe.each([
 		expect(c.pieces).toHaveLength(6);
 		expect(c.ramp).toHaveLength(RAMP_STOPS);
 	});
-	it.each(['quaternary', 'selected', 'proposal', 'channel', 'module'] as const)('%s stands 3:1 off the plain background and the land', (mark) => {
+	it.each(['quaternary', 'selected', 'proposal', 'field', 'channel', 'module'] as const)('%s stands 3:1 off the plain background and the land', (mark) => {
 		expect(contrast(c[mark], c.bg)).toBeGreaterThanOrEqual(3);
 		expect(contrast(c[mark], c.earth)).toBeGreaterThanOrEqual(3);
 	});
@@ -89,7 +94,8 @@ describe.each([
 		expect(at('bm-roads')).toBeLessThan(at(MAP_GRID_LAYER));
 		expect(at(MAP_GRID_LAYER)).toBeLessThan(at(QUATERNARY_HIT_LAYER));
 		expect(at('qt-line')).toBeLessThan(at('dem-channels'));
-		expect(at('dem-channels')).toBeLessThan(at('pc-fill'));
+		expect(at('dem-channels')).toBeLessThan(at(FIELD_LAYER));
+		expect(at('fld-line')).toBeLessThan(at('pc-fill'));
 		expect(at('pc-fill')).toBeLessThan(at('pr-fill'));
 		expect(at('pr-line')).toBeLessThan(at('mod-point'));
 		expect(at('mod-point')).toBeLessThan(at('draft-fill'));
@@ -156,6 +162,19 @@ describe('source data', () => {
 		expect(channelData(null).features).toEqual([]);
 		expect(pieceData(null).features).toEqual([]);
 		expect(moduleData(null).features).toEqual([]);
+	});
+	it('says what a field is, in words and in a state the fill follows', () => {
+		const d = fieldData([
+			{ id: '1', crop: 'Lucerne', irrigated: true, geometry: box(0, 0, 1, 1) },
+			{ id: '2', crop: 'Wheat', irrigated: false, geometry: box(1, 0, 2, 1) },
+			{ id: '3', crop: 'Maize', irrigated: null, geometry: box(2, 0, 3, 1) }
+		]);
+		expect(d.features.map((f) => f.properties.label)).toEqual(['Lucerne, irrigated', 'Wheat, dryland', 'Maize, the layer doesn’t say']);
+		expect([true, false, null].map(fieldState)).toEqual(['irrigated', 'dry', 'unknown']);
+		expect(fieldData(null).features).toEqual([]);
+	});
+	it('edges a field solid, unlike the proposal’s dash', () => {
+		expect(JSON.stringify(fieldLayers(LIGHT))).not.toContain('line-dasharray');
 	});
 	it('gives each piece a tint, neighbours apart', () => {
 		const d = pieceData([

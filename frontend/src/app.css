@@ -83,6 +83,7 @@
 	--map-quaternary: #8f10e0;
 	--map-selected: #b0006e;
 	--map-proposal: #006d77;
+	--map-field: #4a7c00;
 	--map-channel: #c8102e;
 	--map-module: #0047b3;
 	--map-piece-1: #d55e00;
@@ -153,6 +154,7 @@
 		--map-quaternary: #cf6bff;
 		--map-selected: #ff8fd0;
 		--map-proposal: #3fe0d0;
+		--map-field: #a6d96a;
 		--map-channel: #ff6b57;
 		--map-module: #5fa8ff;
 	}

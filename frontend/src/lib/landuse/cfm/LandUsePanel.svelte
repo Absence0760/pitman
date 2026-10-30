@@ -11,12 +11,13 @@
 	import { DEFAULT_MATCH_RADIUS_M, matchDams, type AreaGeometry, type LandUseAnswer, type LoadedBundle, type QuaternaryCollection } from '@pitman/wrsm';
 	import { MAX_AREA_FILE_BYTES, parseArea } from '#lib/extend/area.js';
 	import type { MapProps } from '#lib/map/contract.js';
+	import { fieldState } from '#lib/map/mapStyle.js';
 	import { plural } from '#lib/network/format.js';
 	import { formatNumber, hydroYearLabel } from '#lib/results/format.js';
 	import { LandUseRequestError, landUseClient, type LandUseClient } from './api.js';
 	import CropStep from './CropStep.svelte';
 	import DamStep from './DamStep.svelte';
-	import { DEFAULT_ROW_YEAR, ROW_YEARS, damMarkers, fieldsShape, validYear } from './plan.js';
+	import { DEFAULT_ROW_YEAR, ROW_YEARS, damMarkers, validYear } from './plan.js';
 
 	let {
 		bundle,
@@ -65,6 +66,9 @@
 
 	let typedYear = $state<number | null>(DEFAULT_ROW_YEAR);
 	const year = $derived(validYear(typedYear) ? typedYear : null);
+
+	/** What the key names: only what is on the map. */
+	const fieldStates = $derived(new Set((answer?.fields ?? []).map((f) => fieldState(f.irrigated))));
 
 	const totalHa = $derived(answer?.fields.reduce((sum, f) => sum + f.areaHa, 0) ?? 0);
 
@@ -152,7 +156,8 @@
 		quaternaries: collection,
 		selected: custom ? null : code || null,
 		modules: damMarkers(dams),
-		proposal: fieldsShape(answer?.fields ?? []) ?? custom?.geometry ?? null,
+		fields: answer?.fields ?? [],
+		proposal: custom?.geometry ?? null,
 		tool: drawing ? 'draw' : 'select',
 		onselect: chooseCode,
 		ondraw: (geometry) => chooseShape('The boundary you drew', geometry)
@@ -168,7 +173,18 @@
 
 	<div class="work" class:with-map={map !== undefined}>
 		{#if map}
-			<div class="map-slot" data-map-tool={drawing ? 'draw' : 'select'}>{@render map(mapProps)}</div>
+			<div class="map-side">
+				<div class="map-slot" data-map-tool={drawing ? 'draw' : 'select'}>{@render map(mapProps)}</div>
+				<ul class="key" aria-label="Map key">
+					<li><span class="swatch" aria-hidden="true"></span>Quaternary</li>
+					{#if code && !custom}<li><span class="swatch chosen" aria-hidden="true"></span>The quaternary chosen</li>{/if}
+					{#if custom}<li><span class="swatch boundary" aria-hidden="true"></span>Your boundary</li>{/if}
+					{#if fieldStates.has('irrigated')}<li><span class="swatch field irrigated" aria-hidden="true"></span>Field, irrigated</li>{/if}
+					{#if fieldStates.has('unknown')}<li><span class="swatch field unknown" aria-hidden="true"></span>Field, the layer doesn’t say</li>{/if}
+					{#if fieldStates.has('dry')}<li><span class="swatch field" aria-hidden="true"></span>Field, dryland</li>{/if}
+					{#if dams.length > 0}<li><span class="swatch dam" aria-hidden="true"></span>Dam, the matched source</li>{/if}
+				</ul>
+			</div>
 		{/if}
 		<div class="flow">
 			<h3 id="landuse-area-h">The area</h3>
@@ -288,11 +304,59 @@
 			grid-column: 1;
 			grid-row: 1;
 		}
-		.work.with-map .map-slot {
+		.work.with-map .map-side {
 			grid-column: 2;
 			grid-row: 1;
+		}
+		.work.with-map .map-slot {
 			height: 24rem;
 		}
+	}
+	.map-side {
+		min-width: 0;
+	}
+	.key {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.2rem 1rem;
+		margin: 0.4rem 0 0;
+		padding: 0;
+		list-style: none;
+		font-size: var(--font-sm);
+	}
+	.key li {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+	.swatch {
+		flex: none;
+		width: 1.1rem;
+		height: 0.8rem;
+		border-radius: 2px;
+		border: 1.5px solid var(--map-quaternary);
+	}
+	.swatch.chosen {
+		border: 3px solid var(--map-selected);
+	}
+	.swatch.boundary {
+		border: 2px dashed var(--map-proposal);
+	}
+	.swatch.field {
+		border: 1.5px solid var(--map-field);
+	}
+	.swatch.irrigated {
+		background: color-mix(in srgb, var(--map-field) 55%, transparent);
+	}
+	.swatch.unknown {
+		background: color-mix(in srgb, var(--map-field) 22%, transparent);
+	}
+	.swatch.dam {
+		width: 0.8rem;
+		border-radius: 50%;
+		border: 2px solid var(--map-casing);
+		outline: 1px solid var(--border-strong);
+		background: var(--map-module);
 	}
 	h3 {
 		font-size: 1.05rem;

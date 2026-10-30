@@ -18,6 +18,7 @@ const SINGLE = {
 	quaternary: '--map-quaternary',
 	selected: '--map-selected',
 	proposal: '--map-proposal',
+	field: '--map-field',
 	channel: '--map-channel',
 	module: '--map-module'
 } as const;
