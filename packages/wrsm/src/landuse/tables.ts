@@ -165,7 +165,11 @@ export interface TableLogEntry {
 
 /** Every edit this module's sidecar holds for the cell, oldest first. Entries of another kind are skipped. */
 export function tableCellLog(sidecar: Sidecar | undefined, moduleNumber: number, table: LandUseTable, year: HydroYear): TableLogEntry[] {
-	const { field } = LAND_USE_TABLES[table];
+	return fieldLog(sidecar, moduleNumber, LAND_USE_TABLES[table].field, year);
+}
+
+/** Every edit logged for one value of a module, a year table's cell or a value with no year, oldest first. */
+export function fieldLog(sidecar: Sidecar | undefined, moduleNumber: number, field: string, year?: HydroYear): TableLogEntry[] {
 	const entries: TableLogEntry[] = [];
 	for (const { target, source, splits } of sidecar?.values ?? []) {
 		if (target.field !== field || target.year !== year || target.module?.type !== 'RU' || target.module.number !== moduleNumber) continue;
@@ -201,7 +205,11 @@ export interface TableCellHistory {
  * where the chain starts: resetting a piece gives it its share, never the whole.
  */
 export function tableCellHistory(sidecar: Sidecar | undefined, moduleNumber: number, table: LandUseTable, year: HydroYear, current: number | null): TableCellHistory {
-	const log = tableCellLog(sidecar, moduleNumber, table, year);
+	return fieldHistory(tableCellLog(sidecar, moduleNumber, table, year), current);
+}
+
+/** The run of `log` that ends at `current`: `tableCellHistory`'s rule, for any logged value. */
+export function fieldHistory(log: readonly TableLogEntry[], current: number | null): TableCellHistory {
 	const chain: TableLogEntry[] = [];
 	let expected = current;
 	for (let k = log.length - 1; k >= 0; k--) {

@@ -122,7 +122,7 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
 			{
 				name: 'Land use and demands to 2025',
 				status: 'Partly',
-				detail: 'The afforestation, alien and paved tables and demand files can be edited, with a source for each value. Irrigated areas and farm dams come through a Cape Farm Mapper import that runs here on invented data only: the real service needs an access token. The DWS register and satellite surface water are not read yet.'
+				detail: 'The afforestation, alien and paved tables, the species split and alien composition, and demand files can be edited, with a source for each value; rotations on a CSIR child stay read-only. Demand files can be removed. Irrigated areas and farm dams come through a Cape Farm Mapper import that runs here on invented data only: the real service needs an access token. The DWS register and satellite surface water are not read yet.'
 			},
 			{ name: 'Extending observed gauge records', status: 'Not yet', detail: 'Observed .obs files are read and used as they stand.' }
 		]

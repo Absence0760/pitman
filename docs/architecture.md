@@ -40,8 +40,8 @@ pitman/
 │       ├── lib/map/          The map: Map.svelte (takes contract.ts MapProps), MapPanel.svelte (the step), the style and tokens (mapStyle, palette), the client (api), module placing (modules), drawing (draw/); MapLibre loads lazily (maplibre.ts)
 │       ├── lib/map/tributary/ The tributary tool: api.ts (the /delineate and /channels client), present.ts (its wording), TributaryTool.svelte (embedded by the wizard; never touches MapLibre)
 │       ├── lib/calibrate/    Edit a runoff module's parameters, preview a historical rerun at a gauge, apply (docs/user-guide.md)
-│       ├── lib/landuse/editor/ Edit a runoff module's land-use year tables: LandUseEditor.svelte (the card), offers.ts (which tables a module offers, the SFR rules), review.ts (drafts, checks, what apply writes), chart.ts and plot.ts (the series as a run reads it); the engine side is packages/wrsm/src/landuse/tables.ts (docs/user-guide.md § Land-use tables)
-│       ├── lib/demand/       Create and edit demand files: the list, the form beside its preview, apply (§ App flow, Demands)
+│       ├── lib/landuse/editor/ Edit a runoff module's land-use year tables: LandUseEditor.svelte (the card), offers.ts (which tables a module offers, the SFR rules), review.ts (drafts, checks, what apply writes), composition.ts and CompositionTable.svelte (the species split and composition behind a table), chart.ts and plot.ts (the series as a run reads it); the engine side is packages/wrsm/src/landuse/tables.ts and composition.ts (docs/user-guide.md § Land-use tables)
+│       ├── lib/demand/       Create, edit and remove demand files: the list, the form beside its preview, apply, the removal's confirmation and undo (§ App flow, Demands)
 │       ├── lib/subdivide/    Sub-divide a quaternary (method B): the wizard, its logic in .ts modules, the engine adapter `engine.ts` and the backend client `data.ts` (§ App flow, step 6)
 │       ├── lib/map/mapzone/  The MAP-zone tool: threshold, drawn or pasted zone (§ App flow, step 6)
 │       ├── lib/landuse/cfm/  Land use: the /cfm/land-use client (api), its logic (plan), LandUsePanel.svelte with CropStep and DamStep (docs/data.md § Cape Farm Mapper)
@@ -201,6 +201,10 @@ zip. Apply names the file after the route, sets the RV L.013 or CR L.010 line,
 adds a `.NET` route to the zero sink when asked, and records the spec in
 `sidecar.demands` and each value's source in `sidecar.values` (target `{ file,
 field, year? }`, rule 8). It hands the page the bundle through `onupdate`.
+Removing works the same way: `planDemandRemoval` says what would happen, the
+confirmation shows that plan and `applyDemandRemoval` carries it out (R7-X8 …
+R7-X12). Undo hands back the bundle from before, while nothing else has
+changed it.
 
 `synthetic.ts` builds a synthetic network (the engine's `syntheticNetwork()`
 plus its channel reach) as files or a zip, for tests: load it, run every

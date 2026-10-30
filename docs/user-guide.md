@@ -138,8 +138,32 @@ says how far its tables reach. **Nothing changes until you apply it.**
 
 Two things to check: a run takes no flow reduction from afforestation in a **free
 module** yet, and an alien vegetation algorithm of **None** means a run ignores the
-table. The screen says so on the table. The species split and the composition are
-shown but edited in WRSM2000, so a first year in an empty table saves them as zeros.
+table. The screen says so on the table.
+
+**Species split and composition.** Under the afforestation table is its genus split
+(pine, eucalyptus, wattle), rotations, optimal growth and required reductions (L.009,
+L.010). Under the alien vegetation table are its three classes, ages, optimal area and
+riparian share (L.014, L.015, L.011). Each value has what the file holds beside it,
+**Reset**, and a source note once it changes, as a year does; the same Apply takes both.
+
+- **Shares add up.** Change a share and the three must come to 100.00 %, to the two
+  decimals the file keeps; the sum shows as you type. Shares a file arrived with are
+  shown and left alone until you change one.
+- **What a change does is on the screen.** An SFR child's line gives the MAR and low-flow
+  targets a run calibrates it to, before and after, and the notes say which values its
+  algorithm reads. A run works those targets out every time, so no calibration goes
+  stale, but a fit of the parent to a gauge was made with the old ones: check it after
+  the next run.
+- **Rotations and optimal growth are read-only on a CSIR child.** WRSM2000 reads them
+  through tables the manuals don't publish, so Pitman runs the child on Smoothed Gush
+  targets and can't show what a change does, and WRSM2000's own log points to rotations
+  when that calibration doesn't close. Change them in WRSM2000. On every other module
+  they can be edited, though Smoothed Gush and User-defined don't read them.
+- **The required reductions** can be edited only under the User-defined algorithm, the
+  one that reads them. **The algorithm** isn't edited here: it decides how a run treats
+  the area, and how a child is calibrated.
+- **A first year in an empty table** opens the split in the same Apply, so set it then.
+  Left alone it saves as zeros. A version 0 file has no lines for it.
 
 Each apply adds one entry per changed value to `values` in `pitman.json`, with the
 module, the field, the year, the date and a note holding the change and your source:
@@ -281,7 +305,29 @@ it** starts the form from estimates of the file's rows, marked as such. If a fil
 changed outside Pitman, or the run now goes further than a file, open it and apply to
 regenerate it.
 
-Natural mode ignores demands (decision D1). After applying, run again to see the effect.
+**Remove** on a file's row asks first, and says what happens before anything does:
+
+- **The routes.** An outflow route stays on its module and carries nothing, and a new
+  demand can use it. That goes for a route Pitman added for the demand too. A principal,
+  diversion or wetland route goes back to being simulated, and a route to an irrigation
+  block goes back to the block's calculated demand. An inflow from another module goes
+  back to what that module sends.
+- **A route from the zero source goes with its file**, because such a route must have one
+  (TT 689 p.xv). If a gauge or summary line names the route, or it is a wetland inflow,
+  the removal is refused and the screen says why; change the network in WRSM2000 first.
+- **A file several routes read** can come off all of them, when the file goes, or off one,
+  when it stays for the rest with its spec and sources.
+- **The file** leaves the working copy and the next saved zip, with its spec and sources in
+  `pitman.json`. If a gauge reads the same file as its observed flow it stays in the zip.
+- **One of the network's own files** needs a reason. There is no spec to make it again from,
+  so `pitman.json` keeps one entry saying what was removed, what it held and why, and the
+  card lists it. A demand Pitman generated needs no reason and leaves nothing behind.
+
+**Undo the removal** puts everything back, until something else changes the network.
+After that the only copy of a network's own file is the zip you loaded.
+
+Natural mode ignores demands (decision D1). After applying or removing, run again to see
+the effect.
 
 ## Crop fields and farm dams
 
