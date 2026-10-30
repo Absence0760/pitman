@@ -216,5 +216,45 @@ settled (`docs/theory/subdivide.md`):
 - A tributary drains into the remainder, in series. MAP-zone pieces drain side by side
   to the same outlet. The final factor and its source go into `pitman.json`.
 
-Land use and demands to 2025 (Cape Farm Mapper, farm dams, the year tables, demand
-files) are specified but not built.
+Land use to 2025 (Cape Farm Mapper, farm dams, the year tables) is specified but not
+built. Demands are in the next section.
+
+## Demands
+
+**Demands** lists every demand and defined-flow file on the network's routes: what
+reads it, its years, the mean annual volume and where it came from. A file that stops
+short of the run is marked, because a historical run stops at the first missing year.
+
+**New demand** makes one, mostly for domestic supply:
+
+- **Attached to:** a reservoir or channel reach, then a route. A new route to the zero
+  sink is on offer until the module is full (5 outflows on a reservoir, 10 on a channel).
+  A route that can't take a demand stays in the list and says why: the spill or
+  principal route, one feeding an irrigation block, one that carries another file.
+- **Annual volume:** the base year and its volume, in million m³ a year.
+- **Monthly distribution:** 12 shares, October first, adding up to 100 %. The sum shows
+  as you type; **Even distribution** and **Scale to 100 %** are shortcuts.
+- **Growth:** the volume in later years, with 2025 offered. Pitman draws straight lines
+  between the years and holds the volume flat before the base year and after the last
+  year. A row with no volume is left out. Years are hydrological: 2025 means October
+  2025 to September 2026.
+- **Where this comes from:** a note beside each value, kept in `pitman.json`. A value you
+  leave alone keeps its recorded source; a changed one is marked typed in, with the date.
+
+The preview shows the file before anything changes: its name, its years, every row
+with the total the file holds beside the volume you asked for, what else Apply touches,
+and the file as text. It covers every year of the run and carries on to the last growth
+year. The file is named after the route (`SYRQ11.abs`) and uses WRSM2000's layout.
+
+**Rounding.** A demand file keeps two decimals of a million m³ a month, which is
+10,000 m³, so a small demand moves in steps: 0.30 a year spread evenly is written as
+0.03 a month, which comes to 0.36. Pitman shows the difference per year and warns past
+0.5 %. The run and the saved file use the rounded values, so what you see is what runs.
+
+A file with no record in `pitman.json` can be viewed and replaced but not edited as a
+volume, shares and growth, because monthly rows don't say how they were made. **Replace
+it** starts the form from estimates of the file's rows, marked as such. If a file's rows
+changed outside Pitman, or the run now goes further than a file, open it and apply to
+regenerate it.
+
+Natural mode ignores demands (decision D1). After applying, run again to see the effect.

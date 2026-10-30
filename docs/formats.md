@@ -685,12 +685,13 @@ WRSM2000 has two ways to impose a demand. Neither has a growth parameter, so **g
 
 Generating a domestic demand for Round 7, with annual volume *A*_*Y* in million m³/a for each hydrological year *Y*, monthly distribution *d*₁…*d*₁₂ (Oct→Sep, summing to 1), and growth:
 
-- *A*_*Y* is given for anchor years and interpolated (linear or compound growth, as the user chooses) between them. It's held constant beyond the last anchor in present-day mode.
-- Each month's value is *A*_*Y* · *d*_*m*, written in `4X,I4,12F8.2`.
-- The file covers **every** year of the `.NET` period (§11.1).
-- It's named after the route, e.g. `SYRQ11.abs`, referenced on the RV L.013 line, and recorded in the sidecar with its inputs (anchors, distribution, growth, source), per rule 8.
+- *A*_*Y* is given for anchor years and interpolated linearly between them (`DemandSpec.growth`; compound growth is approximated with more anchor years). It's held constant before the first anchor and after the last.
+- Each month's value is *A*_*Y* · *d*_*m*, written in `4X,I4,12F8.3`, or `F8.2` when a month could reach 100 million m³ (R7-X7). WRSM2000's read is fixed-column with an explicit point, `F7.0`, so the extra decimal is taken as written.
+- The file covers **every** year of the `.NET` period (§11.1), and carries on to the last anchor year so a present-day run at that year finds its row.
+- It's named after the route, e.g. `SYRQ11.abs` (`-2`, `-3`, … if that name is taken, even by a file nothing reads), referenced on the RV L.013 or CR L.010 line, and recorded in the sidecar with its inputs: `demands` holds the spec, keyed by the upper-cased name, and `values` holds each input's source under `{ file, field, year? }`, with `field` one of `annualVolumeMm3`, `monthlyDistributionPercent`, `growth` (rule 8).
+- `DemandSpec.growth` holds every anchor; its first row is the base year. An empty table means `annualVolumeMm3` in every year.
 
-The 0.005 Mm³/month write resolution (5,000 m³) is coarse for small towns. The writer must report the total rounding loss per year. If it exceeds 0.5 % of *A*_*Y*, consider `F8.3` (still 8 columns, read correctly by `F7.0` only up to 99.999, U-18).
+The 0.0005 Mm³/month write resolution (500 m³) still leaves a very small demand in steps. The demand editor reports written against asked for every year and warns past 0.5 % of *A*_*Y*. If it exceeds 0.5 %, consider `F8.3` (still 8 columns, read correctly by `F7.0` only up to 99.999, U-18).
 
 ---
 

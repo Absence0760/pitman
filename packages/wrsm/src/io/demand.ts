@@ -10,7 +10,8 @@
  * the data; `hasAverage` records an AVERAGE footer. A gap in the years is
  * an error (TT 689 p.150: a defined flow must cover the simulation period).
  *
- * Writers use `4X,I4,12F8.2` (104 columns, §11.3), or the full .ANS layout
+ * Writers use `4X,I4,12F8.2` (104 columns, §11.3; `F8.3` when `decimals` is 3,
+ * which the fixed-column read takes as it is: the point in the field wins), or the full .ANS layout
  * when `hasTotals` is set, with an AVERAGE footer when `hasAverage` is set.
  * Rows read from a file and unchanged since are copied from `source`.
  */
@@ -44,7 +45,7 @@ export function writeDemand(series: DemandSeries): string {
 		series.hasTotals
 			? formatAnswerRow(answerRow(row.year, row.months))
 			: `    ${formatI(row.year, 4, `${series.fileName} year`)}` +
-				row.months.map((v, k) => ' ' + formatF(v, 7, 2, `${series.fileName} year ${row.year} month ${k + 1}`)).join('');
+				row.months.map((v, k) => ' ' + formatF(v, 7, series.decimals ?? 2, `${series.fileName} year ${row.year} month ${k + 1}`)).join('');
 	const footer = (): string[] => {
 		if (!series.hasAverage) return [];
 		const a = answerAverage(series.rows.map((row) => answerRow(row.year, row.months)));

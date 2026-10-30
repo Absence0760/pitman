@@ -20,6 +20,7 @@
 	import { readSources, sourceName, type SourceFile } from '#lib/network/sources.js';
 	import { browserIndexedDB, forgetWorkingCopy, loadWorkingCopy, storeWorkingCopy } from '#lib/network/storage.js';
 	import CalibratePanel from '#lib/calibrate/CalibratePanel.svelte';
+	import DemandPanel from '#lib/demand/DemandPanel.svelte';
 	import ExtendPanel from '#lib/extend/ExtendPanel.svelte';
 	import LandUseEditor from '#lib/landuse/editor/LandUseEditor.svelte';
 	import { rainfallFiles } from '#lib/extend/files.js';
@@ -357,6 +358,8 @@
 			</SubdividePanel>
 
 			<LandUseEditor {bundle} onupdate={updateBundle} busy={runState === 'running'} />
+
+			<DemandPanel {bundle} onupdate={updateBundle} busy={runState === 'running'} />
 
 			<CalibratePanel {bundle} onupdate={updateBundle} busy={runState === 'running'} />
 

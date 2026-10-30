@@ -122,6 +122,10 @@ with them.
 - **A dead end names the way out.** A refused module says what to do instead;
   an optional source that fails (no quaternary service) opens the alternative
   (upload the boundary) rather than stopping the screen.
+- **A preview is the plan, not a sketch of it.** The demand form asks the engine
+  for its plan on every keystroke and Apply carries out that same object, so
+  there is no second calculation to drift. Rows are shown at the file's rounding;
+  a total of 0.36 beside an asked 0.30 is the file's truth, said beside the ask.
 - **A method that can fail offers the choices in its own words,** and the
   risky one is never the default: an unconverged calibration has no primary
   button, and only an explicit "Use the best factor" reaches Apply.

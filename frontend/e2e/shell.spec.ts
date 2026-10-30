@@ -46,9 +46,10 @@ test('the rail follows the run and its links reach their sections', async ({ pag
 	await expect(page.getByRole('region', { name: 'Results' })).toBeInViewport({ ratio: 0.05 });
 });
 
-test('the land-use tables are on the page, under the one title', async ({ page }) => {
+test('the land-use tables and demands are on the page, under the one title', async ({ page }) => {
 	await load(page);
 	await expect(page.getByRole('heading', { name: 'Land-use tables' })).toBeAttached();
+	await expect(page.getByRole('heading', { name: 'Demands' })).toBeAttached();
 	await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
 });
 

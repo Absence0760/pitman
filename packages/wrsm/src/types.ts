@@ -1017,6 +1017,8 @@ export interface DemandSeries {
 	readonly hasTotals: boolean;
 	/** Whether the file ends with an AVERAGE trailer row. */
 	readonly hasAverage: boolean;
+	/** Decimals a generated file writes (default 2): 3 keeps a small town's monthly volumes, which round badly at 0.01 (§12, R7-X7). */
+	readonly decimals?: 2 | 3;
 	/** The file as read, for a byte-identical rewrite (Round 2 addition). */
 	readonly source?: SeriesSource;
 }
