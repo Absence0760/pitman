@@ -38,6 +38,7 @@ pitman/
 │       ├── lib/network/      Load, validate, store, run (worker), save (§ App flow)
 │       ├── lib/extend/       Extend a .RAN with CHIRPS (method A): area upload, the CHIRPS client, the fit screen, apply (§ App flow, step 5)
 │       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
+│       ├── lib/shell/        The frame around the steps: app bar, landing page, step rail (steps.ts holds its wording), the design-token guards; rules in docs/design/ui-playbook.md
 │       └── routes/           +page.svelte: the app shell
 ├── backend/
 │   ├── package.json          Build script runs esbuild → dist/lambda.mjs
@@ -75,7 +76,10 @@ front for caching and TLS termination. No server-side rendering at runtime.
 The app is one static page (`frontend/src/routes/+page.svelte`). Everything
 happens in the browser; no network file is ever uploaded (issue #3 rule 7).
 The page holds the state; the logic is in `frontend/src/lib/network/*.ts`,
-each with a vitest test beside it.
+each with a vitest test beside it. Before a network is loaded it shows the
+landing page; once one is, the sections below sit beside a step rail, all
+mounted, so moving between steps loses nothing, and Save stays in the app bar
+(`frontend/src/lib/shell/`, `docs/design/ui-playbook.md`).
 
 1. **Load** (`sources.ts`, `zip.ts`). A zip (`<input type="file">`), a
    folder (`<input webkitdirectory>`) or either dropped on the drop area

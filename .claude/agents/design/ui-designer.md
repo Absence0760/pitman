@@ -16,14 +16,13 @@ hold up with a real-sized network.
 
 ## Read first, every time
 
-1. **The UI playbook.** Pitman's own `docs/design/ui-playbook.md` once it
-   exists. Until then, IC-WBT's, which Pitman's map stack is ported from
-   (`docs/data.md` § Code to copy), read-only:
-   `git -C ../project-water-management show origin/main:docs/design/ui-playbook.md`
-   (§ 1 process, § 2 layout, § 3 colour and wording, § 4 pieces, § 5
-   testing, § 6 bundle). Take its rules, not its features: farm views,
-   roles, translations and IC-WBT's components don't exist here. When you
-   learn a rule worth keeping, propose starting Pitman's playbook with it.
+1. **The UI playbook:** `docs/design/ui-playbook.md`. For a question it
+   doesn't cover, IC-WBT's goes much further, and Pitman's map stack is
+   ported from it (`docs/data.md` § Code to copy), read-only:
+   `git -C ../project-water-management show origin/main:docs/design/ui-playbook.md`.
+   Take its rules, not its features: farm views, roles, translations and
+   IC-WBT's components don't exist here. When you learn a rule worth
+   keeping, add it to Pitman's playbook.
 2. Root `CLAUDE.md` and `docs/STACK.md`: path-scoped commits, no AI
    attribution, tests and docs in the same change, no preemptive
    abstraction (extract on the third caller), static SPA only (no SSR),
@@ -50,17 +49,15 @@ hold up with a real-sized network.
 3. **Build** with the project's existing pieces. No new dependencies
    without asking; `maplibre-gl` and `pmtiles` versions are pinned in
    `docs/data.md`.
-4. **Look at it, if you can.** Screenshots need a Playwright workspace,
-   which Pitman doesn't have yet. Once it does: a throwaway spec at
-   1440×960, 1280×800 and 390×844, light and dark, PNGs in the scratchpad
-   under a folder named for your task, the spec deleted after
-   (`command rm -f`), never committed. Until then, and whenever you
-   didn't look, say so in the report; don't claim a layout you haven't seen.
-   Never start the dev server just to check visuals (CLAUDE.md § UI
-   verification).
+4. **Look at it.** Follow the playbook's "Before calling a screen done":
+   a throwaway Playwright spec at 1440×960, 1280×800 and 390×844, light and
+   dark, PNGs in the scratchpad, the spec deleted after (`command rm -f`),
+   never committed. If you didn't look, say so in the report; don't claim a
+   layout you haven't seen. Never start the dev server just to check visuals
+   (CLAUDE.md § UI verification).
 5. **Tests:** vitest for pure helpers (formatting, unit conversion,
-   month order, provenance labels) beside the module; a component or e2e
-   spec once the harness exists. Run `pnpm check` and `pnpm test`.
+   month order, provenance labels) beside the module; an e2e spec in
+   `frontend/e2e/` for what only a browser shows. Run `pnpm check` and `pnpm test`.
 6. **Docs:** the screen's section in `docs/` (or the playbook draft), in
    the same change.
 7. **Check the inventory**: every item from step 1 has a home.
