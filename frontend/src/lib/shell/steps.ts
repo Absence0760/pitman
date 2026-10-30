@@ -17,6 +17,8 @@ export interface Step {
 export interface StepInput {
 	/** The record, as the rail shows it ("1920/21 to 2024/25"). */
 	readonly years: string;
+	/** The quaternary chosen on the map, if any. */
+	readonly quaternary?: string | undefined;
 	readonly rainfallFiles: number;
 	readonly extendedFiles: number;
 	readonly run: 'idle' | 'running' | 'done' | 'failed';
@@ -47,6 +49,7 @@ function resultsStep({ modesRun }: StepInput): Pick<Step, 'detail' | 'state'> {
 export function workflowSteps(input: StepInput): readonly Step[] {
 	return [
 		{ id: 'network-h', label: 'Network', detail: input.years, state: 'done' },
+		{ id: 'map-h', label: 'Map', detail: input.quaternary ?? 'Pick a quaternary', state: input.quaternary ? 'done' : 'todo' },
 		{ id: 'extend-h', label: 'Extend rainfall', ...extendStep(input) },
 		{ id: 'calibrate-h', label: 'Calibrate', detail: 'Optional', state: 'todo' },
 		{ id: 'run-h', label: 'Run', ...runStep(input) },

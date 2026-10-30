@@ -10,6 +10,8 @@ import { MAX_BODY_BYTES } from './http/area.js';
 import { rateLimit } from './http/rateLimit.js';
 import { mapGridRoutes } from './mapgrid/routes.js';
 import { MapGridCatalog, mapGridSourcesFromEnv } from './mapgrid/source.js';
+import { quaternaryRoutes } from './quaternaries/routes.js';
+import { QuaternaryStore, quaternarySourceFromEnv } from './quaternaries/source.js';
 
 /** Per-instance request limits per client (http/rateLimit.ts): the WAF rule is the global one. */
 export const RATE_LIMITS = {
@@ -17,7 +19,8 @@ export const RATE_LIMITS = {
 	mapGrid: { limit: 120, windowMs: 10 * 60_000 },
 	// The costliest calls the API has: up to ~460 MB and 20 s a delineation, 3 × 3 routed windows a channel box.
 	delineate: { limit: 12, windowMs: 10 * 60_000 },
-	channels: { limit: 30, windowMs: 10 * 60_000 }
+	channels: { limit: 30, windowMs: 10 * 60_000 },
+	quaternaries: { limit: 120, windowMs: 10 * 60_000 }
 } as const;
 
 /** What the data routes read; tests pass their own, the app builds them from the environment. */
@@ -25,7 +28,14 @@ export interface AppDeps {
 	chirps: ChirpsCopy;
 	mapGrids: MapGridCatalog;
 	dem: DemSource;
-	rateLimits: { chirps: { limit: number; windowMs: number }; mapGrid: { limit: number; windowMs: number }; delineate?: { limit: number; windowMs: number }; channels?: { limit: number; windowMs: number } };
+	quaternaries: QuaternaryStore;
+	rateLimits: {
+		chirps: { limit: number; windowMs: number };
+		mapGrid: { limit: number; windowMs: number };
+		delineate?: { limit: number; windowMs: number };
+		channels?: { limit: number; windowMs: number };
+		quaternaries?: { limit: number; windowMs: number };
+	};
 	now: () => number;
 	today: () => string;
 }
@@ -36,6 +46,7 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	const chirps = deps.chirps ?? new ChirpsCopy(chirpsCopyConfig());
 	const mapGrids = deps.mapGrids ?? new MapGridCatalog(mapGridSourcesFromEnv());
 	const dem = deps.dem ?? new DemSource(demLocationFromEnv());
+	const quaternaries = deps.quaternaries ?? new QuaternaryStore(quaternarySourceFromEnv());
 	const limits = deps.rateLimits ?? RATE_LIMITS;
 
 	// CloudFront-stamped shared secret. In prod, CloudFront stamps every
@@ -92,10 +103,12 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	app.use('/map-grid/*', rateLimit({ ...limits.mapGrid, now }));
 	app.use('/delineate', rateLimit({ ...(limits.delineate ?? RATE_LIMITS.delineate), now }));
 	app.use('/channels', rateLimit({ ...(limits.channels ?? RATE_LIMITS.channels), now }));
+	app.use('/quaternaries', rateLimit({ ...(limits.quaternaries ?? RATE_LIMITS.quaternaries), now }));
 	app.route('/chirps', chirpsRoutes({ copy: chirps, now }));
 	app.route('/map-grid', mapGridRoutes({ catalog: mapGrids, today: deps.today }));
 	app.route('/', delineationRoutes({ dem, now }));
-	// No quaternary routes yet (D-1: no licensed boundaries); the app takes an uploaded boundary instead.
+	// Synthetic in dev; a 503 "not configured" in production until D-1 gives Pitman licensed boundaries.
+	app.route('/quaternaries', quaternaryRoutes({ store: quaternaries }));
 
 	app.notFound((c) => c.json({ error: 'not found' }, 404));
 

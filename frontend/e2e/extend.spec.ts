@@ -63,6 +63,8 @@ test('upload an area, fetch CHIRPS, check the fit, edit a factor, apply, extend 
 	page.on('console', (message) => {
 		if (message.type() === 'error') consoleErrors.push(message.text());
 	});
+	// The page's map asks for boundaries too, and no backend runs here.
+	await page.route('**/quaternaries', (route: Route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ type: 'FeatureCollection', features: [], source: 'none' }) }));
 	const bodies: unknown[] = [];
 	let fail = true;
 	await page.route('**/chirps/monthly', async (route: Route) => {

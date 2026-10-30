@@ -1,10 +1,13 @@
+import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vitest/config';
 
 // Separate from vite.config.ts so the SvelteKit plugin (which needs a full
-// dev-server lifecycle) isn't pulled into the Vitest runtime. Tests that
-// touch SvelteKit virtual modules like `$env/static/public` mock them with
-// `vi.mock()` instead.
+// dev-server lifecycle) isn't pulled into the Vitest runtime. The plain Svelte
+// plugin is enough to compile runes in `.svelte.ts` modules (the map's Draft).
+// Tests that touch SvelteKit virtual modules like `$env/static/public` mock
+// them with `vi.mock()` instead.
 export default defineConfig({
+	plugins: [svelte({ compilerOptions: { runes: true } })],
 	test: {
 		// Coverage (`pnpm test:coverage`): a report, never a gate. No thresholds:
 		// a number to hit invites tests written for the number. Read it for what

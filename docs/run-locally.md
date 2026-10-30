@@ -78,10 +78,11 @@ run modes and run; **Save as WRSM2000 zip** downloads the network with its
 
 ## Backend data (local-first)
 
-The data API (`POST /chirps/monthly`, `POST /map-grid/mean`, `POST /delineate`,
-`GET /channels`) reads local synthetic copies in dev, set by the committed
-`backend/.env.development` (`CHIRPS_SOURCE=local`, `MAP_GRID_SOURCE=local`,
-`DEM_SOURCE=local`). Write them once:
+The data API (`POST /chirps/monthly`, `POST /map-grid/mean`,
+`POST /map-grid/cells`, `POST /delineate`, `GET /channels`) reads local synthetic
+copies in dev, set by the committed `backend/.env.development`
+(`CHIRPS_SOURCE=local`, `MAP_GRID_SOURCE=local`, `DEM_SOURCE=local`). Write them
+once:
 
 ```bash
 pnpm dev:data:synthetic      # = pnpm -C backend exec tsx scripts/gen-synthetic-data.ts
@@ -104,7 +105,8 @@ It writes, under `backend/.local/` (gitignored, ~7 MB, about 15 seconds):
 
 Invented values only. Areas elsewhere answer 422 ("no data under the
 area"); IC-WBT's synthetic quaternaries (`backend/fixtures/geo/quaternaries.synthetic.geojson`,
-codes `Z01A`…) sit inside the block and make good test boundaries to upload.
+codes `Z01A`…) sit inside the block, are what `GET /quaternaries` serves in dev
+and make good test boundaries to upload.
 Without the files the routes answer 503 naming the command. With
 `CHIRPS_SOURCE`, `MAP_GRID_SOURCE` or `DEM_SOURCE` unset the routes answer 503
 "not configured". The `s3` settings (`CHIRPS_BUCKET`, `CHIRPS_PREFIX`,
@@ -120,6 +122,22 @@ Clicks to try on the synthetic DEM, with their answers:
 | 21.1066246, −33.7359036 | `Z01A` | refused, `whole_quaternary` |
 | 21.115551, −33.8001191 | `Z02A` | 76.54 km², 643 km² (89 %) dropped upstream, the 20 % warning |
 | 21.24, −33.62 | `Z01A` | refused, `off_channel` |
+
+## The map
+
+Local-first, with no setup beyond the section above. `GET /quaternaries` serves
+the committed synthetic region (`QUATERNARIES_SOURCE=local` in
+`backend/.env.development`, codes `Z01A`…), and the MAP-grid layer reads the
+synthetic grid, so run `pnpm dev:data:synthetic` once. With
+`QUATERNARIES_SOURCE` unset the route answers 503 and the panel says the
+boundaries aren't available, which is what production does until D-1.
+
+There are no tiles locally: `PUBLIC_TILES_URL`, `PUBLIC_TILES_GLYPHS_URL` and
+`PUBLIC_TERRAIN_URL` are empty in `frontend/.env.development`, so the map draws
+on a plain background and says so in a small note. Nothing else changes. To see
+a basemap, put PMTiles files where the browser can read them with range requests
+and set the URLs in a gitignored `frontend/.env.development.local`. Formats and
+licences: [`data.md` § Basemap and fonts](./data.md#basemap-and-fonts).
 
 ## The engine CLI (`wrsm`)
 

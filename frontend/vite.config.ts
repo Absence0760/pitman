@@ -1,11 +1,57 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
+import { sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 
 // Recorded as the sidecar's `writtenBy` when a network is saved (src/lib/network/save.ts).
 const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
+
+const MAPLIBRE_WORKER_ID = 'virtual:maplibre-worker-url';
+const MAPLIBRE_WORKER_FILE = realpathSync(fileURLToPath(new URL('./node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs', import.meta.url)));
+
+/**
+ * MapLibre's worker as a chunk of the page build, ported from IC-WBT
+ * (Absence0760/project-water-management, MIT) frontend/vite.config.ts
+ * `workerChunks` at f888e4461, stripped to the one worker. `lib/map/maplibre.ts`
+ * hands this URL to `setWorkerUrl`; it is served from the app's own origin, so
+ * the CSP's `worker-src 'self'` holds without blob: (docs/security.md). In dev
+ * Vite serves the vendor file through /@fs/; the server build never starts one.
+ */
+function maplibreWorkerChunk(): Plugin {
+	const resolved = '\0' + MAPLIBRE_WORKER_ID;
+	let serve = false;
+	return {
+		name: 'pitman:maplibre-worker-chunk',
+		configResolved(config) {
+			serve = config.command === 'serve';
+		},
+		resolveId(id) {
+			return id === MAPLIBRE_WORKER_ID ? resolved : undefined;
+		},
+		load(id, options) {
+			if (id !== resolved) return undefined;
+			if (options?.ssr) return 'export default "";';
+			if (serve) return `export default ${JSON.stringify('/@fs' + MAPLIBRE_WORKER_FILE.split(sep).join('/'))};`;
+			const ref = this.emitFile({ type: 'chunk', id: MAPLIBRE_WORKER_FILE });
+			return `export default import.meta.ROLLUP_FILE_URL_${ref};`;
+		},
+		// SvelteKit names chunks by a function; give this one a name under workers/, beside the run worker.
+		outputOptions(output) {
+			const chunkFileNames = output.chunkFileNames;
+			if (typeof chunkFileNames !== 'function') return undefined;
+			return {
+				...output,
+				chunkFileNames: (chunk) => {
+					const pattern = chunkFileNames(chunk);
+					return chunk.facadeModuleId === MAPLIBRE_WORKER_FILE && pattern.includes('/chunks/') ? pattern.replace(/\/chunks\/.*$/, '/workers/maplibre.worker-[hash].js') : pattern;
+				}
+			};
+		}
+	};
+}
 
 export default defineConfig({
 	define: {
@@ -14,6 +60,7 @@ export default defineConfig({
 	// The run worker (src/lib/network/run.worker.ts) is an ES module worker.
 	worker: { format: 'es' },
 	plugins: [
+		maplibreWorkerChunk(),
 		// SvelteKit 3 reads its configuration here; svelte.config.js is no longer read.
 		sveltekit({
 			preprocess: [vitePreprocess()],

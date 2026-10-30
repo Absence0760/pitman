@@ -1,10 +1,10 @@
-// The data API end to end through createApp() (no server, no network, no AWS): POST /chirps/monthly
-// and POST /map-grid/mean against the local fixture copies, the cache, the refusals (400, 404, 413,
+// The data API end to end through createApp() (no server, no network, no AWS): POST /chirps/monthly,
+// POST /map-grid/mean, POST /map-grid/cells and GET /quaternaries against the local fixture copies, the cache, the refusals (400, 404, 413,
 // 422, 429, 503), CORS and the CloudFront shared secret; and the synthetic dev data the generator writes.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ChirpsMonthly } from '@pitman/wrsm';
+import type { ChirpsMonthly, MapGridCells, QuaternaryCollection } from '@pitman/wrsm';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { FIXTURE_GEO_DIR, FIXTURE_MIRROR_DIR, fakeS3 } from './__tests__/fakeS3.js';
 import { type AppDeps, createApp } from './app.js';
@@ -12,6 +12,7 @@ import { ChirpsCopy, chirpsCopyConfig } from './chirps/copy.js';
 import { writeSyntheticChirps } from './chirps/synthetic.js';
 import { MAX_BODY_BYTES } from './http/area.js';
 import { localGridSource, MapGridCatalog } from './mapgrid/source.js';
+import { QuaternaryStore, quaternarySourceFromEnv } from './quaternaries/source.js';
 import { syntheticMapGridJson } from './mapgrid/synthetic.js';
 
 const tmp: string[] = [];
@@ -105,6 +106,61 @@ describe('POST /chirps/monthly', () => {
 		expect(third.status).toBe(429);
 		expect(third.headers.get('retry-after')).toBeTruthy();
 		expect((await post(a, '/map-grid/mean', { area: box(21.3, -33.7, 21.5, -33.5) }, h)).status).toBe(200);
+	});
+});
+
+describe('POST /map-grid/cells', () => {
+	it('answers the block over a box, with where it came from', async () => {
+		const res = await post(app(), '/map-grid/cells', { bbox: [21.3, -33.7, 21.5, -33.5] });
+		expect(res.status).toBe(200);
+		const c = (await res.json()) as MapGridCells;
+		expect(c.dataset).toBe('synthetic');
+		expect(c.source).toContain('Invented');
+		expect(c.cellDeg).toBeCloseTo(0.01);
+		expect(c.values).toHaveLength(c.rows * c.cols);
+		expect(c.values.some((v) => typeof v === 'number' && v > 0)).toBe(true);
+	});
+
+	it('refuses what is not a box, and a box it won’t send, with a code', async () => {
+		expect((await post(app(), '/map-grid/cells', {})).status).toBe(400);
+		const wide = await post(app(), '/map-grid/cells', { bbox: [20, -34, 23, -33] });
+		expect(wide.status).toBe(422);
+		expect(await wide.json()).toMatchObject({ code: 'too_wide' });
+		const outside = await post(app(), '/map-grid/cells', { bbox: [30, -24, 31, -23] });
+		expect(outside.status).toBe(422);
+		expect(await outside.json()).toMatchObject({ code: 'no_coverage' });
+	});
+
+	it('counts against the MAP grid’s limit', async () => {
+		const a = app({ rateLimits: { chirps: many, mapGrid: { limit: 1, windowMs: 60_000 } } });
+		expect((await post(a, '/map-grid/cells', { bbox: [21.3, -33.7, 21.5, -33.5] })).status).toBe(200);
+		expect((await post(a, '/map-grid/cells', { bbox: [21.3, -33.7, 21.5, -33.5] })).status).toBe(429);
+	});
+});
+
+describe('GET /quaternaries', () => {
+	const quaternaries = new QuaternaryStore({ file: join(FIXTURE_GEO_DIR, 'quaternaries.synthetic.geojson'), credit: 'Invented boundaries' });
+
+	it('answers the collection, credited, carrying only the wire fields', async () => {
+		const res = await app({ quaternaries }).request('/quaternaries');
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toContain('application/json');
+		const q = (await res.json()) as QuaternaryCollection;
+		expect(q.source).toBe('Invented boundaries');
+		expect(q.features[0]?.properties).toEqual({ code: 'Z01A', areaKm2: 642.5, mapMm: 620 });
+	});
+
+	it('answers 503 "not configured" when unset (D-1), never silently local', async () => {
+		const res = await app({ quaternaries: new QuaternaryStore(quaternarySourceFromEnv({})) }).request('/quaternaries');
+		expect(res.status).toBe(503);
+		expect(await res.json()).toEqual({ error: expect.stringContaining('not configured') });
+	});
+
+	it('limits each client, apart from the other routes', async () => {
+		const a = app({ quaternaries, rateLimits: { chirps: many, mapGrid: many, quaternaries: { limit: 1, windowMs: 60_000 } } });
+		expect((await a.request('/quaternaries')).status).toBe(200);
+		expect((await a.request('/quaternaries')).status).toBe(429);
+		expect((await post(a, '/map-grid/cells', { bbox: [21.3, -33.7, 21.5, -33.5] })).status).toBe(200);
 	});
 });
 

@@ -53,8 +53,13 @@ runs it.
   polygon POSTs); the API checks its own input sizes.
 - **Strict CSP**, from CloudFront: `default-src 'self'`, `connect-src 'self'`,
   `object-src 'none'`, `frame-ancestors 'none'`, `base-uri 'none'`, no
-  `'unsafe-eval'`, and no style `'unsafe-inline'` (the one inline style is
-  allowed by hash). The header's `script-src` carries `'unsafe-inline'`
+  `'unsafe-eval'`, and no style `'unsafe-inline'` (the two inline styles,
+  `app.html`'s and SvelteKit's route announcer, are allowed by hash). The map
+  added no source: MapLibre's worker is a chunk of the page build, so
+  `worker-src 'self'` holds with no `blob:`; tiles and glyphs are same-origin
+  under `/tiles/*`; its `data:` zoom icons are replaced by text, so `img-src`
+  stays `'self'` (R5-M6). `frontend/e2e/map.spec.ts` runs the real MapLibre
+  under this header and fails on any violation. The header's `script-src` carries `'unsafe-inline'`
   only because SvelteKit's per-build bootstrap hash can't be in a static
   header; SvelteKit's meta-tag CSP (hash mode) narrows it to that one hash,
   and `deploy-frontend.yml` refuses any build without it

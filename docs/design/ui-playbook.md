@@ -20,6 +20,10 @@ with them.
   (`results/plot.ts`) resolves `--series-*` on the node, `axisStyle` themes
   the axes (uPlot's defaults are black, unreadable in dark) and
   `onThemeChange` redraws when the theme flips.
+- **The map reads tokens too.** MapLibre paints on a canvas and can't take
+  `var()`, so `lib/map/palette.ts` reads the `--map-*` tokens and `Map.svelte`
+  redraws with `setStyle` when the theme flips. `lib/map/mapStyle.test.ts` holds
+  the marks to 3:1 on the map's ground and names to 4.5:1 on their halo.
 - **Type:** Inter, self-hosted (`@fontsource-variable/inter`, OFL 1.1), so the
   screens look the same on every machine and nothing is fetched from a third
   party; `shell.spec.ts` checks it loads under the CSP. Tabular numerals
@@ -61,6 +65,30 @@ with them.
 - **A screen that previews values refuses what the file can't hold.** The
   writer rounds through float32, so a preview of an unwritable value would
   show a result the saved network can't reproduce (`calibrate/validate.ts`).
+
+## The map
+
+- **The map is never the only way.** A quaternary can be chosen by code, a shape
+  pasted as GeoJSON or WKT; without WebGL the map says so and the rest works.
+- **No tiles is not an error.** A laptop with no cloud gets a plain background
+  and one small note. Only the panel's missing boundaries are a `.warn`, and it
+  says how to go on.
+- **Write names in the DOM.** MapLibre needs glyphs to draw text, and with no
+  tiles there are none: quaternary codes and piece numbers are DOM markers,
+  `aria-hidden`, `pointer-events: none`. Anything else named on the map (a
+  module, a cell's MAP) shows in the chip at its corner under the pointer.
+- **A piece's number names it; the tint only helps the eye.** Selection is said
+  in the chip and the canvas's name as well as drawn.
+- **Don't tint what carries a ramp.** A selection fill over the MAP grid changed
+  the colours the key explains; the selected quaternary is outlined only.
+- **The wheel belongs to the page.** On the one long page a map must not trap
+  scrolling, so it takes `cooperativeGestures`.
+- **Load the heavy thing when it is near the view.** Every section stays
+  mounted, so `Map.svelte` waits for an `IntersectionObserver` before importing
+  MapLibre (about 1 MB, plus a worker of 500 KB).
+- **Test under the real CSP.** `vite preview` sends no CloudFront header, so
+  `e2e/map.spec.ts` adds `infra/csp.json`'s. That is how MapLibre's `data:` icons
+  and SvelteKit's announcer style were caught; neither shows without it.
 
 ## Before calling a screen done
 

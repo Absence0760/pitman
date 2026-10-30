@@ -24,6 +24,7 @@
 	import { rainfallFiles } from '#lib/extend/files.js';
 	import Results from '#lib/results/Results.svelte';
 	import { hydroYearLabel } from '#lib/results/format.js';
+	import MapPanel from '#lib/map/MapPanel.svelte';
 	import AppBar from '#lib/shell/AppBar.svelte';
 	import Landing from '#lib/shell/Landing.svelte';
 	import StepRail from '#lib/shell/StepRail.svelte';
@@ -52,6 +53,7 @@
 	let outcomes = $state.raw<readonly RunOutcome[]>([]);
 	let runError = $state<string | undefined>();
 	let saveError = $state<string | undefined>();
+	let quaternary = $state<string | undefined>();
 	let controller: AbortController | undefined;
 
 	const summary = $derived(bundle ? summarise(bundle) : undefined);
@@ -62,6 +64,7 @@
 	const steps = $derived(
 		workflowSteps({
 			years: years ?? '',
+			quaternary,
 			rainfallFiles: rainfall.length,
 			extendedFiles: rainfall.filter((f) => f.extension).length,
 			run: runState,
@@ -84,6 +87,7 @@
 		runError = undefined;
 		saveError = undefined;
 		modeError = undefined;
+		quaternary = undefined;
 	}
 
 	async function loadSources(sources: SourceFile[]) {
@@ -332,7 +336,9 @@
 					<IssueList issues={warnings} id="warnings-h" title={`Check ${plural(warnings.length, 'warning')}`} />
 				{/if}
 
-				<ExtendPanel {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
+				<MapPanel {bundle} onselect={(code) => (quaternary = code)} />
+
+			<ExtendPanel {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
 
 			<CalibratePanel {bundle} onupdate={updateBundle} busy={runState === 'running'} />
 

@@ -3,7 +3,7 @@
   "site": [
     ["default-src", "'self'"],
     ["script-src", "'self'", "'unsafe-inline'"],
-    ["style-src", "'self'", "'unsafe-hashes'", "'sha256-tcbDxjMo+xKqM21aCGYbs/QAJqB7yUXC06oPWDapBgc='"],
+    ["style-src", "'self'", "'unsafe-hashes'", "'sha256-tcbDxjMo+xKqM21aCGYbs/QAJqB7yUXC06oPWDapBgc='", "'sha256-S8qMpvofolR8Mpjy4kQvEm7m1q8clzU4dfDH0AmvZjo='"],
     ["img-src", "'self'"],
     ["font-src", "'self'"],
     ["connect-src", "'self'"],
