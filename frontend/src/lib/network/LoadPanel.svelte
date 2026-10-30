@@ -30,16 +30,10 @@
 	}
 </script>
 
-<div class="pickers">
-	<div class="picker">
-		<label for="load-zip">Network zip</label>
-		<input id="load-zip" type="file" accept=".zip,application/zip" disabled={busy} onchange={picked} />
-	</div>
-	<div class="picker">
-		<label for="load-folder">Network folder</label>
-		<input id="load-folder" type="file" webkitdirectory multiple disabled={busy} onchange={picked} />
-	</div>
-</div>
+<p class="about">
+	Choose the WRSM2000 network folder, or a zip of it: the <code>.NET</code> file, the module <code>.DAT</code> files, and the rainfall, observed and defined-flow
+	files they name. Anything else in the folder (outputs, diagrams) is kept and saved back unchanged.
+</p>
 
 <div
 	class="drop"
@@ -54,42 +48,51 @@
 	ondragleave={() => (dragging = false)}
 	ondrop={dropped}
 >
-	<p>Or drop the network's zip or folder here.</p>
+	<p class="hint">Drop the network's zip or folder here, or choose it:</p>
+	<div class="pickers">
+		<div class="picker">
+			<label for="load-zip">Network zip</label>
+			<input id="load-zip" type="file" accept=".zip,application/zip" disabled={busy} onchange={picked} />
+		</div>
+		<div class="picker">
+			<label for="load-folder">Network folder</label>
+			<input id="load-folder" type="file" webkitdirectory multiple disabled={busy} onchange={picked} />
+		</div>
+	</div>
 </div>
 
 <style>
-	.pickers {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 1rem 2rem;
-	}
-	.picker {
-		display: flex;
-		flex-direction: column;
-		gap: 0.35rem;
-		min-width: 0;
-	}
-	label {
-		font-weight: 600;
-	}
-	input[type='file'] {
-		max-width: 100%;
-		min-height: 2.75rem;
+	.about {
+		margin: 0 0 1rem;
+		font-size: 0.925rem;
+		color: var(--text-muted);
 	}
 	.drop {
-		margin-top: 1rem;
 		border: 2px dashed var(--border-strong);
-		border-radius: 0.5rem;
-		padding: 1.25rem 1rem;
-		text-align: center;
-		color: var(--text-muted);
+		border-radius: var(--radius-lg);
+		padding: 1rem 1.25rem 1.25rem;
+		background: var(--surface-2);
 	}
 	.drop.dragging {
 		border-color: var(--accent);
 		background: var(--accent-soft);
-		color: var(--text);
 	}
-	.drop p {
-		margin: 0;
+	.hint {
+		margin: 0 0 0.75rem;
+		color: var(--text-muted);
+	}
+	.pickers {
+		display: grid;
+		gap: 0.75rem;
+	}
+	.picker {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		min-width: 0;
+	}
+	label {
+		font-weight: 600;
+		font-size: 0.9rem;
 	}
 </style>

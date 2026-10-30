@@ -89,12 +89,12 @@
 <style>
 	.factors {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
 		gap: 0.75rem;
 	}
 	.month {
 		border: 1px solid var(--border);
-		border-radius: 0.5rem;
+		border-radius: var(--radius-lg);
 		padding: 0.5rem 0.75rem 0.75rem;
 		margin: 0;
 		min-width: 0;
@@ -126,7 +126,7 @@
 		text-align: right;
 	}
 	.note {
-		font-size: 0.8rem;
+		font-size: var(--font-sm);
 		color: var(--text-muted);
 		margin: 0.35rem 0;
 	}
@@ -144,32 +144,8 @@
 		gap: 0.5rem;
 	}
 	input[type='text'] {
-		font: inherit;
-		min-height: 2.75rem;
-		padding: 0 0.5rem;
-		border: 1px solid var(--border-strong);
-		border-radius: 0.375rem;
-		background: var(--bg);
-		color: var(--text);
 		min-width: 0;
 		flex: 1;
-	}
-	input[aria-invalid='true'] {
-		border: 2px solid var(--danger);
-	}
-	button {
-		font: inherit;
-		min-height: 2.75rem;
-		padding: 0 0.75rem;
-		border-radius: 0.375rem;
-		border: 1px solid var(--border-strong);
-		background: var(--surface);
-		color: var(--text);
-		cursor: pointer;
-	}
-	button:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
 	}
 	.msg {
 		font-size: 0.875rem;
@@ -185,12 +161,8 @@
 		display: flex;
 		gap: 0.5rem;
 		align-items: center;
-		min-height: 2.75rem;
+		min-height: var(--control-h);
 		font-size: 0.875rem;
-	}
-	.check input {
-		width: 1.25rem;
-		height: 1.25rem;
 	}
 	.hint {
 		font-size: 0.875rem;

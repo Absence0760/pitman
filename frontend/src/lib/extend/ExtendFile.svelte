@@ -434,7 +434,7 @@
 		<FitChart spec={annual} />
 
 		<div class="scroll">
-			<table class="stats" data-table="fit-statistics">
+			<table class="data" data-table="fit-statistics">
 				<caption>Fit over the overlap, before (p) and after (f × p)</caption>
 				<thead>
 					<tr>
@@ -453,7 +453,7 @@
 			</table>
 		</div>
 		<div class="scroll">
-			<table class="stats" data-table="monthly-bias">
+			<table class="data" data-table="monthly-bias">
 				<caption>Bias by month, 100 × (Σ CHIRPS − Σ file) / Σ file</caption>
 				<thead>
 					<tr><th scope="col">Month</th><th scope="col">Before</th><th scope="col">After, computed factors</th><th scope="col">With the factors in use</th></tr>
@@ -493,7 +493,7 @@
 		{/if}
 		{#if fit.appendable && preview?.ok}
 			<div class="scroll">
-				<table class="stats preview" data-table="preview">
+				<table class="data preview" data-table="preview">
 					<caption>Preview: the rows the apply adds to {entry.name}</caption>
 					<thead>
 						<tr>
@@ -545,9 +545,17 @@
 
 <style>
 	.file {
-		border-top: 2px solid var(--border);
-		margin-top: 1.5rem;
-		padding-top: 0.5rem;
+		border: 1px solid var(--border);
+		border-top: 3px solid var(--accent);
+		border-radius: var(--radius-lg);
+		background: var(--surface-2);
+		margin-top: 1.25rem;
+		padding: 0.75rem 1.25rem 1.25rem;
+	}
+	@media (max-width: 40rem) {
+		.file {
+			padding: 0.5rem 0.75rem 1rem;
+		}
 	}
 	.head {
 		display: flex;
@@ -558,12 +566,14 @@
 	}
 	h3 {
 		margin: 0.5rem 0;
-		font-size: 1.2rem;
+		font-size: 1.15rem;
 		overflow-wrap: anywhere;
 	}
 	h4 {
-		font-size: 1.05rem;
-		margin: 1.5rem 0 0.5rem;
+		font-size: 1rem;
+		margin: 1.75rem 0 0.5rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border);
 	}
 	.field {
 		display: flex;
@@ -577,112 +587,24 @@
 		gap: 0.5rem;
 		margin: 0;
 	}
-	input[type='text'],
-	select {
-		font: inherit;
-		min-height: 2.75rem;
-		padding: 0 0.5rem;
-		border: 1px solid var(--border-strong);
-		border-radius: 0.375rem;
-		background: var(--bg);
-		color: var(--text);
-		max-width: 100%;
-	}
-	input[type='file'] {
-		font: inherit;
-		max-width: 100%;
-	}
-	input[aria-invalid='true'] {
-		outline: 2px solid var(--danger);
-	}
 	.toggle {
 		display: flex;
 		gap: 0.5rem;
 		align-items: center;
-		min-height: 2.75rem;
+		min-height: var(--control-h);
 	}
-	.toggle input {
-		width: 1.25rem;
-		height: 1.25rem;
-	}
-	.facts {
-		display: grid;
-		gap: 0.3rem;
-		margin: 0.75rem 0;
-		font-size: 0.925rem;
-	}
-	.facts div {
-		display: grid;
-		grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr);
-		gap: 0.75rem;
-	}
-	.facts dt {
-		color: var(--text-muted);
-	}
-	.facts dd {
-		margin: 0;
-		overflow-wrap: anywhere;
-	}
-	@media (max-width: 30rem) {
-		.facts div {
-			grid-template-columns: minmax(0, 1fr);
-			gap: 0;
-		}
-	}
-	.provenance {
-		border-left: 4px solid var(--accent);
-		padding-left: 0.75rem;
+	/* Inside the inset panel a tile lifts off it, the other way round from a card. */
+	.file :global(.facts > div) {
+		background: var(--surface);
 	}
 	.window {
-		border: 1px solid var(--border);
-		border-radius: 0.5rem;
+		background: var(--surface);
 		margin: 1rem 0;
 	}
 	.window-row {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 1rem;
-	}
-	.actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.75rem;
-		align-items: center;
-		margin: 0.75rem 0;
-	}
-	.actions p {
-		margin: 0;
-	}
-	button {
-		font: inherit;
-		min-height: 2.75rem;
-		padding: 0 1rem;
-		border-radius: 0.375rem;
-		border: 1px solid var(--border-strong);
-		background: var(--surface);
-		color: var(--text);
-		cursor: pointer;
-	}
-	button.primary {
-		background: var(--accent);
-		border-color: var(--accent);
-		color: var(--on-accent);
-		font-weight: 600;
-	}
-	button:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-	.note {
-		color: var(--text-muted);
-	}
-	.warn {
-		border-left: 4px solid var(--warning);
-		padding-left: 0.75rem;
-	}
-	.error {
-		color: var(--danger);
-		font-weight: 600;
 	}
 	.messages {
 		padding-left: 1.25rem;
@@ -698,40 +620,15 @@
 		border-left-color: var(--danger);
 	}
 	.blocking {
+		background: var(--danger-soft);
 		border: 2px solid var(--danger);
-		border-radius: 0.5rem;
+		border-radius: var(--radius-lg);
 		padding: 0.25rem 1rem;
 	}
 	.scroll {
-		overflow-x: auto;
 		margin: 0.75rem 0;
 	}
-	.stats {
-		border-collapse: collapse;
-		font-size: 0.875rem;
-		font-variant-numeric: tabular-nums;
-	}
-	.stats th,
-	.stats td {
-		padding: 0.2rem 0.6rem;
-		border-bottom: 1px solid var(--border);
-		text-align: right;
-		white-space: nowrap;
-	}
-	.stats tbody th,
-	.stats thead th:first-child {
-		text-align: left;
-		font-weight: normal;
-	}
-	.stats caption {
-		text-align: left;
-		font-weight: 600;
-		padding: 0.25rem 0;
-	}
 	.preview {
-		font-size: 0.8rem;
-	}
-	code {
-		font-family: ui-monospace, monospace;
+		font-size: var(--font-sm);
 	}
 </style>

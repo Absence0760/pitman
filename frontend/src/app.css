@@ -1,36 +1,118 @@
+/*
+	Design tokens and the app's shared element styles (docs/design/ui-playbook.md).
+	Colours are tokens with a dark value; components never write raw hex
+	(src/lib/shell/tokens.test.ts checks that, and the contrast of the pairs
+	that carry text and marks). Canvas charts read the --series-* tokens
+	through getComputedStyle (results/plot.ts, extend/plot.ts).
+*/
 :root {
-	font-family: system-ui, sans-serif;
-	line-height: 1.5;
-	color-scheme: light dark;
+	/* Segoe first: WRSM2000's users are on Windows. No web font: a static, self-hosted app with nothing to fetch. */
+	--font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+	--font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, 'Liberation Mono', monospace;
+	--font-sm: 0.8125rem;
+	--font-xs: 0.75rem;
 
-	--bg: #fbfaf7;
+	--radius: 0.375rem;
+	--radius-lg: 0.625rem;
+	--bar-h: 3.5rem;
+	--control-h: 2.75rem;
+
+	color-scheme: light dark;
+	font-family: var(--font-ui);
+	line-height: 1.5;
+
+	--bg: #f2f5f5;
 	--surface: #ffffff;
-	--text: #1d2421;
-	--text-muted: #4f5a55;
-	--border: #d5d9d4;
-	--border-strong: #8a948f;
-	--accent: #1f5f8b;
-	--accent-soft: #e3eef6;
+	--surface-2: #f6f8f9;
+	--text: #14232b;
+	--text-muted: #4a5a62;
+	--border: #d8e0e2;
+	--border-strong: #7f8f96;
+	--accent: #0b6a88;
+	--accent-strong: #08556e;
+	--accent-soft: #dff0f5;
 	--on-accent: #ffffff;
-	--danger: #a4262c;
-	--warning: #b06a00;
-	--focus: #1f5f8b;
+	--danger: #b3261e;
+	--danger-soft: #fbe9e7;
+	--warning: #8a5600;
+	--warning-soft: #fdf1dc;
+	--success: #1a7048;
+	--success-soft: #e0f3e9;
+	--focus: #0b6a88;
+	--shadow: 0 1px 2px rgb(13 43 56 / 6%), 0 1px 6px rgb(13 43 56 / 4%);
+
+	/* The app bar and the landing band: dark in both themes. */
+	--bar-bg: #0d2b38;
+	--bar-bg-2: #123c4d;
+	--bar-text: #eef6f8;
+	--bar-muted: #b4cad2;
+	--bar-border: #2c5062;
+	--bar-accent: #7ad3e8;
+
+	/* Chart marks; the first four are the results charts' line slots, all twelve the scatter's months. */
+	--series-1: #1d5fbf;
+	--series-2: #b3401d;
+	--series-3: #2b7a4b;
+	--series-4: #7a3fa0;
+	--series-5: #9a6b00;
+	--series-6: #0f7f8c;
+	--series-7: #c2185b;
+	--series-8: #5d6d00;
+	--series-9: #6d4c41;
+	--series-10: #3949ab;
+	--series-11: #d84315;
+	--series-12: #00796b;
+	--series-neutral: #6f7a7e;
+	--series-observed: #14232b;
 }
 
 @media (prefers-color-scheme: dark) {
 	:root {
-		--bg: #141816;
-		--surface: #1d2321;
-		--text: #e7ebe8;
-		--text-muted: #a9b3ae;
-		--border: #38413d;
-		--border-strong: #6d7873;
-		--accent: #7cb7e0;
-		--accent-soft: #1b3445;
-		--on-accent: #0c1a24;
-		--danger: #f08a8f;
-		--warning: #e3a64a;
-		--focus: #7cb7e0;
+		--bg: #0f1719;
+		--surface: #172124;
+		--surface-2: #1c282c;
+		--text: #e6eef0;
+		--text-muted: #a3b4ba;
+		--border: #2c3b40;
+		--border-strong: #6f838a;
+		--accent: #69c3dd;
+		--accent-strong: #8ad4e8;
+		--accent-soft: #16353f;
+		--on-accent: #06222b;
+		--danger: #f2938c;
+		--danger-soft: #3a1c1a;
+		--warning: #e6ae58;
+		--warning-soft: #352713;
+		--success: #6fd1a0;
+		--success-soft: #15332a;
+		--focus: #69c3dd;
+		--shadow: 0 1px 2px rgb(0 0 0 / 30%);
+
+		--bar-bg: #0a1a20;
+		--bar-bg-2: #0f2933;
+		--bar-border: #24424e;
+
+		--series-1: #7fb0f5;
+		--series-2: #f2936d;
+		--series-3: #6dcb94;
+		--series-4: #c79bea;
+		--series-5: #e3b64f;
+		--series-6: #53c6d4;
+		--series-7: #f48fb1;
+		--series-8: #b7c95a;
+		--series-9: #c9a899;
+		--series-10: #9fa8ee;
+		--series-11: #ff9d6e;
+		--series-12: #4fd1bd;
+		--series-neutral: #9aa7ab;
+		--series-observed: #f0f5f6;
+	}
+}
+
+/* A precise pointer doesn't need a 44 px target; the dense screens gain from the difference. */
+@media (pointer: fine) {
+	:root {
+		--control-h: 2.25rem;
 	}
 }
 
@@ -38,6 +120,11 @@
 *::before,
 *::after {
 	box-sizing: border-box;
+}
+
+html {
+	/* Clears the sticky bar when a step link scrolls to its section. */
+	scroll-padding-top: calc(var(--bar-h) + 1rem);
 }
 
 body {
@@ -53,4 +140,270 @@ body {
 
 a {
 	color: var(--accent);
+}
+
+h1,
+h2,
+h3,
+h4 {
+	line-height: 1.25;
+	letter-spacing: -0.01em;
+	font-weight: 650;
+}
+h1 {
+	font-size: 1.75rem;
+}
+h2 {
+	font-size: 1.25rem;
+	margin: 0 0 0.75rem;
+}
+h3 {
+	font-size: 1.05rem;
+}
+h4 {
+	font-size: 0.95rem;
+}
+
+code {
+	font-family: var(--font-mono);
+	font-size: 0.92em;
+}
+
+/* Controls */
+button {
+	font: inherit;
+	font-weight: 550;
+	min-height: var(--control-h);
+	padding: 0 0.9rem;
+	border-radius: var(--radius);
+	border: 1px solid var(--border-strong);
+	background: var(--surface);
+	color: var(--text);
+	cursor: pointer;
+	transition:
+		background-color 0.12s,
+		border-color 0.12s;
+}
+button:hover:not(:disabled) {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+}
+button[aria-pressed='true'] {
+	background: var(--accent-soft);
+	border-color: var(--accent);
+}
+button.primary {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: var(--on-accent);
+	font-weight: 650;
+}
+button.primary:hover:not(:disabled) {
+	background: var(--accent-strong);
+	border-color: var(--accent-strong);
+}
+button:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
+input[type='text'],
+input[type='number'],
+select {
+	font: inherit;
+	min-height: var(--control-h);
+	padding: 0 0.5rem;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--surface);
+	color: var(--text);
+	max-width: 100%;
+}
+input[aria-invalid='true'] {
+	border: 2px solid var(--danger);
+}
+input[type='checkbox'],
+input[type='radio'] {
+	accent-color: var(--accent);
+	width: 1.125rem;
+	height: 1.125rem;
+	margin: 0;
+	flex: none;
+}
+input[type='file'] {
+	font: inherit;
+	font-size: 0.9rem;
+	max-width: 100%;
+	color: var(--text-muted);
+}
+input[type='file']::file-selector-button {
+	font: inherit;
+	font-weight: 550;
+	min-height: var(--control-h);
+	padding: 0 0.9rem;
+	margin-right: 0.75rem;
+	border-radius: var(--radius);
+	border: 1px solid var(--border-strong);
+	background: var(--surface);
+	color: var(--text);
+	cursor: pointer;
+}
+input[type='file']:hover:not(:disabled)::file-selector-button {
+	border-color: var(--accent);
+	background: var(--accent-soft);
+}
+
+fieldset {
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	padding: 0.75rem 1rem 1rem;
+	margin: 0;
+	min-width: 0;
+}
+legend {
+	font-weight: 650;
+	padding: 0 0.3rem;
+}
+summary {
+	cursor: pointer;
+	font-size: 0.875rem;
+	color: var(--accent);
+	min-height: 2rem;
+}
+
+progress {
+	accent-color: var(--accent);
+}
+
+/* Tables: `.data` is the numeric kind (right-aligned, first column left). */
+table {
+	border-collapse: collapse;
+	font-size: 0.875rem;
+	font-variant-numeric: tabular-nums;
+}
+caption {
+	text-align: left;
+	font-weight: 650;
+	padding: 0.25rem 0 0.4rem;
+}
+th,
+td {
+	padding: 0.35rem 0.6rem;
+	border-bottom: 1px solid var(--border);
+	vertical-align: top;
+}
+thead th {
+	font-size: var(--font-sm);
+	font-weight: 600;
+	color: var(--text-muted);
+	background: var(--surface-2);
+	border-bottom-color: var(--border-strong);
+	text-align: left;
+}
+tbody tr:hover {
+	background: var(--surface-2);
+}
+table.data th,
+table.data td {
+	text-align: right;
+	white-space: nowrap;
+}
+table.data tbody th,
+table.data thead th:first-child {
+	text-align: left;
+	font-weight: 400;
+}
+
+/* Shared pieces */
+.card {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow);
+	padding: 1.25rem 1.5rem 1.5rem;
+	min-width: 0;
+}
+@media (max-width: 40rem) {
+	.card {
+		padding: 1rem;
+	}
+}
+
+/* A value's label sits above it, so the facts read as tiles on a wide screen and a list on a phone. */
+.facts {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+	gap: 0.5rem;
+	margin: 0.75rem 0;
+}
+.facts > div {
+	background: var(--surface-2);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 0.5rem 0.75rem;
+	min-width: 0;
+}
+.facts dt {
+	color: var(--text-muted);
+	font-size: var(--font-sm);
+}
+.facts dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+	font-variant-numeric: tabular-nums;
+}
+/* Where the numbers came from (issue #3, ground rule 8). */
+.facts.provenance > div {
+	border-left: 3px solid var(--accent);
+}
+
+.actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.6rem;
+	align-items: center;
+	margin-top: 1rem;
+}
+.actions p {
+	margin: 0;
+}
+
+/* Positioned, so a visually hidden .sr inside it scrolls with it instead of widening the page. */
+.scroll {
+	position: relative;
+	overflow-x: auto;
+	min-width: 0;
+}
+
+.note {
+	color: var(--text-muted);
+	font-size: 0.9rem;
+}
+.warn {
+	color: var(--text);
+	background: var(--warning-soft);
+	border-left: 4px solid var(--warning);
+	border-radius: var(--radius);
+	padding: 0.5rem 0.75rem;
+	font-size: 0.9rem;
+}
+.error {
+	color: var(--danger);
+	font-weight: 600;
+}
+
+.sr {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	* {
+		transition: none !important;
+		scroll-behavior: auto !important;
+	}
 }

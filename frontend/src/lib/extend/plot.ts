@@ -7,39 +7,26 @@
  */
 
 import type uPlot from 'uplot';
-import { LINE_STYLES } from '#lib/results/plot.js';
+import { axisStyle, LINE_STYLES, onThemeChange, tokenColour } from '#lib/results/plot.js';
 import { HYDRO_MONTHS, hydroYearLabel } from '#lib/results/format.js';
 import type { ExtendChartSpec, ExtendSeries } from './charts.js';
 
 /** One colour per calendar month (October first) for the scatter; the data table and the month filter carry the same split without colour. */
-export const MONTH_COLOURS = [
-	'#1d5fbf',
-	'#b3401d',
-	'#2b7a4b',
-	'#7a3fa0',
-	'#9a6b00',
-	'#0f7f8c',
-	'#c2185b',
-	'#5d6d00',
-	'#6d4c41',
-	'#3949ab',
-	'#d84315',
-	'#00796b'
-] as const;
+export const MONTH_COLOURS = Array.from({ length: 12 }, (_, i) => `var(--series-${i + 1})`);
 
 /** Colour and dash per series style; the three fit series reuse the results charts' first three slots. */
 export function seriesStyle(s: Pick<ExtendSeries, 'style'>): { stroke: string; dash: number[] } {
 	switch (s.style) {
 		case 'model':
-			return LINE_STYLES[0] ?? { stroke: '#1d5fbf', dash: [] };
+			return LINE_STYLES[0] ?? { stroke: 'var(--series-1)', dash: [] };
 		case 'chirps':
-			return LINE_STYLES[1] ?? { stroke: '#b3401d', dash: [8, 4] };
+			return LINE_STYLES[1] ?? { stroke: 'var(--series-2)', dash: [8, 4] };
 		case 'corrected':
-			return LINE_STYLES[2] ?? { stroke: '#2b7a4b', dash: [2, 3] };
+			return LINE_STYLES[2] ?? { stroke: 'var(--series-3)', dash: [2, 3] };
 		case 'oneToOne':
-			return { stroke: '#7c7c7c', dash: [6, 4] };
+			return { stroke: 'var(--series-neutral)', dash: [6, 4] };
 		default:
-			return { stroke: MONTH_COLOURS[s.style % 12] ?? '#1d5fbf', dash: [] };
+			return { stroke: MONTH_COLOURS[s.style % 12] ?? 'var(--series-1)', dash: [] };
 	}
 }
 
@@ -51,13 +38,15 @@ function tick(spec: ExtendChartSpec, t: number): string {
 	return String(Math.round(t * 100) / 100);
 }
 
-function options(U: typeof uPlot, spec: ExtendChartSpec, width: number, ink: string): uPlot.Options {
+function options(U: typeof uPlot, spec: ExtendChartSpec, width: number, node: Element): uPlot.Options {
+	const ink = tokenColour(node, 'var(--text)');
 	const bars = spec.series.filter((s) => s.mark === 'bars');
 	const barWidth = 0.8 / Math.max(bars.length, 1);
 	const series: uPlot.Series[] = [
 		{ label: spec.xLabel, value: (_u, v) => (v === null ? '—' : tick(spec, v)) },
 		...spec.series.map((s): uPlot.Series => {
-			const { stroke, dash } = seriesStyle(s);
+			const { dash } = seriesStyle(s);
+			const stroke = tokenColour(node, seriesStyle(s).stroke);
 			const base: uPlot.Series = { label: s.label, stroke, dash, width: 1.5, spanGaps: s.style === 'oneToOne', value: (_u, v) => (v === null ? '—' : v.toFixed(2)) };
 			if (s.mark === 'points') return { ...base, paths: () => null, points: { show: true, size: 6, fill: stroke, stroke } };
 			if (s.mark === 'bars') {
@@ -117,8 +106,8 @@ function options(U: typeof uPlot, spec: ExtendChartSpec, width: number, ink: str
 			y: { range: (_u, _min, max) => [0, (max || 1) * (spec.xNotes ? 1.15 : 1.05)] }
 		},
 		axes: [
-			{ label: spec.xLabel, stroke: ink, values: (_u, ticks) => ticks.map((t) => tick(spec, t)) },
-			{ label: spec.yLabel, stroke: ink, size: 60 }
+			{ ...axisStyle(node), label: spec.xLabel, values: (_u, ticks) => ticks.map((t) => tick(spec, t)) },
+			{ ...axisStyle(node), label: spec.yLabel, size: 60 }
 		],
 		legend: { show: true },
 		cursor: { drag: { x: true, y: false } },
@@ -142,12 +131,13 @@ export function extendPlot(node: HTMLElement, initial: ExtendChartSpec) {
 		if (U === null || destroyed) return;
 		chart?.destroy();
 		node.dataset['ready'] = 'false';
-		chart = new U(options(U, spec, width(), getComputedStyle(node).color || '#1d2421'), data(spec), node);
+		chart = new U(options(U, spec, width(), node), data(spec), node);
 		// A real readiness signal for end-to-end tests: the chart is drawn.
 		node.dataset['ready'] = 'true';
 	};
 	const observer = new ResizeObserver(() => chart?.setSize({ width: width(), height: HEIGHT }));
 	observer.observe(node);
+	const stopTheme = onThemeChange(draw);
 	void import('uplot').then((m) => {
 		U = m.default;
 		draw();
@@ -161,6 +151,7 @@ export function extendPlot(node: HTMLElement, initial: ExtendChartSpec) {
 		destroy() {
 			destroyed = true;
 			observer.disconnect();
+			stopTheme();
 			chart?.destroy();
 			chart = null;
 		}

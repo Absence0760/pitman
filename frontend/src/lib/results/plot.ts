@@ -16,12 +16,31 @@ import { xLabelOf, type ChartLine, type ChartSpec } from './charts.js';
 
 /** Colour and dash per style slot; observed is the dark, solid, heavier line. */
 export const LINE_STYLES: readonly { stroke: string; dash: number[] }[] = [
-	{ stroke: '#1d5fbf', dash: [] },
-	{ stroke: '#b3401d', dash: [8, 4] },
-	{ stroke: '#2b7a4b', dash: [2, 3] },
-	{ stroke: '#7a3fa0', dash: [12, 3, 2, 3] }
+	{ stroke: 'var(--series-1)', dash: [] },
+	{ stroke: 'var(--series-2)', dash: [8, 4] },
+	{ stroke: 'var(--series-3)', dash: [2, 3] },
+	{ stroke: 'var(--series-4)', dash: [12, 3, 2, 3] }
 ];
-export const OBSERVED_STYLE = { stroke: '#1a1a1a', dash: [] as number[] };
+export const OBSERVED_STYLE = { stroke: 'var(--series-observed)', dash: [] as number[] };
+
+/** What a colour token holds on `node`: a canvas can't read `var()`, the key's svg can. */
+export function tokenColour(node: Element, colour: string): string {
+	const token = /^var\((--[a-z0-9-]+)\)$/.exec(colour)?.[1];
+	return token === undefined ? colour : getComputedStyle(node).getPropertyValue(token).trim();
+}
+
+/** The axes and grid, from the theme: uPlot's defaults are black, unreadable in the dark theme. */
+export function axisStyle(node: Element): Pick<uPlot.Axis, 'stroke' | 'grid' | 'ticks'> {
+	const line = { stroke: tokenColour(node, 'var(--border)'), width: 1 };
+	return { stroke: tokenColour(node, 'var(--text-muted)'), grid: line, ticks: line };
+}
+
+/** Run `redraw` when the theme flips under a drawn chart; returns the way to stop. */
+export function onThemeChange(redraw: () => void): () => void {
+	const scheme = matchMedia('(prefers-color-scheme: dark)');
+	scheme.addEventListener('change', redraw);
+	return () => scheme.removeEventListener('change', redraw);
+}
 
 export function styleOf(line: Pick<ChartLine, 'style'>): { stroke: string; dash: number[] } {
 	return line.style === 'observed' ? OBSERVED_STYLE : (LINE_STYLES[line.style % LINE_STYLES.length] ?? OBSERVED_STYLE);
@@ -29,13 +48,14 @@ export function styleOf(line: Pick<ChartLine, 'style'>): { stroke: string; dash:
 
 const HEIGHT = 280;
 
-function options(U: typeof uPlot, spec: ChartSpec, width: number): uPlot.Options {
+function options(U: typeof uPlot, spec: ChartSpec, width: number, node: Element): uPlot.Options {
 	const n = spec.lines.length;
 	const barWidth = 0.8 / Math.max(n, 1);
 	const series: uPlot.Series[] = [
 		{ label: spec.xLabel, value: (_u, v) => (v === null ? '—' : xLabelOf(spec.xKind, v)) },
 		...spec.lines.map((line, i): uPlot.Series => {
-			const { stroke, dash } = styleOf(line);
+			const { dash } = styleOf(line);
+			const stroke = tokenColour(node, styleOf(line).stroke);
 			const observed = line.style === 'observed';
 			const base: uPlot.Series = {
 				label: line.label,
@@ -77,10 +97,11 @@ function options(U: typeof uPlot, spec: ChartSpec, width: number): uPlot.Options
 		},
 		axes: [
 			{
+				...axisStyle(node),
 				label: spec.xLabel,
 				values: (_u, ticks) => ticks.map((t) => (spec.bars && !Number.isInteger(t) ? '' : xLabelOf(spec.xKind === 'month' ? 'hydroYear' : spec.xKind, spec.xKind === 'month' ? Math.floor(t) : t)))
 			},
-			{ label: spec.yLabel, size: 60 }
+			{ ...axisStyle(node), label: spec.yLabel, size: 60 }
 		],
 		legend: { show: true },
 		cursor: { drag: { x: true, y: false } }
@@ -102,12 +123,13 @@ export function plot(node: HTMLElement, initial: ChartSpec) {
 	const draw = () => {
 		if (U === null || destroyed) return;
 		chart?.destroy();
-		chart = new U(options(U, spec, width()), data(spec), node);
+		chart = new U(options(U, spec, width(), node), data(spec), node);
 		// A real readiness signal for end-to-end tests: the chart is drawn.
 		node.dataset['ready'] = 'true';
 	};
 	const observer = new ResizeObserver(() => chart?.setSize({ width: width(), height: HEIGHT }));
 	observer.observe(node);
+	const stopTheme = onThemeChange(draw);
 	void import('uplot').then((m) => {
 		U = m.default;
 		draw();
@@ -121,6 +143,7 @@ export function plot(node: HTMLElement, initial: ChartSpec) {
 		destroy() {
 			destroyed = true;
 			observer.disconnect();
+			stopTheme();
 			chart?.destroy();
 			chart = null;
 		}

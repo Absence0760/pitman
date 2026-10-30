@@ -30,7 +30,7 @@
 					{#if s.mark === 'points'}
 						<circle cx="16" cy="5" r="4" fill={style.stroke} />
 					{:else if s.mark === 'bars'}
-						<rect x="8" y="0" width="16" height="10" fill={`${style.stroke}66`} stroke={style.stroke} />
+						<rect x="8" y="0" width="16" height="10" fill={style.stroke} fill-opacity="0.4" stroke={style.stroke} />
 					{:else}
 						<line x1="0" y1="5" x2="32" y2="5" stroke={style.stroke} stroke-width="2" stroke-dasharray={style.dash.join(' ')} />
 					{/if}
@@ -55,7 +55,7 @@
 		<summary>Data table: {spec.title}</summary>
 		{#if table}
 			<div class="scroll">
-				<table>
+				<table class="data">
 					<caption>{table.caption}</caption>
 					<thead>
 						<tr>
@@ -82,16 +82,20 @@
 
 <style>
 	.chart {
-		margin: 0 0 1.5rem;
+		margin: 0;
 		min-width: 0;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		padding: 0.75rem 1rem;
 	}
 	h4 {
 		margin: 0 0 0.25rem;
-		font-size: 1.05rem;
+		font-size: 0.95rem;
 	}
 	.axes {
 		display: block;
-		font-size: 0.8rem;
+		font-size: var(--font-sm);
 		color: var(--text-muted);
 		margin-bottom: 0.25rem;
 	}
@@ -127,37 +131,17 @@
 		overflow: auto;
 	}
 	table {
-		border-collapse: collapse;
-		font-size: 0.8rem;
-		font-variant-numeric: tabular-nums;
+		font-size: var(--font-sm);
 	}
 	th,
 	td {
 		padding: 0.15rem 0.5rem;
-		text-align: right;
-		border-bottom: 1px solid var(--border);
-		white-space: nowrap;
 	}
 	thead th {
 		position: sticky;
 		top: 0;
-		background: var(--surface);
-	}
-	tbody th {
-		text-align: left;
-		font-weight: normal;
-	}
-	caption {
-		text-align: left;
-		font-weight: 600;
-		padding: 0.25rem 0;
-	}
-	summary {
-		cursor: pointer;
-		font-size: 0.875rem;
-		min-height: 2rem;
 	}
 	.canvas :global(.u-legend) {
-		font-size: 0.75rem;
+		font-size: var(--font-xs);
 	}
 </style>

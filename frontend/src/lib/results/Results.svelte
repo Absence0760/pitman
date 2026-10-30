@@ -85,6 +85,7 @@
 			Flows in million m³ per month; hydrological years run October to September.
 		</p>
 
+		<div class="toolbar">
 		<div class="picker">
 			<label for="results-target">Route or reservoir</label>
 			<select id="results-target" value={target.id} onchange={(e) => (chosenId = e.currentTarget.value)}>
@@ -100,8 +101,6 @@
 				<p class="note">The gauge's observed-flow file ({target.gauge.observedFile.trim()}) is not in the network folder.</p>
 			{/if}
 		</div>
-
-		<h3 class="target-title">{target.label}</h3>
 
 		{#if record !== null}
 			<fieldset class="period">
@@ -140,11 +139,14 @@
 				{/if}
 			</fieldset>
 		{/if}
+		</div>
+
+		<h3 class="target-title">{target.label}</h3>
 
 		{#if stats}
 			<div class="stats">
 				<div class="scroll">
-					<table>
+					<table class="data">
 						<caption>{stats.caption}</caption>
 						<thead>
 							<tr>
@@ -205,35 +207,53 @@
 
 <style>
 	.results {
-		max-width: 72rem;
 		min-width: 0;
+	}
+	.runs {
+		margin: 0 0 1rem;
+		color: var(--text-muted);
+		font-size: 0.925rem;
+	}
+	.toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+		align-items: flex-start;
+		background: var(--surface-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		padding: 0.75rem 1rem;
+		margin-bottom: 1.25rem;
 	}
 	.picker {
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
-		margin-bottom: 1rem;
+		flex: 1 1 18rem;
+		min-width: 0;
 	}
-	select {
-		max-width: 100%;
-		font: inherit;
-		padding: 0.35rem;
+	.picker label {
+		font-weight: 650;
 	}
 	.target-title {
 		font-size: 1.15rem;
-		margin: 0.5rem 0;
+		margin: 0 0 0.5rem;
 	}
 	.period {
+		flex: 2 1 26rem;
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.5rem 1rem;
-		border: 1px solid #ccc;
-		margin: 0 0 1rem;
+		border: 0;
+		padding: 0;
+	}
+	.period legend {
+		padding: 0;
+		margin-bottom: 0.25rem;
 	}
 	.period input[type='number'] {
-		width: 6.5rem;
-		font: inherit;
+		width: 6rem;
 	}
 	.period .note {
 		flex-basis: 100%;
@@ -244,55 +264,46 @@
 		gap: 0.35rem;
 		align-items: center;
 	}
-	.scroll {
-		overflow-x: auto;
-	}
-	table {
-		border-collapse: collapse;
-		font-variant-numeric: tabular-nums;
-		font-size: 0.875rem;
-	}
-	caption {
-		text-align: left;
-		font-weight: 600;
-		padding-bottom: 0.25rem;
-	}
-	th,
-	td {
-		padding: 0.25rem 0.5rem;
-		border-bottom: 1px solid #ddd;
-		text-align: right;
-		white-space: nowrap;
-	}
-	tbody th,
-	.unit {
-		text-align: left;
-	}
-	tbody th {
-		font-weight: normal;
-	}
-	.unit {
-		color: #555;
-	}
 	/* The word "outside" carries the meaning; weight and colour only repeat it. */
 	td.outside {
 		font-weight: 600;
-		color: #a01d00;
+		color: var(--danger);
 	}
-	.note {
-		font-size: 0.85rem;
-		color: #444;
+	table.data td.unit,
+	table.data thead th:nth-child(2) {
+		text-align: left;
+	}
+	td.unit {
+		color: var(--text-muted);
+	}
+	/* The statistic's name stays beside its numbers when the runs scroll sideways. */
+	tbody th,
+	thead th:first-child {
+		position: sticky;
+		left: 0;
+		background: var(--surface);
+	}
+	thead th:first-child {
+		background: var(--surface-2);
 	}
 	.charts {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
-		gap: 0.5rem;
-		margin-top: 1rem;
+		gap: 1rem;
+		margin-top: 1.25rem;
 	}
-	@media (min-width: 64rem) {
+	@media (min-width: 72rem) {
 		.charts {
 			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
+	}
+	.downloads {
+		margin-top: 1.25rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border);
+	}
+	.downloads h4 {
+		margin: 0 0 0.5rem;
 	}
 	.downloads ul {
 		display: flex;
@@ -300,13 +311,6 @@
 		gap: 0.5rem;
 		list-style: none;
 		padding: 0;
-	}
-	button {
-		font: inherit;
-		padding: 0.35rem 0.75rem;
-		min-height: 2.75rem;
-	}
-	.error {
-		color: #a01d00;
+		margin: 0 0 0.5rem;
 	}
 </style>

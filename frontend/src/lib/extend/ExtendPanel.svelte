@@ -77,7 +77,7 @@
 	}
 </script>
 
-<section aria-labelledby="extend-h" class="extend">
+<section aria-labelledby="extend-h" class="card">
 	<h2 id="extend-h">Extend rainfall with CHIRPS</h2>
 	<p>
 		Bring a rainfall file (<code>.RAN</code>, % of MAP) up to the last complete hydrological year: Pitman averages CHIRPS over the area the file represents,
@@ -147,78 +147,26 @@
 </section>
 
 <style>
-	.scroll {
-		overflow-x: auto;
-	}
+	/* Wide enough to keep a file name whole and Extend in its row; the box scrolls on a phone. */
 	.files {
-		border-collapse: collapse;
 		width: 100%;
-		font-size: 0.925rem;
-	}
-	.files th,
-	.files td {
-		text-align: left;
-		vertical-align: top;
-		padding: 0.4rem 0.5rem;
-		border-bottom: 1px solid var(--border);
+		min-width: 38rem;
 	}
 	.files tbody th {
 		font-weight: 600;
-		overflow-wrap: anywhere;
+		white-space: nowrap;
 	}
 	.sub {
 		display: block;
-		font-weight: normal;
-		font-size: 0.8rem;
+		font-weight: 400;
+		font-size: var(--font-sm);
 		color: var(--text-muted);
-	}
-	.sr {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip: rect(0 0 0 0);
-		white-space: nowrap;
-	}
-	button {
-		font: inherit;
-		min-height: 2.75rem;
-		padding: 0 1rem;
-		border-radius: 0.375rem;
-		border: 1px solid var(--border-strong);
-		background: var(--surface);
-		color: var(--text);
-		cursor: pointer;
-	}
-	button[aria-pressed='true'] {
-		background: var(--accent-soft);
-		border-color: var(--accent);
-	}
-	button.primary {
-		background: var(--accent);
-		border-color: var(--accent);
-		color: var(--on-accent);
-		font-weight: 600;
-	}
-	button:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-	.actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.75rem;
-		margin: 0.5rem 0;
 	}
 	.applied {
 		border-left: 4px solid var(--accent);
-		padding: 0.25rem 0.75rem;
+		background: var(--accent-soft);
+		border-radius: var(--radius);
+		padding: 0.25rem 1rem 0.75rem;
 		margin: 1rem 0;
-	}
-	.note {
-		color: var(--text-muted);
-	}
-	code {
-		font-family: ui-monospace, monospace;
 	}
 </style>

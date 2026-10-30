@@ -17,7 +17,7 @@
 	});
 </script>
 
-<section class="issues" class:errors={issues.some((i) => i.level === 'error')} aria-labelledby={id}>
+<section class="card issues" class:errors={issues.some((i) => i.level === 'error')} aria-labelledby={id}>
 	<h2 {id} tabindex="-1" bind:this={heading}>{title}</h2>
 	{#each groups as group (group.file)}
 		<h3>{group.file}</h3>
@@ -35,18 +35,15 @@
 <style>
 	.issues {
 		border-left: 4px solid var(--warning);
-		padding: 0.25rem 0 0.25rem 1rem;
-		margin: 1.5rem 0;
 	}
 	.issues.errors {
 		border-left-color: var(--danger);
 	}
 	h2 {
-		font-size: 1.15rem;
+		font-size: 1.1rem;
 		margin: 0 0 0.5rem;
 	}
 	h3 {
-		font-size: 1rem;
 		margin: 0.75rem 0 0.25rem;
 		overflow-wrap: anywhere;
 	}
@@ -59,8 +56,8 @@
 	}
 	.where {
 		display: block;
-		font-family: ui-monospace, monospace;
-		font-size: 0.9rem;
+		font-family: var(--font-mono);
+		font-size: var(--font-sm);
 		color: var(--text-muted);
 		overflow-wrap: anywhere;
 	}

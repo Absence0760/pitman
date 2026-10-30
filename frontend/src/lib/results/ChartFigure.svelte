@@ -40,7 +40,7 @@
 		<summary>Data table: {spec.title}</summary>
 		{#if table}
 			<div class="scroll">
-				<table>
+				<table class="data">
 					<caption>{table.caption}</caption>
 					<thead>
 						<tr>
@@ -67,12 +67,16 @@
 
 <style>
 	.chart {
-		margin: 0 0 1.5rem;
+		margin: 0;
 		min-width: 0;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		padding: 0.75rem 1rem;
 	}
 	h4 {
 		margin: 0 0 0.25rem;
-		font-size: 1.05rem;
+		font-size: 0.95rem;
 	}
 	.key {
 		display: flex;
@@ -95,8 +99,8 @@
 	}
 	.axes {
 		display: block;
-		font-size: 0.8rem;
-		color: #555;
+		font-size: var(--font-sm);
+		color: var(--text-muted);
 		margin-bottom: 0.25rem;
 	}
 	.scroll {
@@ -104,37 +108,18 @@
 		overflow: auto;
 	}
 	table {
-		border-collapse: collapse;
-		font-size: 0.8rem;
-		font-variant-numeric: tabular-nums;
+		font-size: var(--font-sm);
 	}
 	th,
 	td {
 		padding: 0.15rem 0.5rem;
-		text-align: right;
-		border-bottom: 1px solid #ddd;
-		white-space: nowrap;
 	}
 	thead th {
 		position: sticky;
 		top: 0;
-		background: #fff;
-	}
-	tbody th {
-		text-align: left;
-		font-weight: normal;
-	}
-	caption {
-		text-align: left;
-		font-weight: 600;
-		padding: 0.25rem 0;
-	}
-	summary {
-		cursor: pointer;
-		font-size: 0.875rem;
 	}
 	/* uPlot's own legend repeats the key above; keep its live values for pointer users. */
 	.canvas :global(.u-legend) {
-		font-size: 0.75rem;
+		font-size: var(--font-xs);
 	}
 </style>
