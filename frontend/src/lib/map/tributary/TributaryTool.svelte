@@ -16,6 +16,7 @@
 
 	let {
 		within,
+		click: mapClick = null,
 		baseUrl = API_BASE_URL,
 		onresult,
 		onchannels,
@@ -23,6 +24,8 @@
 	}: {
 		/** The piece being split: the quaternary, or a piece of it. */
 		within: AreaGeometry;
+		/** The latest click on the map; a new one delineates, as `point()` does. */
+		click?: Click | null;
 		/** The API base; the app's by default. */
 		baseUrl?: string;
 		/** Accept: the answer, and the click that made it (for the sidecar). */
@@ -60,6 +63,10 @@
 		clear();
 		void delineate(lngLat, keepPoint);
 	}
+
+	$effect(() => {
+		if (mapClick) untrack(() => point(mapClick));
+	});
 
 	async function delineate(lngLat: Click, keepPoint: boolean) {
 		click = lngLat;
