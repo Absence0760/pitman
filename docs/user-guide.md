@@ -216,6 +216,10 @@ boundaries and terrain; real ones need a licence decision. The method is in
   change, and a factor that doesn't converge is never applied silently.
 - A tributary drains into the remainder, in series. MAP-zone pieces drain side by side
   to the same outlet. The final factor and its source go into `pitman.json`.
+- A quaternary is sub-divided once. Once a split is applied, step 1 stops a further split
+  of its pieces and a second module under the same code, and says to go back to the zip
+  saved before it. A plan the network can't carry (the pieces can't be connected, say) is
+  refused at the review, with nothing changed: undo the split or start again.
 
 ## Demands
 

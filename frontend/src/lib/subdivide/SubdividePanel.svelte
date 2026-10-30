@@ -112,7 +112,7 @@
 		return feature && collection ? { code, geometry: feature.geometry, source: collection.source } : undefined;
 	});
 	const boundaryKm2 = $derived(quaternary ? geometryAreaKm2(quaternary.geometry) : undefined);
-	const block = $derived(module ? splitBlock(bundle, module.ref) : null);
+	const block = $derived(module ? splitBlock(bundle, module.ref, quaternary?.code) : null);
 	const earlyCheck = $derived(module && boundaryKm2 !== undefined ? attempt(() => engine.scalePieceAreas(module.areaKm2, [boundaryKm2])) : undefined);
 
 	// The steps
@@ -727,7 +727,10 @@
 				</ul>
 				<h4>Changes to the network</h4>
 				{#if refusal}
-					<p id="subdivide-refused" class="error" role="alert" tabindex="-1">This split can’t be applied: {refusal}</p>
+					<div id="subdivide-refused" role="alert" tabindex="-1">
+						<p class="error">This split can’t be applied: {refusal}</p>
+						<p>Nothing has changed. Undo the last split to try another, or start again with a different module.</p>
+					</div>
 				{:else if preview?.ok}
 					{#each preview.value.messages.filter((m) => !(areas?.ok && m === areas.value.warning)) as message (message)}
 						<p class="warn"><strong>Check:</strong> {message}</p>

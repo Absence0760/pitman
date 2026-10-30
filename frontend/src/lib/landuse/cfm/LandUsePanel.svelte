@@ -11,6 +11,7 @@
 	import { DEFAULT_MATCH_RADIUS_M, matchDams, type AreaGeometry, type LandUseAnswer, type LoadedBundle, type QuaternaryCollection } from '@pitman/wrsm';
 	import { MAX_AREA_FILE_BYTES, parseArea } from '#lib/extend/area.js';
 	import type { MapProps } from '#lib/map/contract.js';
+	import { plural } from '#lib/network/format.js';
 	import { formatNumber, hydroYearLabel } from '#lib/results/format.js';
 	import { LandUseRequestError, landUseClient, type LandUseClient } from './api.js';
 	import CropStep from './CropStep.svelte';
@@ -235,7 +236,7 @@
 			<div><dt>Dataset</dt><dd data-value="dataset">{answer.dataset}</dd></div>
 			<div><dt>Census year</dt><dd>{answer.surveyYear}</dd></div>
 			<div><dt>Fetched</dt><dd>{answer.fetchedOn}</dd></div>
-			<div><dt>Found</dt><dd data-value="found">{answer.fields.length} fields, {formatNumber(totalHa, 1)} ha; {dams.length} dams</dd></div>
+			<div><dt>Found</dt><dd data-value="found">{plural(answer.fields.length, 'field')}, {formatNumber(totalHa, 1)} ha; {plural(dams.length, 'dam')}</dd></div>
 		</dl>
 
 		<div class="field">

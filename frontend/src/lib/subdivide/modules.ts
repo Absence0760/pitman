@@ -84,10 +84,12 @@ export function subdivisionOf(bundle: NetworkBundle, ref: ModuleRef): { readonly
 }
 
 /** Why a module can't be split now, in words, or `null`. */
-export function splitBlock(bundle: NetworkBundle, ref: ModuleRef): string | null {
+export function splitBlock(bundle: NetworkBundle, ref: ModuleRef, quaternary?: string): string | null {
 	const done = subdivisionOf(bundle, ref);
-	if (done === undefined) return null;
-	return `${ref.type} ${ref.number} is already part of the sub-division of ${done.quaternary}. A split can’t be added to one that has been applied: go back to the zip saved before it and make all the splits together (up to 8 pieces).`;
+	if (done !== undefined) return `${ref.type} ${ref.number} is already part of the sub-division of ${done.quaternary}. A split can’t be added to one that has been applied: go back to the zip saved before it and make all the splits together (up to 8 pieces).`;
+	const applied = quaternary === undefined ? undefined : bundle.sidecar?.subdivisions?.[quaternary];
+	if (applied === undefined) return null;
+	return `${quaternary} is already sub-divided, and ${ref.type} ${ref.number} is not one of its pieces. One factor scales every piece of a quaternary, so another module can’t join it: choose another quaternary for ${ref.type} ${ref.number}, or go back to the zip saved before the split and make all the splits together.`;
 }
 
 /** One row of the "already sub-divided" table: where each final MAP and its target came from (rule 8). */
