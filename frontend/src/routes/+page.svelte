@@ -21,6 +21,7 @@
 	import { browserIndexedDB, forgetWorkingCopy, loadWorkingCopy, storeWorkingCopy } from '#lib/network/storage.js';
 	import CalibratePanel from '#lib/calibrate/CalibratePanel.svelte';
 	import ExtendPanel from '#lib/extend/ExtendPanel.svelte';
+	import LandUseEditor from '#lib/landuse/editor/LandUseEditor.svelte';
 	import { rainfallFiles } from '#lib/extend/files.js';
 	import Results from '#lib/results/Results.svelte';
 	import { hydroYearLabel } from '#lib/results/format.js';
@@ -354,6 +355,8 @@
 					<TributaryTool within={slot.within} click={slot.click} onresult={slot.onaccept} onchannels={slot.onchannels} onproposal={slot.onproposal} />
 				{/snippet}
 			</SubdividePanel>
+
+			<LandUseEditor {bundle} onupdate={updateBundle} busy={runState === 'running'} />
 
 			<CalibratePanel {bundle} onupdate={updateBundle} busy={runState === 'running'} />
 

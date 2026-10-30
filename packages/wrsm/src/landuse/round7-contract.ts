@@ -81,6 +81,7 @@ export type ApplyDams<B extends NetworkBundle = NetworkBundle> = (bundle: B, res
 
 /** One cell of a year table, edited on screen, with its source (rule 8). */
 export interface TableEdit {
+	/** `row` is the table's property name: `areaKm2`, or `fraction` for paved (R7-T1). */
 	readonly target: { readonly module: ModuleRef; readonly table: 'afforestation' | 'alienVegetation' | 'paved'; readonly row: string };
 	readonly year: HydroYear;
 	/** `null` removes the row. */

@@ -11,7 +11,7 @@ function step(input: Partial<StepInput>, id: string) {
 
 describe('workflowSteps', () => {
 	it('goes network, extend, run, results and links to each section', () => {
-		expect(workflowSteps(base).map((s) => s.id)).toEqual(['network-h', 'map-h', 'extend-h', 'subdivide-h', 'calibrate-h', 'run-h', 'results-output']);
+		expect(workflowSteps(base).map((s) => s.id)).toEqual(['network-h', 'map-h', 'extend-h', 'subdivide-h', 'tables-h', 'calibrate-h', 'run-h', 'results-output']);
 	});
 
 	it('a loaded network is done and shows its record', () => {

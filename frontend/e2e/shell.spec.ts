@@ -30,7 +30,7 @@ test('a loaded network replaces the landing page with the steps, and its name is
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText('Network SY');
 	await expect(page.getByRole('banner').getByRole('button', { name: 'Save as WRSM2000 zip' })).toBeVisible();
 	const steps = page.getByRole('navigation', { name: 'Steps' }).getByRole('listitem');
-	await expect(steps).toHaveText([/Network/, /Map/, /Extend rainfall/, /Sub-divide/, /Calibrate/, /Not run yet/, /Run the network first/]);
+	await expect(steps).toHaveText([/Network/, /Map/, /Extend rainfall/, /Sub-divide/, /Land use/, /Calibrate/, /Not run yet/, /Run the network first/]);
 });
 
 test('the rail follows the run and its links reach their sections', async ({ page }) => {
@@ -39,11 +39,17 @@ test('the rail follows the run and its links reach their sections', async ({ pag
 	await page.getByRole('button', { name: 'Run', exact: true }).click();
 	await expect(page.locator('[data-run-state]')).toHaveAttribute('data-ready', 'true');
 	const rail = page.getByRole('navigation', { name: 'Steps' });
-	await expect(rail.getByRole('listitem').nth(5)).toContainText('modes run');
+	await expect(rail.getByRole('listitem').nth(6)).toContainText('modes run');
 	await expect(page.getByRole('banner')).toContainText('modes run');
 	await rail.getByRole('link', { name: /Results/ }).click();
 	await expect(page).toHaveURL(/#results-output$/);
 	await expect(page.getByRole('region', { name: 'Results' })).toBeInViewport({ ratio: 0.05 });
+});
+
+test('the land-use tables are on the page, under the one title', async ({ page }) => {
+	await load(page);
+	await expect(page.getByRole('heading', { name: 'Land-use tables' })).toBeAttached();
+	await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
 });
 
 test('another network can be loaded from a loaded one', async ({ page }) => {
@@ -76,7 +82,7 @@ test('every step is on screen on a phone, with Extend still in reach', async ({ 
 	await page.setViewportSize({ width: 390, height: 844 });
 	await load(page);
 	const steps = page.getByRole('navigation', { name: 'Steps' }).getByRole('listitem');
-	for (const i of [0, 1, 2, 3, 4, 5, 6]) await expect(steps.nth(i)).toBeInViewport({ ratio: 1 });
+	for (const i of [0, 1, 2, 3, 4, 5, 6, 7]) await expect(steps.nth(i)).toBeInViewport({ ratio: 1 });
 	const extend = page.getByRole('region', { name: 'Extend rainfall with CHIRPS' }).getByRole('button', { name: /^Extend / }).first();
 	await extend.scrollIntoViewIfNeeded();
 	const box = await extend.boundingBox();
