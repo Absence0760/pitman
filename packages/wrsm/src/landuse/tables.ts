@@ -17,6 +17,7 @@
  * only the run of entries that ends at the cell's value counts (R7-T3).
  */
 
+import { readRunoff, writeRunoff } from '../io/runoff.js';
 import type { HydroYear, NetworkBundle, RunoffModule, Sidecar, ValueSourceKind, YearTable } from '../types.js';
 import type { ApplyTableEdits, TableEdit } from './round7-contract.js';
 
@@ -259,7 +260,22 @@ export function applyTableEdits<B extends NetworkBundle>(bundle: B, edits: reado
 		let module = modules.get(number)!;
 		for (const table of Object.keys(LAND_USE_TABLES) as LandUseTable[]) {
 			const own = edits.filter((e) => e.target.module.number === number && e.target.table === table);
-			if (own.length > 0) module = withYearTable(module, table, editedTable(module, table, own));
+			if (own.length === 0) continue;
+			module = withYearTable(module, table, editedTable(module, table, own));
+			// R7-T8: as R7-X1, the working copy holds what the file holds, so a run equals a run of the saved zip.
+			// A hand-made file can hold an untouched row the format can't keep; it moves here, and the move is logged.
+			const rows = yearTableOf(module, table);
+			const saved = yearTableOf(readRunoff(writeRunoff(module), 'land-use tables'), table);
+			rows.forEach((row, k) => {
+				const value = saved[k]?.value;
+				if (value === undefined || value === row.value) return;
+				const { source } = own[0]!;
+				logged.push({
+					target: { module: { type: 'RU', number }, field: LAND_USE_TABLES[table].field, year: row.year },
+					source: { ...source, note: tableEditNote(row.value, value, 'rounded to what the file can hold') }
+				});
+			});
+			module = withYearTable(module, table, saved);
 		}
 		next.set(number, module);
 	}

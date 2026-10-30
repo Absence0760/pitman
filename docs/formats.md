@@ -629,7 +629,7 @@ Examples: [`SYDOM.abs`](formats/examples/network/SYDOM.abs) (demand on a reservo
   - `4X,I4,12F8.2,F11.2` with an annual column;
   - `.ANS` layout;
   - `+` and `A` flags.
-- **Writers** use `4X,I4,12F8.2` with no annual column. That's the most common hand-made layout, and WRSM2000 ignores anything past column 105 anyway.
+- **Writers** use `4X,I4,12F8.2` with no annual column, or `F8.3` for a generated demand (§12). That's the most common hand-made layout, and WRSM2000 ignores anything past column 105 anyway.
 
 ### 11.4 Observed flows `.obs`
 
@@ -639,7 +639,7 @@ Example: [`SYH001.obs`](formats/examples/network/SYH001.obs).
 - Many `.obs` files use the **leading-dot** style `    .06+`, which reads the same.
 - A record may cover only part of the simulation period (e.g. 4 years); comparison uses only the overlap. Years outside the period are ignored.
 - **Missing data:** no convention is documented (U-16). One recently extended file marks missing months `-99.999`, and a DWS export uses `-199.998`. Treat **any negative value as missing**, with a warning, and never compare those months.
-- **Misaligned rows (found in the reference network).** Rows appended in a `4X,I4,12F8.3` layout put a 9-character first value at columns 9–17. Under WRSM2000's fixed read, every month is then **truncated to 2 decimals** and its **third decimal lands in the flag column**. `-99.999` is read as `-99.99` with flag `9`.
+- **Misaligned rows (found in the reference network).** Rows appended in a `4X,I4,1X,12F8.3` layout, one column right of the read, put a 9-character first value at columns 9–17. Under WRSM2000's fixed read, every month is then **truncated to 2 decimals** and its **third decimal lands in the flag column**. `-99.999` is read as `-99.99` with flag `9`.
 
   Our reader must read these rows the way WRSM2000 does, so comparisons match the original, and must **warn** with the file, line and "3-decimal layout: WRSM2000 reads this as truncated values with digit flags". A rewrite of such a file uses `4X,I4,1X,12(F7.2,A1)`.
 - Writers: we never write `.obs` except as the user's own uploads, which are passed through byte-for-byte.
@@ -691,7 +691,7 @@ Generating a domestic demand for Round 7, with annual volume *A*_*Y* in million 
 - It's named after the route, e.g. `SYRQ11.abs` (`-2`, `-3`, … if that name is taken, even by a file nothing reads), referenced on the RV L.013 or CR L.010 line, and recorded in the sidecar with its inputs: `demands` holds the spec, keyed by the upper-cased name, and `values` holds each input's source under `{ file, field, year? }`, with `field` one of `annualVolumeMm3`, `monthlyDistributionPercent`, `growth` (rule 8).
 - `DemandSpec.growth` holds every anchor; its first row is the base year. An empty table means `annualVolumeMm3` in every year.
 
-The 0.0005 Mm³/month write resolution (500 m³) still leaves a very small demand in steps. The demand editor reports written against asked for every year and warns past 0.5 % of *A*_*Y*. If it exceeds 0.5 %, consider `F8.3` (still 8 columns, read correctly by `F7.0` only up to 99.999, U-18).
+The 0.0005 Mm³/month write resolution (500 m³) still leaves a very small demand in steps. The demand editor reports written against asked for every year and warns past 0.5 % of *A*_*Y*. `F7.3` fits to 999.999 in the same columns (each value at 10–16, the flag column blank); the limit of 100 is caution, not a read limit. That WRSM2000 reads the third decimal is U-24.
 
 ---
 
@@ -793,6 +793,7 @@ Each unknown has a best guess and the evidence for it. Later rounds resolve thes
 | U-21 | Units of RU L.011 riparian area | **Resolved (Round 6):** % of the alien vegetation area (TT 691 §7.4.2 RipVegAreaPerc; `docs/theory/alien.md`) | Values 0.00–0.60 alongside alien areas of a few km² |
 | U-22 | Whether WRSM2000 accepts LF-only files | Probably (Fortran formatted reads usually tolerate both) | All files are CRLF; we always write CRLF, so this doesn't matter for output |
 | U-23 | How WRSM2000 reads a `.RAN` field with no decimal point | As `F7.0` (`12` = 12 %), provisional | TT 689 gives no read format; one hand-made reference file is affected |
+| U-24 | Whether WRSM2000 reads the third decimal of a generated demand file (`4X,I4,12F8.3`, R7-X7) | Yes: the read is `F7.0` with an explicit point, and the value sits in the same columns as `F8.2` | Not tested in a real run; an operator check on the first saved demand |
 
 ---
 

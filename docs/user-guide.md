@@ -244,10 +244,10 @@ with the total the file holds beside the volume you asked for, what else Apply t
 and the file as text. It covers every year of the run and carries on to the last growth
 year. The file is named after the route (`SYRQ11.abs`) and uses WRSM2000's layout.
 
-**Rounding.** A demand file keeps two decimals of a million m³ a month, which is
-10,000 m³, so a small demand moves in steps: 0.30 a year spread evenly is written as
-0.03 a month, which comes to 0.36. Pitman shows the difference per year and warns past
-0.5 %. The run and the saved file use the rounded values, so what you see is what runs.
+**Rounding.** A demand file keeps three decimals of a million m³ a month, which is
+1,000 m³, so only a very small demand moves in steps: 0.03 a year spread evenly is
+written as 0.002 a month, which comes to 0.024. Pitman shows the difference per year
+and warns past 0.5 %. The run and the saved file use the rounded values, so what you see is what runs.
 
 A file with no record in `pitman.json` can be viewed and replaced but not edited as a
 volume, shares and growth, because monthly rows don't say how they were made. **Replace

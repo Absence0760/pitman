@@ -260,4 +260,12 @@ describe('moving a demand', () => {
 		expect(plan.renamedFrom).toBeUndefined();
 		expect(channel(applyDemand(bundleNamed, plan)).outflows.at(-1)?.definedFlowFile).toBe('TOWN.abs');
 	});
+
+	it('refuses to replace a file a gauge reads as its observed flow', () => {
+		const bundle = loaded();
+		const applied = applyDemand(bundle, planDemand(bundle, newOnDam));
+		const key = Object.keys(applied.flowFiles).at(-1)!;
+		const gauged = { ...applied, observed: { ...applied.observed, [key]: { fileName: applied.flowFiles[key]!.fileName, rows: [] } } } as LoadedBundle;
+		expect(() => planDemand(gauged, { spec, sources, file: key })).toThrow('observed flow');
+	});
 });

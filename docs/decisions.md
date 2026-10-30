@@ -226,6 +226,7 @@ Round 6 after the SFR hunt (local, defaults, 2026-10-29): 34 of 35 networks run;
 | R7-T5 | An SFR child's table is edited here, unlike Calibrate, which sends a child to its parent. `inheritFromParent` keeps the child's land-use tables, and a parent may not hold them (TT 689 p.140), so refusing children would leave those tables uneditable. A child gets no paved area and one kind of SFR; a parent no afforestation or alien vegetation. A table the rules forbid but the file has stays in view read-only, with a warning | Decided; differs from the round's brief, which said to follow Calibrate |
 | R7-T6 | The special-area rule is `specialAreaMessages` at every year any of the tables lists: the total is a straight line between them, so its peak falls on one. It stops Apply only where an edit raised the total; what the file already had is a warning. A child's limit is its parent's area; past its own L.002 is a warning (TT 689 p.139) | Decided |
 | R7-T7 | Going back to the file's value needs no note and is recorded with `kind: 'networkFile'`. Drafts are kept per module, so picking another module loses nothing; Apply applies the open module's. A table with a repeated or out-of-order year is read-only, because an edit by year couldn't say which row it means, and the screen names the file and lines to correct | Decided |
+| R7-T8 | `applyTableEdits` leaves the edited table as the file will hold it: an untouched row the format can't keep (only a hand-made file has one) is rounded and logged in `sidecar.values`, so a run of the working copy equals a run of the saved zip, as R7-X1 | Decided |
 | R7-X1 | Generated demand rows hold the writer's rounded values, so a run of the working copy equals a run of the saved zip | Decided |
 | R7-X2 | `DemandSpec` has no base-year field: `growth[0]` is the base year, and a flat demand is one row | Decided |
 | R7-X3 | A demand can't go on a spill, principal, wetland, diversion, `'*'` or irrigation-fed route, or on one holding another file. A new route to the zero sink is offered up to Table 2.1's limit | Decided |
@@ -233,6 +234,7 @@ Round 6 after the SFR hunt (local, defaults, 2026-10-29): 34 of 35 networks run;
 | R7-X5 | A demand's sources go in `sidecar.values` under `{ file, field, year? }`: an untouched value keeps its source, a changed one becomes `manual` with the date, and the 12 shares share one source as a set summing to 100 | Decided |
 | R7-X6 | Moving a demand renames the file only if it was named after its old route | Decided |
 | R7-X7 | Generated demand files write three decimals (`F8.3`) unless a month could reach 100 million m³. At two, 0.30 million m³/a evenly spread was written as 0.03 a month, 0.36 a year, 20 % over. WRSM2000 reading the third decimal is by its documented fixed-column read, not yet seen in a real run (an operator check) | Provisional |
+| R7-X8 | A file a gauge reads as its observed flow can't be replaced by a generated demand, and a route another module reads from a file can't take one | Decided |
 ## Round 7: land-use data (2026-10-30)
 
 | ID | Decision | Status |

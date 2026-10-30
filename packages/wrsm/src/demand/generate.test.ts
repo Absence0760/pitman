@@ -123,6 +123,18 @@ describe('demandYearChecks', () => {
 		expect(Math.abs(small?.differencePercent ?? 0)).toBeGreaterThan(DEMAND_ROUNDING_LIMIT_PERCENT);
 	});
 
+	it('a read-back file keeps its three decimals when one row changes', () => {
+		const series = generateDemandSeries(spec({ annualVolumeMm3: 0.3, monthlyDistributionPercent: even, growth: [] }), { fileName: 'SYRQ11.abs', firstYear: 2000, lastYear: 2001 });
+		const read = readDemand(writeDemand(series), 'SYRQ11.abs');
+		const changed = { ...read, rows: read.rows.map((row, i) => (i === 1 ? { ...row, months: row.months.map(() => 0.026) as unknown as typeof row.months } : row)) };
+		expect(writeDemand(changed)).toContain('   0.026');
+		expect(specGenerates(spec({ annualVolumeMm3: 0.3, monthlyDistributionPercent: even, growth: [] }), read.rows)).toBe(true);
+	});
+
+	it('decides its decimals on the volumes the file holds: a growth table replaces the annual volume', () => {
+		expect(demandDecimals(spec({ annualVolumeMm3: 5000, growth: [{ year: 2000, value: 0.3 }] }))).toBe(3);
+	});
+
 	it('keeps two decimals where a month could reach 100 million m³, as its field needs', () => {
 		const large = spec({ annualVolumeMm3: 2400, monthlyDistributionPercent: even, growth: [] });
 		expect(demandDecimals(large)).toBe(2);

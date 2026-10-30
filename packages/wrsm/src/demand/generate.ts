@@ -5,7 +5,7 @@
  * the file only ever holds monthly volumes.
  *
  * Rows hold what the file will hold: each month goes through the writer's
- * own rounding (`F7.2` of the float32 value, §2), so a run of the working
+ * own rounding (`F7.3` or `F7.2` of the float32 value, §2), so a run of the working
  * copy equals a run of the saved zip, and the preview shows the file's
  * values, not values the file can't keep (R7-X1).
  */
@@ -51,7 +51,8 @@ export function demandFileYears(spec: DemandSpec, network: Pick<Network, 'startY
  */
 export function demandDecimals(spec: DemandSpec): 2 | 3 {
 	const total = spec.monthlyDistributionPercent.reduce((a, b) => a + b, 0);
-	const peak = Math.max(spec.annualVolumeMm3, ...spec.growth.map((g) => g.value)) * (Math.max(...spec.monthlyDistributionPercent) / total);
+	const largest = spec.growth.length === 0 ? spec.annualVolumeMm3 : Math.max(...spec.growth.map((g) => g.value));
+	const peak = largest * (Math.max(...spec.monthlyDistributionPercent) / total);
 	return peak < 100 ? 3 : 2;
 }
 

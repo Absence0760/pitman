@@ -39,13 +39,20 @@ export function readDemand(text: string, fileName: string): DemandSeries {
 	return { fileName, rows, hasTotals, hasAverage, source: read.source };
 }
 
+/** The decimals a file read back holds: a changed row must keep them, or 0.026 would be saved as 0.03. */
+function decimalsOf(series: DemandSeries): 2 | 3 {
+	if (series.decimals !== undefined) return series.decimals;
+	return series.source?.lines.some((line) => /^ {4}\d{4} +-?\d*\.\d{3}(\s|$)/.test(line)) ? 3 : 2;
+}
+
 /** Write a defined-flow or demand file (see the file header for the layout). */
 export function writeDemand(series: DemandSeries): string {
+	const decimals = decimalsOf(series);
 	const format = (row: MonthlyRow) =>
 		series.hasTotals
 			? formatAnswerRow(answerRow(row.year, row.months))
 			: `    ${formatI(row.year, 4, `${series.fileName} year`)}` +
-				row.months.map((v, k) => ' ' + formatF(v, 7, series.decimals ?? 2, `${series.fileName} year ${row.year} month ${k + 1}`)).join('');
+				row.months.map((v, k) => ' ' + formatF(v, 7, decimals, `${series.fileName} year ${row.year} month ${k + 1}`)).join('');
 	const footer = (): string[] => {
 		if (!series.hasAverage) return [];
 		const a = answerAverage(series.rows.map((row) => answerRow(row.year, row.months)));

@@ -191,6 +191,18 @@ describe('applyTableEdits', () => {
 });
 
 describe('the saved network', () => {
+	it('holds what the file holds: an untouched row off the format is rounded and logged (R7-T8)', () => {
+		const bundle = withRows();
+		const m = runoff(bundle, 1);
+		const hand = { ...bundle, modules: bundle.modules.map((x) => (x === m ? { ...m, afforestation: { ...m.afforestation, areaKm2: [{ year: 1990, value: 4.25 }, { year: 2004, value: 10 }] } } : x)) };
+		const next = applyTableEdits(hand, [edit('afforestation', 2004, 12)]);
+		const rows = runoff(next, 1).afforestation.areaKm2;
+		expect(rows.map((r) => r.year)).toEqual([1990, 2004]);
+		expect(rows[1]?.value).toBe(12);
+		expect(rows[0]?.value).not.toBe(4.25);
+		expect(next.sidecar?.values?.some((v) => v.target.year === 1990 && /rounded to what the file can hold/.test(v.source.note ?? ''))).toBe(true);
+	});
+
 	const bundle = withRows();
 	const edits = [edit('afforestation', 2004, 11.5), edit('afforestation', 2025, 14.5), edit('alienVegetation', 2025, 3.2), edit('paved', 2025, 0.031), edit('paved', 2000, null)];
 	const next = applyTableEdits(bundle, edits);

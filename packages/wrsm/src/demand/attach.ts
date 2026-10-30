@@ -73,6 +73,11 @@ function specialRole(module: RoutedModule, route: number): string | null {
 	return route === module.diversionRoute ? 'the diversion route' : null;
 }
 
+/** The file a module reads a route from, when it names one: abstracting from the same route wouldn't balance. */
+function inflowFile(module: Module | undefined, route: number): string | undefined {
+	return module !== undefined && isRouted(module) ? definedFileOn(module, route, 'in') : undefined;
+}
+
 function routeOption(module: RoutedModule, route: Route, placed: readonly PlacedModule[]): DemandRouteOption {
 	const down = placed[route.downstreamPosition - 1];
 	const file = definedFileOn(module, route.number, 'out');
@@ -81,6 +86,7 @@ function routeOption(module: RoutedModule, route: Route, placed: readonly Placed
 	if (role !== null) blocked = `it is ${role}`;
 	else if (file === '*') blocked = 'it has a monthly defined abstraction';
 	else if (file !== undefined) blocked = `it already carries ${file.trim()}`;
+	else if (inflowFile(down?.module, route.number) !== undefined) blocked = `the module it reaches reads this route from ${inflowFile(down?.module, route.number)?.trim()}`;
 	else if (down?.entry.type === 'RR') blocked = `it feeds irrigation ${moduleLabel(down.ref)}, which sets its own demand`;
 	return { route: route.number, to: endLabel(placed, route.downstreamPosition, 'the zero sink'), blocked };
 }
@@ -261,6 +267,8 @@ export function planDemand(bundle: NetworkBundle, request: DemandRequest): Deman
 	const { file, target } = request;
 	const existing = file === undefined ? undefined : bundle.flowFiles[file];
 	if (file !== undefined && existing === undefined) throw new DemandError(`${file} is not a file of this network`);
+	// A gauge can read this file as its observed flow (§11.5): two records of one file can't be written differently.
+	if (file !== undefined && bundle.observed[file] !== undefined) throw new DemandError(`${existing?.fileName.trim()} is also a gauge's observed flow, so a generated demand can't replace it. Create a new demand file for this route instead.`);
 
 	const resolved = target === undefined ? undefined : resolveTarget(bundle, target);
 	if (existing === undefined && resolved === undefined) throw new DemandError('Choose the reservoir or channel reach this demand comes off');
@@ -273,7 +281,7 @@ export function planDemand(bundle: NetworkBundle, request: DemandRequest): Deman
 		const only = attachments[0];
 		if (attachments.length !== 1 || only?.direction !== 'out') throw new DemandError(`${existing.fileName.trim()} can only move when one outflow route, and nothing else, reads it`);
 		detach = only;
-		if (new RegExp(`^${bundle.network.code}RQ${only.route}\\.`, 'i').test(existing.fileName.trim())) {
+		if (new RegExp(`^${bundle.network.code}RQ${only.route}(-\\d+)?\\.`, 'i').test(existing.fileName.trim())) {
 			renamedFrom = existing.fileName;
 			fileName = demandFileName(bundle, resolved.route);
 			key = bundleKey(fileName);

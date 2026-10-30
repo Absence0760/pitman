@@ -4,7 +4,7 @@
  *
  * Read with WRSM2000's fixed columns `(4X,I4,1X,12(F7.0,1A))` (§11.1), so a
  * misaligned row reads the way WRSM2000 reads it: rows appended in a
- * `4X,I4,12F8.3` layout come out truncated to two decimals with their third
+ * `4X,I4,1X,12F8.3` layout come out truncated to two decimals with their third
  * decimal in the flag column. Past column 105 WRSM2000 reads nothing; we
  * keep an annual total there when one is written (`F10.2,A1` in most files).
  *
