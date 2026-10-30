@@ -68,6 +68,7 @@ export * from './network/sfr-groups.js';
 
 // Round 4 contract for method A, the CHIRPS extension (docs/theory/extend.md).
 export * from './extend/contract.js';
+export type * from './subdivide/contract.js';
 export * from './extend/index.js';
 
 // Comparison against WRSM2000 outputs, and a synthetic network for tests.
