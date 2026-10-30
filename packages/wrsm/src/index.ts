@@ -73,6 +73,8 @@ export type * from './subdivide/contract.js';
 // Round 5: method B, sub-dividing a quaternary (docs/theory/subdivide.md).
 export * from './subdivide/index.js';
 export * from './extend/index.js';
+// Round 7: the demand editor's engine (docs/formats.md §12).
+export * from './demand/index.js';
 
 // Comparison against WRSM2000 outputs, and a synthetic network for tests.
 export * from './compare/index.js';
