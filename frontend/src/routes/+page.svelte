@@ -20,7 +20,13 @@
 	import { readSources, sourceName, type SourceFile } from '#lib/network/sources.js';
 	import { browserIndexedDB, forgetWorkingCopy, loadWorkingCopy, storeWorkingCopy } from '#lib/network/storage.js';
 	import ExtendPanel from '#lib/extend/ExtendPanel.svelte';
+	import { rainfallFiles } from '#lib/extend/files.js';
 	import Results from '#lib/results/Results.svelte';
+	import { hydroYearLabel } from '#lib/results/format.js';
+	import AppBar from '#lib/shell/AppBar.svelte';
+	import Landing from '#lib/shell/Landing.svelte';
+	import StepRail from '#lib/shell/StepRail.svelte';
+	import { runStatus, workflowSteps } from '#lib/shell/steps.js';
 
 	type Phase = 'empty' | 'reading' | 'choose' | 'invalid' | 'loaded';
 	type RunState = 'idle' | 'running' | 'done' | 'failed';
@@ -50,6 +56,18 @@
 	const summary = $derived(bundle ? summarise(bundle) : undefined);
 	const runs = $derived(outcomes.flatMap((o) => (o.ok ? [o.result] : [])));
 	const failedModes = $derived(outcomes.filter((o) => !o.ok));
+	const years = $derived(summary ? `${hydroYearLabel(summary.startYear)} to ${hydroYearLabel(summary.endYear)}` : undefined);
+	const rainfall = $derived(bundle ? rainfallFiles(bundle) : []);
+	const steps = $derived(
+		workflowSteps({
+			years: years ?? '',
+			rainfallFiles: rainfall.length,
+			extendedFiles: rainfall.filter((f) => f.extension).length,
+			run: runState,
+			modesRun: runs.length,
+			modesFailed: failedModes.length
+		})
+	);
 
 	function reset() {
 		phase = 'empty';
@@ -233,225 +251,199 @@
 	/>
 </svelte:head>
 
-<main class="page">
-	<header>
-		<h1>Pitman</h1>
-		<p class="lede">
-			A rebuild of the WRSM2000 / Pitman monthly rainfall-runoff model, written from the Water Research Commission's published manuals (TT 687, 689, 690
-			and 691). Load a WRSM2000 network, run it, and save it back as files WRSM2000 opens.
-		</p>
-		<ul class="promises">
-			<li>
-				<strong>Your files stay in your browser.</strong> No network file is uploaded: the network is read, run and saved on this computer. Extending rainfall
-				with CHIRPS sends only the boundary of the area you upload.
-			</li>
-			<li>
-				The browser keeps a <strong>working copy</strong> so a reload picks up where you were. Your own copy is the zip you save; you can forget the working
-				copy at any time.
-			</li>
-		</ul>
-	</header>
+<AppBar network={summary?.code} {years} run={bundle ? runStatus(steps) : undefined} onsave={bundle ? save : undefined} />
 
-	<section aria-labelledby="load-h">
-		<h2 id="load-h">Load a network</h2>
-		<p>
-			Choose the WRSM2000 network folder, or a zip of it: the <code>.NET</code> file, the module <code>.DAT</code> files, and the rainfall, observed and defined-flow
-			files they name. Anything else in the folder (outputs, diagrams) is kept and saved back unchanged.
-		</p>
-		<LoadPanel onload={loadSources} busy={phase === 'reading' || runState === 'running'} />
-	</section>
-
-	<p class="status" role="status" aria-live="polite">{status}</p>
-
-	{#if phase === 'choose'}
-		<section aria-labelledby="choose-h">
-			<h2 id="choose-h">Choose a network</h2>
-			<form
-				onsubmit={(e) => {
-					e.preventDefault();
-					open(chosen);
-				}}
-			>
-				<fieldset>
-					<legend>This folder holds {networks.length} networks</legend>
-					{#each networks as path (path)}
-						<div class="radio">
-							<input type="radio" id={`net-${path}`} name="network" value={path} bind:group={chosen} />
-							<label for={`net-${path}`}>{path}</label>
-						</div>
-					{/each}
-				</fieldset>
-				<button type="submit" class="primary">Open this network</button>
-			</form>
-		</section>
+<main>
+	{#if !bundle}
+		<Landing onload={loadSources} busy={phase === 'reading' || runState === 'running'} />
 	{/if}
 
-	{#if errors.length > 0}
-		{#key errors}
-			<IssueList issues={errors} id="errors-h" title={`The network can’t be loaded: ${plural(errors.length, 'problem')}`} focus />
-		{/key}
-	{/if}
-
-	{#if bundle && summary}
-		<section aria-labelledby="network-h">
-			<h2 id="network-h">Network {summary.code}</h2>
-			<dl class="facts">
-				<div><dt>Loaded from</dt><dd>{name}</dd></div>
-				<div><dt>Years</dt><dd>{summary.startYear}/{String(summary.startYear + 1).slice(2)} to {summary.endYear}/{String(summary.endYear + 1).slice(2)} (hydrological years)</dd></div>
-				<div><dt>Modules</dt><dd>{summary.modules.map((m) => `${m.count} ${m.label}`).join(', ')}</dd></div>
-				<div><dt>Routes</dt><dd>{summary.routes}</dd></div>
-				<div><dt>Gauges</dt><dd>{summary.gauges}</dd></div>
-				<div><dt>Files read</dt><dd>{plural(summary.rainfallFiles, 'rainfall file')}, {plural(summary.flowFiles, 'defined-flow file')}</dd></div>
-				<div><dt>Provenance (pitman.json)</dt><dd>{summary.hasSidecar ? 'present' : 'none yet; written when you save'}</dd></div>
-			</dl>
-			{#if summary.notModelled.length > 0}
-				<p class="note">Kept but not modelled: {summary.notModelled.join('; ')}.</p>
-			{/if}
-			{#if restoredAt}
-				<p class="note">Restored from this browser’s working copy, stored {formatDateTime(restoredAt)}.</p>
-			{/if}
-			{#if storageNote}
-				<p class="note warn">{storageNote}</p>
-			{/if}
-			<div class="actions">
-				<button type="button" class="primary" onclick={save}>Save as WRSM2000 zip</button>
-				<button type="button" onclick={forget}>Forget the working copy</button>
-			</div>
-			{#if saveError}
-				<p class="error" role="alert">The zip could not be saved: {saveError}</p>
-			{/if}
-		</section>
-
-		{#if warnings.length > 0}
-			<IssueList issues={warnings} id="warnings-h" title={`Check ${plural(warnings.length, 'warning')}`} />
+	<div class="workspace" class:loaded={bundle !== undefined}>
+		{#if bundle}
+			<StepRail {steps} />
 		{/if}
+		<div class="sections">
+			<p class="status" role="status" aria-live="polite">{status}</p>
 
-		<ExtendPanel {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
+			{#if phase === 'choose'}
+				<section class="card" aria-labelledby="choose-h">
+					<h2 id="choose-h">Choose a network</h2>
+					<form
+						onsubmit={(e) => {
+							e.preventDefault();
+							open(chosen);
+						}}
+					>
+						<fieldset>
+							<legend>This folder holds {networks.length} networks</legend>
+							{#each networks as path (path)}
+								<div class="radio">
+									<input type="radio" id={`net-${path}`} name="network" value={path} bind:group={chosen} />
+									<label for={`net-${path}`}>{path}</label>
+								</div>
+							{/each}
+						</fieldset>
+						<button type="submit" class="primary">Open this network</button>
+					</form>
+				</section>
+			{/if}
 
-		<section aria-labelledby="run-h">
-			<h2 id="run-h">Run</h2>
-			<ModePicker bind:choice error={modeError?.text} errorField={modeError?.field} disabled={runState === 'running'} />
-			<div class="actions">
-				<button type="button" class="primary" onclick={startRun} disabled={runState === 'running'}>Run</button>
-				{#if runState === 'running'}
-					<button type="button" onclick={() => controller?.abort()}>Cancel</button>
+			{#if errors.length > 0}
+				{#key errors}
+					<IssueList issues={errors} id="errors-h" title={`The network can’t be loaded: ${plural(errors.length, 'problem')}`} focus />
+				{/key}
+			{/if}
+
+			{#if bundle && summary}
+				<section class="card" aria-labelledby="network-h">
+					<h1 id="network-h">Network {summary.code}</h1>
+					<dl class="facts overview">
+						<div><dt>Years</dt><dd>{years} (hydrological years)</dd></div>
+						<div><dt>Routes</dt><dd>{summary.routes}</dd></div>
+						<div><dt>Gauges</dt><dd>{summary.gauges}</dd></div>
+						<div><dt>Loaded from</dt><dd>{name}</dd></div>
+						<div><dt>Modules</dt><dd>{summary.modules.map((m) => `${m.count} ${m.label}`).join(', ')}</dd></div>
+						<div><dt>Files read</dt><dd>{plural(summary.rainfallFiles, 'rainfall file')}, {plural(summary.flowFiles, 'defined-flow file')}</dd></div>
+						<div><dt>Provenance (pitman.json)</dt><dd>{summary.hasSidecar ? 'present' : 'none yet; written when you save'}</dd></div>
+					</dl>
+					{#if summary.notModelled.length > 0}
+						<p class="note">Kept but not modelled: {summary.notModelled.join('; ')}.</p>
+					{/if}
+					{#if restoredAt}
+						<p class="note">Restored from this browser’s working copy, stored {formatDateTime(restoredAt)}.</p>
+					{/if}
+					{#if storageNote}
+						<p class="note warn">{storageNote}</p>
+					{/if}
+					<div class="actions">
+						<button type="button" onclick={forget}>Forget the working copy</button>
+					</div>
+					{#if saveError}
+						<p class="error" role="alert">The zip could not be saved: {saveError}</p>
+					{/if}
+					<details class="another">
+						<summary>Load a different network</summary>
+						<LoadPanel onload={loadSources} busy={runState === 'running'} />
+					</details>
+				</section>
+
+				{#if warnings.length > 0}
+					<IssueList issues={warnings} id="warnings-h" title={`Check ${plural(warnings.length, 'warning')}`} />
 				{/if}
-			</div>
-			{#if runState === 'running'}
-				<div class="progress">
-					<label for="run-progress">{progress ? `${modeLabel(progress.mode)}, ${progress.index + 1} of ${progress.total}` : 'Starting the run'}</label>
-					<progress id="run-progress" max={progress?.total ?? 1} value={progress?.index ?? 0}></progress>
+
+				<ExtendPanel {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
+
+				<section class="card" aria-labelledby="run-h">
+					<h2 id="run-h">Run</h2>
+					<ModePicker bind:choice error={modeError?.text} errorField={modeError?.field} disabled={runState === 'running'} />
+					<div class="actions">
+						<button type="button" class="primary" onclick={startRun} disabled={runState === 'running'}>Run</button>
+						{#if runState === 'running'}
+							<button type="button" onclick={() => controller?.abort()}>Cancel</button>
+						{/if}
+					</div>
+					{#if runState === 'running'}
+						<div class="progress">
+							<label for="run-progress">{progress ? `${modeLabel(progress.mode)}, ${progress.index + 1} of ${progress.total}` : 'Starting the run'}</label>
+							<progress id="run-progress" max={progress?.total ?? 1} value={progress?.index ?? 0}></progress>
+						</div>
+					{/if}
+					{#if runError}
+						<p class="error" role="alert">The run stopped: {runError}</p>
+					{/if}
+				</section>
+
+				<!-- Results.svelte is its own region headed "Results"; this wrapper only carries the run state and,
+				     before there are results, the same heading, so the page never has two regions of one name. -->
+				<div class="card run-output" id="results-output" data-run-state={runState} data-ready={runState === 'done' ? 'true' : 'false'}>
+					{#if runs.length === 0}
+						<h2>Results</h2>
+					{/if}
+					{#if failedModes.length > 0}
+						<ul class="failures" aria-label="Modes that failed">
+							{#each failedModes as failure (modeId(failure.mode))}
+								<li><strong>{modeLabel(failure.mode)}</strong> failed: {failure.ok ? '' : failure.message}</li>
+							{/each}
+						</ul>
+					{/if}
+					{#if runs.length > 0}
+						<Results {bundle} {runs} />
+					{:else if runState !== 'done'}
+						<p class="note">Choose the modes and run the network to see results here.</p>
+					{/if}
 				</div>
 			{/if}
-			{#if runError}
-				<p class="error" role="alert">The run stopped: {runError}</p>
-			{/if}
-		</section>
-
-		<!-- Results.svelte is its own region headed "Results"; this wrapper only carries the run state and,
-		     before there are results, the same heading, so the page never has two regions of one name. -->
-		<div class="run-output" data-run-state={runState} data-ready={runState === 'done' ? 'true' : 'false'}>
-			{#if runs.length === 0}
-				<h2>Results</h2>
-			{/if}
-			{#if failedModes.length > 0}
-				<ul class="failures" aria-label="Modes that failed">
-					{#each failedModes as failure (modeId(failure.mode))}
-						<li><strong>{modeLabel(failure.mode)}</strong> failed: {failure.ok ? '' : failure.message}</li>
-					{/each}
-				</ul>
-			{/if}
-			{#if runs.length > 0}
-				<Results {bundle} {runs} />
-			{:else if runState !== 'done'}
-				<p class="note">Choose the modes and run the network to see results here.</p>
-			{/if}
 		</div>
-	{/if}
+	</div>
 </main>
 
+<footer class="foot">
+	<span>Your files stay in your browser.</span>
+	<span>Built from the WRC manuals TT 687, 689, 690 and 691.</span>
+	<span>Pitman {__PITMAN_VERSION__}</span>
+</footer>
+
 <style>
-	.page {
-		max-width: 75ch;
-		margin: 0 auto;
-		padding: 1.5rem 1rem 4rem;
-	}
-	h1 {
-		font-size: 2rem;
-		margin: 0 0 0.5rem;
-	}
-	h2 {
-		font-size: 1.35rem;
-		margin: 2rem 0 0.75rem;
-	}
-	.lede {
-		font-size: 1.1rem;
-	}
-	.promises {
-		padding-left: 1.25rem;
-	}
-	.promises li {
-		margin: 0.35rem 0;
-	}
-	.status {
-		min-height: 1.5em;
-		color: var(--text-muted);
-		margin: 1rem 0 0;
-	}
-	.facts {
+	.workspace {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
-		gap: 0.4rem;
-		margin: 0;
+		gap: 1rem;
+		max-width: 96rem;
+		margin: 0 auto;
+		padding: 1rem 1.25rem 1.5rem;
 	}
-	.facts div {
-		display: grid;
-		grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr);
-		gap: 0.75rem;
+	.workspace:not(.loaded) {
+		max-width: 78rem;
+		padding-top: 0;
 	}
-	.facts dt {
-		color: var(--text-muted);
-	}
-	.facts dd {
-		margin: 0;
-		overflow-wrap: anywhere;
-	}
-	@media (max-width: 30rem) {
-		.facts div {
-			grid-template-columns: minmax(0, 1fr);
-			gap: 0;
+	@media (min-width: 64rem) {
+		.workspace.loaded {
+			grid-template-columns: 14rem minmax(0, 1fr);
+			gap: 1.5rem;
+			padding-top: 1.25rem;
+			align-items: start;
 		}
 	}
-	.actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.75rem;
+	.sections {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 1rem;
+		min-width: 0;
+	}
+	.sections > :global(*) {
+		min-width: 0;
+	}
+	/* Stays in the page so a screen reader hears its first message; takes no room until it has one. */
+	.status {
+		color: var(--text-muted);
+		font-size: 0.9rem;
+		margin: 0;
+	}
+	.status:empty {
+		position: absolute;
+	}
+	h1 {
+		margin: 0 0 0.25rem;
+	}
+	/* Four short facts over three long ones, so the tiles line up. */
+	@media (min-width: 48rem) {
+		.overview {
+			grid-template-columns: repeat(12, minmax(0, 1fr));
+		}
+		.overview > div {
+			grid-column: span 3;
+		}
+		.overview > div:nth-child(n + 5) {
+			grid-column: span 4;
+		}
+	}
+	.another {
 		margin-top: 1rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid var(--border);
 	}
-	button {
-		font: inherit;
-		min-height: 2.75rem;
-		padding: 0 1rem;
-		border-radius: 0.375rem;
-		border: 1px solid var(--border-strong);
-		background: var(--surface);
-		color: var(--text);
-		cursor: pointer;
-	}
-	button.primary {
-		background: var(--accent);
-		border-color: var(--accent);
-		color: var(--on-accent);
-		font-weight: 600;
-	}
-	button:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-	fieldset {
-		border: 1px solid var(--border);
-		border-radius: 0.5rem;
-		margin: 0 0 1rem;
+	.another :global(.about) {
+		margin-top: 0.5rem;
 	}
 	.radio {
 		display: flex;
@@ -459,6 +451,9 @@
 		align-items: center;
 		min-height: 2.25rem;
 		overflow-wrap: anywhere;
+	}
+	.card fieldset {
+		margin: 0 0 1rem;
 	}
 	.progress {
 		display: flex;
@@ -470,24 +465,17 @@
 		width: 100%;
 		height: 0.75rem;
 	}
-	.note {
-		color: var(--text-muted);
-	}
-	.note.warn {
-		color: var(--text);
-		border-left: 4px solid var(--warning);
-		padding-left: 0.75rem;
-	}
-	.error {
-		color: var(--danger);
-		font-weight: 600;
-	}
 	.failures {
 		padding-left: 1.25rem;
 		color: var(--danger);
 	}
-	code {
-		font-family: ui-monospace, monospace;
-		font-size: 0.95em;
+	.foot {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem 1.5rem;
+		justify-content: center;
+		padding: 1rem 1.25rem 1.25rem;
+		color: var(--text-muted);
+		font-size: var(--font-sm);
 	}
 </style>
