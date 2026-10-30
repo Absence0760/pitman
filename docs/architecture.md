@@ -44,6 +44,7 @@ pitman/
 │       ├── lib/demand/       Create and edit demand files: the list, the form beside its preview, apply (§ App flow, Demands)
 │       ├── lib/subdivide/    Sub-divide a quaternary (method B): the wizard, its logic in .ts modules, the engine adapter `engine.ts` and the backend client `data.ts` (§ App flow, step 6)
 │       ├── lib/map/mapzone/  The MAP-zone tool: threshold, drawn or pasted zone (§ App flow, step 6)
+│       ├── lib/landuse/cfm/  Land use: the /cfm/land-use client (api), its logic (plan), LandUsePanel.svelte with CropStep and DamStep (docs/data.md § Cape Farm Mapper)
 │       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
 │       ├── lib/shell/        The frame around the steps: app bar, landing page, step rail (steps.ts holds its wording), the design-token guards; rules in docs/design/ui-playbook.md
 │       └── routes/           +page.svelte: the app shell; methods/: the Methods page (prerendered, mapped by infra/functions/spa_rewrite.js)
@@ -239,6 +240,7 @@ in the browser).
 | `GET /channels?bbox=w,s,e,n` | at most 0.4° a side → `ChannelCollection` (`properties.km2`); off the DEM, an empty collection | `src/delineation/` |
 | `POST /map-grid/cells` | `{ bbox }` (≤ 2° a side, ≤ 250 000 cells) → `MapGridCells` (`packages/wrsm/src/subdivide/contract.ts`) | `src/mapgrid/cells.ts` |
 | `GET /quaternaries` | → `QuaternaryCollection`; 503 when not configured, which production is until D-1 | `src/quaternaries/` |
+| `POST /cfm/land-use` | `LandUseRequest` → `LandUseAnswer` (`packages/wrsm/src/landuse/`); 503 when not configured, which production is until the token (D3) | `src/cfm/`, `src/dams/` |
 
 Layout, by topic:
 
@@ -263,6 +265,13 @@ Layout, by topic:
   `valleyFixture.ts` and `backend/fixtures/dem/` serve the tests only.
 - `src/quaternaries/`: `source.ts` (`QUATERNARIES_SOURCE=local`; unset is 503,
   and the file is read once and trimmed to the wire type), `routes.ts`.
+- `src/cfm/`: `adapter.ts` (**provisional**: the only file that knows the
+  layers' fields), `arcgis.ts` (the paged, bounded `query`; the token's path),
+  `clip.ts` (fields cut to the area, geodesic areas), `source.ts`
+  (`CFM_SOURCE=local|cfm`), `routes.ts`, `synthetic.ts` (invented fields).
+- `src/dams/`: `inArea.ts` (the candidates an area holds), `synthetic.ts`
+  (invented dams in all three of D4's sources). Matching is the engine's
+  `matchDams`, run in the browser, so changing the radius sends no request.
 - `src/http/`: the `{ area }` body check, the result cache, the rate limit,
   error responses.
 
@@ -279,9 +288,9 @@ deadline, or a channel box its 20 s one (asking again finishes it; the tiles
 done are kept).
 
 **Per instance, on purpose.** The rate limit (30 CHIRPS / 120 MAP / 120
-quaternary / 30 delineate / 60 channel requests per client per 10 minutes) and
-the caches (200 CHIRPS series, 500 MAP means, 50 delineations, 128 channel
-tiles, LRU) live in one Lambda instance's memory. They bound what one client can
+quaternary / 30 delineate / 60 channel / 20 land-use requests per client per 10
+minutes) and the caches (200 CHIRPS series, 500 MAP means, 50 delineations, 128
+channel tiles, 16 land-use answers, LRU) live in one Lambda instance's memory. They bound what one client can
 make one instance do; the global per-IP limit is the WAF rule on CloudFront,
 and reserved concurrency bounds the rest. The opened CHIRPS copy (array +
 manifest) is kept 5 minutes, so a new manifest `revision` is seen within that

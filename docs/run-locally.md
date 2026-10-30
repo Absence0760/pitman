@@ -123,6 +123,18 @@ Clicks to try on the synthetic DEM, with their answers:
 | 21.115551, −33.8001191 | `Z02A` | 76.54 km², 643 km² (89 %) dropped upstream, the 20 % warning |
 | 21.24, −33.62 | `Z01A` | refused, `off_channel` |
 
+## Land use
+
+Local-first, with nothing to generate. `POST /cfm/land-use` answers from invented
+fields and dams computed in code (`CFM_SOURCE=local` in
+`backend/.env.development`), over the same block as the synthetic data above:
+about 330 fields and 17 dams in `Z01A`, some dams listed by several sources with
+figures that disagree. Off the block the answer is empty. The screen says when it
+is showing this source. Unset `CFM_SOURCE` to see the 503 "not configured" path,
+which is production until the operator's token exists
+([`data.md` § Cape Farm Mapper](./data.md#cape-farm-mapper-d3)). No token goes in
+any `.env` file in this repo.
+
 ## The map
 
 Local-first, with no setup beyond the section above. `GET /quaternaries` serves

@@ -54,7 +54,7 @@ export function workflowSteps(input: StepInput): readonly Step[] {
 		{ id: 'map-h', label: 'Map', detail: input.quaternary ?? 'Pick a quaternary', state: input.quaternary ? 'done' : 'todo' },
 		{ id: 'extend-h', label: 'Extend rainfall', ...extendStep(input) },
 		{ id: 'subdivide-h', label: 'Sub-divide', detail: input.subdivided ? `${input.subdivided} ${input.subdivided === 1 ? 'quaternary' : 'quaternaries'} split` : 'Optional', state: input.subdivided ? 'done' : 'todo' },
-		{ id: 'tables-h', label: 'Land use', detail: 'Tables and demands', state: 'todo' },
+		{ id: 'landuse-h', label: 'Land use', detail: 'Fields, dams, tables, demands', state: 'todo' },
 		{ id: 'calibrate-h', label: 'Calibrate', detail: 'Optional', state: 'todo' },
 		{ id: 'run-h', label: 'Run', ...runStep(input) },
 		{ id: 'results-output', label: 'Results', ...resultsStep(input) }

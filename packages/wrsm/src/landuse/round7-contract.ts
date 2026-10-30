@@ -47,7 +47,7 @@ export interface LandUseResponse {
 	readonly dams: readonly DamCandidate[];
 	/** Dataset, as the screen and the sidecar credit it (rule 8). */
 	readonly dataset: string;
-	/** The census year the fields describe, which is the year a written row carries. */
+	/** The census year the fields describe. A written row carries the year the user chooses, 2025 by default (R7-C3). */
 	readonly surveyYear: HydroYear;
 	readonly fetchedOn: IsoDate;
 	/** Which source answered: the real proxy, or the local synthetic one (local-first). */

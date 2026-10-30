@@ -64,7 +64,7 @@ describe('the features matrix against the engine', () => {
 
 	it('sub-division and land use wait for their rounds', () => {
 		expect(feature('Sub-dividing')?.status).toBe('Not yet');
-		expect(feature('Land use')?.status).toBe('Not yet');
+		expect(feature('Land use')?.status).toBe('Partly');
 	});
 
 	it('gives every feature a status and a sentence', () => {

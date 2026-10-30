@@ -337,7 +337,8 @@ is fine for Pitman's model but doesn't change the licence position.
 
 **For Pitman**: same as the quaternaries: the operator's own download in
 Pitman's own bucket, after a licence decision (ideally DWS's written
-permission). A public alternative for the *larger* dams only: WCG's "Large
+permission). Nothing reads it yet: only the synthetic source gives
+`register` candidates (R7-C12). A public alternative for the *larger* dams only: WCG's "Large
 Dams (DWS)" layer
 (`…/SpatialDataWarehouse/Hydrology/MapServer/20`, polygons with `NAME`,
 `STATION`, `AreaHa`; no capacity), credited to DWS.
@@ -365,7 +366,8 @@ What IC-WBT holds:
    Digital Earth Africa data (CC BY 4.0)". Per-waterbody area series
    (v0.0.2, frozen upstream since 2024-02) are in DE Africa's public bucket.
 
-**How a dam's area is measured** (Round 7.4, proposed):
+**How a dam's area is measured** (Round 7.4, proposed; **not built**: only
+the synthetic source gives `surfaceWater` candidates, R7-C12):
 
 - **Default: JRC occurrence.** Around the dam's point (a register or CFM
   position), read the occurrence tiles in a window (IC-WBT traces with at
@@ -429,6 +431,41 @@ polygon, `geometryType=esriGeometryPolygon`, `spatialRel=esriSpatialRelIntersect
 `outFields` = the agreed list, `f=geojson`, paging with
 `resultOffset`/`resultRecordCount` up to the layer's `maxRecordCount`)
 and caches by polygon hash.
+
+**What is built** (Round 7.3, R7-C8 to R7-C12): `POST /cfm/land-use` takes
+`{ area }` and answers `LandUseAnswer`
+(`packages/wrsm/src/landuse/`). The proxy is written but has never run against
+the real service, because the token doesn't exist yet:
+
+- **One provisional file.** `backend/src/cfm/adapter.ts` holds every guess at
+  the layers: the attribute names, the capacity's units, the wordings of
+  irrigation, the dataset's name and year. `arcgis.ts` and the rest never read
+  an attribute. When the answers below arrive, change that file and its
+  test's samples.
+- **Credentials.** `CFM_TOKEN` in the Lambda's environment, sent in the POST
+  form body, so in no URL; no log line or message carries it or an upstream
+  body. An ArcGIS `{ error }` in a 200 is treated as the failure it is; 498
+  and 499 say the token needs renewing. If question 1's answer is a
+  username and password, the exchange goes in `arcgis.ts`, not the browser.
+- **Bounds.** At most 10 000 km² and 10 000 vertices (422, before anything
+  upstream), 1 000 records a page, 20 pages a layer, 64 MiB a read, 10 s a page
+  and 25 s in all (504), 5 MiB an answer. Past a bound the answer is a
+  refusal, **never a part of the layer**: paging stops only at an empty page,
+  so a `maxRecordCount` under the page size can't cut it short. An outline
+  over 2 000 vertices is queried by its box, then clipped.
+- **Clipping and areas.** Every field is cut to the area and its area
+  recomputed geodesically (`cfm/clip.ts`); `Shape_Area` is never read. A field
+  the boolean can't cut, or a record the adapter can't read, is left out and
+  counted in the answer's `warnings`, which the screen shows.
+- **Cached** per instance by (area hash, source), 16 answers. A cached answer
+  keeps the day it was read.
+
+| Env var | Default (`backend/.env.development`) | Meaning |
+|---|---|---|
+| `CFM_SOURCE` | `local` | `local` (invented fields and dams, in code; nothing to generate) or `cfm`; unset or empty = not configured, a 503 |
+| `CFM_TOKEN` | — | the operator's token, `cfm` only. Lambda environment, from `infra-secrets`; never committed, never read by an agent |
+| `CFM_CROPS_LAYER_URL` | — | the crop layer, `https://…/MapServer/<n>`, `cfm` only (question 3) |
+| `CFM_DAMS_LAYER_URL` | — | the dams layer, if CFM has one (question 3). Unset: no dams, and the screen says so |
 
 **Questions to ask the operator once the token arrives** (the answers go on
 issue #3 and in `docs/decisions.md`; never the token itself):

@@ -121,8 +121,8 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
 			},
 			{
 				name: 'Land use and demands to 2025',
-				status: 'Not yet',
-				detail: 'Irrigation areas from Cape Farm Mapper, farm-dam capacities, the afforestation, alien and paved tables, and a demand editor. Specified, not built.'
+				status: 'Partly',
+				detail: 'The afforestation, alien and paved tables and demand files can be edited, with a source for each value. Irrigated areas and farm dams come through a Cape Farm Mapper import that runs here on invented data only: the real service needs an access token. The DWS register and satellite surface water are not read yet.'
 			},
 			{ name: 'Extending observed gauge records', status: 'Not yet', detail: 'Observed .obs files are read and used as they stand.' }
 		]

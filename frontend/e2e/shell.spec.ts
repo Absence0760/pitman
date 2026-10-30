@@ -50,6 +50,7 @@ test('the land-use tables and demands are on the page, under the one title', asy
 	await load(page);
 	await expect(page.getByRole('heading', { name: 'Land-use tables' })).toBeAttached();
 	await expect(page.getByRole('heading', { name: 'Demands' })).toBeAttached();
+	await expect(page.getByRole('heading', { name: 'Land use', exact: true })).toBeAttached();
 	await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
 });
 

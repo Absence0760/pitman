@@ -1318,6 +1318,8 @@ export interface DamRecord {
 	readonly source: ValueSource;
 	/** The other sources' values for the same dam, kept to show disagreements. */
 	readonly alternatives?: readonly { readonly capacityMm3: number; readonly source: ValueSource }[];
+	/** The reservoir row this dam was summed into (`applyDams`, R7-C6). */
+	readonly row?: { readonly reservoir: ModuleRef; readonly year: HydroYear };
 }
 
 /**

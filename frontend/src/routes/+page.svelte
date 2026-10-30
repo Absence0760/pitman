@@ -22,6 +22,7 @@
 	import CalibratePanel from '#lib/calibrate/CalibratePanel.svelte';
 	import DemandPanel from '#lib/demand/DemandPanel.svelte';
 	import ExtendPanel from '#lib/extend/ExtendPanel.svelte';
+	import LandUsePanel from '#lib/landuse/cfm/LandUsePanel.svelte';
 	import LandUseEditor from '#lib/landuse/editor/LandUseEditor.svelte';
 	import { rainfallFiles } from '#lib/extend/files.js';
 	import Results from '#lib/results/Results.svelte';
@@ -356,6 +357,10 @@
 					<TributaryTool within={slot.within} click={slot.click} onresult={slot.onaccept} onchannels={slot.onchannels} onproposal={slot.onproposal} />
 				{/snippet}
 			</SubdividePanel>
+
+			<LandUsePanel {bundle} {quaternary} onupdate={updateBundle} busy={runState === 'running'}>
+				{#snippet map(props)}<Map {...props} />{/snippet}
+			</LandUsePanel>
 
 			<LandUseEditor {bundle} onupdate={updateBundle} busy={runState === 'running'} />
 
