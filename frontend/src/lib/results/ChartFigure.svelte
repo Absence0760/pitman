@@ -4,6 +4,7 @@
 	table with every plotted value. The table is only built when opened.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { chartTable, type ChartSpec } from './charts.js';
 	import { plot, styleOf } from './plot.js';
 
@@ -43,7 +44,7 @@
 	<details bind:open>
 		<summary>Data table: {spec.title}</summary>
 		{#if table}
-			<div class="scroll">
+			<div class="scroll" use:scrollable>
 				<table class="data">
 					<caption>{table.caption}</caption>
 					<thead>

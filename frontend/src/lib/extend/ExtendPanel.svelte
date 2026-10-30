@@ -6,6 +6,7 @@
 	apply the panel offers to move the run's last year and to rerun.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { tick } from 'svelte';
 	import type { ChirpsMonthly, ExtensionResult, LoadedBundle } from '@pitman/wrsm';
 	import { hydroYearLabel } from '#lib/results/format.js';
@@ -88,7 +89,7 @@
 	{#if files.length === 0}
 		<p class="note">This network has no rainfall files.</p>
 	{:else}
-		<div class="scroll">
+		<div class="scroll" use:scrollable>
 			<table class="files" aria-label="Rainfall files">
 				<thead>
 					<tr><th scope="col">File</th><th scope="col">Years</th><th scope="col">Read by</th><th scope="col">Extension</th><th scope="col"><span class="sr">Action</span></th></tr>
@@ -166,12 +167,5 @@
 		font-weight: 400;
 		font-size: var(--font-sm);
 		color: var(--text-muted);
-	}
-	.applied {
-		border-left: 4px solid var(--accent);
-		background: var(--accent-soft);
-		border-radius: var(--radius);
-		padding: 0.25rem 1rem 0.75rem;
-		margin: 1rem 0;
 	}
 </style>

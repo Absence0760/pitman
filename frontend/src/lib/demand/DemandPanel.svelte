@@ -7,6 +7,7 @@
 	updated bundle (`onupdate`), as the extension does.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { tick } from 'svelte';
 	import { applyDemand, demandSourcesOf, type DemandPlan, type LoadedBundle } from '@pitman/wrsm';
 	import { plural } from '#lib/network/format.js';
@@ -19,11 +20,14 @@
 	let {
 		bundle,
 		onupdate,
+		onrerun,
 		busy = false
 	}: {
 		bundle: LoadedBundle;
 		/** The working copy changed: the page replaces its bundle, stores it and says `status`. */
 		onupdate: (next: LoadedBundle, status: string) => void;
+		/** Run the network again (the page's Run, with the modes chosen there). */
+		onrerun: () => void;
 		/** A run is in progress: no apply until it finishes. */
 		busy?: boolean;
 	} = $props();
@@ -93,7 +97,7 @@
 	{#if files.length === 0}
 		<p class="note">This network has no demand files yet.</p>
 	{:else}
-		<div class="scroll">
+		<div class="scroll" use:scrollable>
 			<table class="files" aria-label="Demand files">
 				<thead>
 					<tr>
@@ -163,7 +167,10 @@
 
 	{#if applied}
 		<div class="applied" id="demand-applied" tabindex="-1" role="status">
-			<p><strong>Applied.</strong> {applied} It is in the working copy and pitman.json. Run again to see its effect; Save writes it to the zip.</p>
+			<p><strong>Applied.</strong> {applied} It is in the working copy and <code>pitman.json</code>, and goes out with the next save. The old results were cleared.</p>
+			<div class="actions">
+				<button type="button" class="primary" onclick={onrerun} disabled={busy}>Rerun the network</button>
+			</div>
 		</div>
 	{/if}
 
@@ -244,12 +251,5 @@
 	}
 	.view .actions {
 		margin-top: 0.75rem;
-	}
-	.applied {
-		border-left: 4px solid var(--accent);
-		background: var(--accent-soft);
-		border-radius: var(--radius);
-		padding: 0.25rem 1rem;
-		margin: 1rem 0;
 	}
 </style>

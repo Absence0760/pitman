@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { matchDams, syntheticNetwork, type DamRecord, type IrrigationModule, type NetworkBundle, type ReservoirModule } from '@pitman/wrsm';
 import { ANSWER, box, field } from './fixtures.test-helper.js';
-import { confirmedMapping, countedHa, cropRows, damMarkers, damName, fieldsShape, irrigationChoices, reservoirChoices, sourceLabel, startingChoice, undecidedCrops, validYear, type CropChoice } from './plan.js';
+import { confirmedMapping, countedHa, cropRows, damMarkers, damName, irrigationChoices, reservoirChoices, sourceLabel, startingChoice, undecidedCrops, validYear, type CropChoice } from './plan.js';
 
 const rows = cropRows(ANSWER.fields);
 
@@ -80,12 +80,6 @@ describe('validYear', () => {
 });
 
 describe('what the map draws', () => {
-	it('sends the fields as one shape, Polygons and MultiPolygons alike', () => {
-		const two = { ...field('2', 'a', 1, true), geometry: { type: 'MultiPolygon', coordinates: [box(21, -34, 21.1, -33.9).coordinates] } } as ReturnType<typeof field>;
-		expect(fieldsShape([field('1', 'a', 1, true), two])?.coordinates).toHaveLength(2);
-		expect(fieldsShape([])).toBeNull();
-	});
-
 	it('names a dam under the pointer by its name, without the method’s remark', () => {
 		const [dam] = matchDams([{ id: 'x', source: 'surfaceWater', lon: 21, lat: -34, areaKm2: 0.01 }], { matchRadiusM: 100, fetchedOn: '2026-10-30' });
 		expect(damName(dam!)).toBe('x');

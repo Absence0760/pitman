@@ -6,6 +6,7 @@
 	under it at the table's full width. State is in words as well as the edge.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { tick } from 'svelte';
 	import { hydroYearLabel } from '#lib/results/format.js';
 	import { seriesChart } from './chart.js';
@@ -42,7 +43,7 @@
 	const lines = $derived(`${offer.format.yearsLine}–${offer.format.valuesLine}`);
 	const spec = $derived(seriesChart(`${prefix}-chart`, offer.table, offer.title, offer.valueLabel, rows, run));
 	const removable = $derived(canRemove(offer.table, rows));
-	const onlyOne = $derived(!removable && rows.filter((r) => r.target !== null).length === 1);
+	const onlyOne = $derived(!removable && rows.some((r) => r.target !== null && r.state !== 'new'));
 
 	const STATE_WORDS: Readonly<Record<RowState, string>> = { same: '', edited: 'edited', new: 'new', removing: 'to remove', removed: 'removed' };
 
@@ -96,7 +97,7 @@
 			{#if rows.length === 0}
 				<p class="note">No years in this table. {offer.open ? 'Add one below.' : ''}</p>
 			{:else}
-				<div class="scroll rows">
+				<div class="scroll rows" use:scrollable>
 					<table class="data">
 						<caption>{offer.origin}, unless a row says otherwise.</caption>
 						<thead>
@@ -152,7 +153,7 @@
 											{#if row.state !== 'new' && row.target !== row.file}
 												<button type="button" onclick={() => onreset(row)}>Reset<span class="sr"> {row.year} to {inFile(row.file)}</span></button>
 											{/if}
-											<button type="button" disabled={!removable} onclick={() => remove(row)}>Remove<span class="sr"> {row.year}</span></button>
+											<button type="button" disabled={!removable && row.state !== 'new'} onclick={() => remove(row)}>Remove<span class="sr"> {row.year}</span></button>
 										{/if}
 									</td>
 								</tr>

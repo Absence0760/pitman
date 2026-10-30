@@ -10,7 +10,7 @@
 // need glyphs, self-hosted beside the tiles. With no tiles URL (a fresh clone,
 // CI) the map is a plain background with everything else drawn on it.
 import type { AreaGeometry, ChannelCollection, MapGridCells } from '@pitman/wrsm';
-import type { MapModule, MapPiece } from './contract.js';
+import type { MapField, MapModule, MapPiece } from './contract.js';
 import { DRAFT_SOURCE, draftData, draftLayers } from './draw/drawLayers.js';
 import type { Palette } from './palette.js';
 import { pieceTintsFor } from './pieces.js';
@@ -202,6 +202,36 @@ export function pieceLayers(c: Palette): Layer[] {
 	];
 }
 
+/** What the map shows of a field's irrigation: the fill says it, the chip and the key in words. */
+export type FieldState = 'irrigated' | 'dry' | 'unknown';
+
+export const fieldState = (irrigated: boolean | null): FieldState => (irrigated === true ? 'irrigated' : irrigated === false ? 'dry' : 'unknown');
+
+const FIELD_WORDS: Readonly<Record<FieldState, string>> = { irrigated: 'irrigated', dry: 'dryland', unknown: 'the layer doesn’t say' };
+
+/** The `fields` source's data: each field with its state and its name under the pointer. */
+export function fieldData(fields: readonly MapField[] | null | undefined) {
+	return {
+		type: 'FeatureCollection' as const,
+		features: (fields ?? []).map((f) => {
+			const state = fieldState(f.irrigated);
+			return { type: 'Feature' as const, properties: { id: f.id, state, label: `${f.crop}, ${FIELD_WORDS[state]}` }, geometry: f.geometry };
+		})
+	};
+}
+
+/** The layer the pointer finds a field on. */
+export const FIELD_LAYER = 'fld-fill';
+
+/** Crop fields: a thin solid edge, so they read as what is there, unlike the proposal's dash. Filled by what is known of their irrigation, densest for irrigated. Under the pieces and the proposal. */
+export function fieldLayers(c: Palette): Layer[] {
+	const src = { source: 'fields' };
+	return [
+		{ id: FIELD_LAYER, type: 'fill', ...src, paint: { 'fill-color': c.field, 'fill-opacity': ['match', ['get', 'state'], 'irrigated', 0.55, 'unknown', 0.22, 0.03] } },
+		{ id: 'fld-line', type: 'line', ...src, paint: { 'line-color': c.field, 'line-width': 1.25 } }
+	];
+}
+
 /** The `proposal` source's data. */
 export function proposalData(proposal: AreaGeometry | null | undefined) {
 	return proposal ? { type: 'FeatureCollection' as const, features: [{ type: 'Feature' as const, properties: {}, geometry: proposal }] } : EMPTY;
@@ -315,6 +345,7 @@ export interface StyleData {
 	quaternaries: ReturnType<typeof quaternaryData>;
 	channels: ReturnType<typeof channelData>;
 	pieces: ReturnType<typeof pieceData>;
+	fields: ReturnType<typeof fieldData>;
 	proposal: ReturnType<typeof proposalData>;
 	modules: ReturnType<typeof moduleData>;
 	mapGrid: ReturnType<typeof mapGridData>;
@@ -335,7 +366,7 @@ export interface StyleOptions {
  * The basemap with the overlay over it: one style, so a theme switch
  * (`setStyle`) redraws everything with the current data. Order, bottom up: the
  * basemap's land, the relief, the rest of the basemap, the MAP grid, the
- * quaternaries, the channels, the pieces, the proposal, the modules, the names,
+ * quaternaries, the channels, the fields, the pieces, the proposal, the modules, the names,
  * the drawing.
  */
 export function mapStyle(c: Palette, opts: StyleOptions, data: StyleData): Style {
@@ -348,6 +379,7 @@ export function mapStyle(c: Palette, opts: StyleOptions, data: StyleData): Style
 			...base.sources,
 			quaternaries: { type: 'geojson', data: data.quaternaries },
 			channels: { type: 'geojson', data: data.channels },
+			fields: { type: 'geojson', data: data.fields },
 			pieces: { type: 'geojson', data: data.pieces },
 			proposal: { type: 'geojson', data: data.proposal },
 			modules: { type: 'geojson', data: data.modules },
@@ -359,6 +391,7 @@ export function mapStyle(c: Palette, opts: StyleOptions, data: StyleData): Style
 			...grid.cells,
 			...quaternaryLayers(c),
 			...channelLayers(c),
+			...fieldLayers(c),
 			...pieceLayers(c),
 			...proposalLayers(c),
 			...moduleLayers(c),

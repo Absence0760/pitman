@@ -6,6 +6,7 @@
 	only wires them to the page. Spec: docs/theory/statistics.md.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import type { NetworkBundle, RunResult } from '@pitman/wrsm';
 	import ChartFigure from './ChartFigure.svelte';
 	import { analyseTarget } from './analysis.js';
@@ -145,7 +146,7 @@
 
 		{#if stats}
 			<div class="stats">
-				<div class="scroll">
+				<div class="scroll" use:scrollable>
 					<table class="data">
 						<caption>{stats.caption}</caption>
 						<thead>

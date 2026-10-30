@@ -35,7 +35,7 @@ describe('statisticsTable', () => {
 		expect(mar.cells[4]?.verdict).toBe('outside');
 		expect(t.rows[0]?.cells.map((c) => c.text)).toEqual(['2', '2', '', '2', '']);
 		expect(t.notes[0]).toContain('same 2 complete hydrological years between 2000/01 and 2002/03');
-		expect(t.notes.some((n) => n.includes('1 missing observed months'))).toBe(true);
+		expect(t.notes.some((n) => n.includes('1 missing observed month (a negative value) is not compared'))).toBe(true);
 	});
 
 	it('counts incomplete months left out', () => {

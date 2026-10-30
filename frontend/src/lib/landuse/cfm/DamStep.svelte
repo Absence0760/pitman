@@ -5,6 +5,7 @@
 	and the panel keys this on the answer.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { DEFAULT_MATCH_RADIUS_M, applyDams, damsRow, overrideDam, type DamRecord, type LoadedBundle } from '@pitman/wrsm';
 	import { parseNumber } from '#lib/calibrate/validate.js';
 	import { isoDate } from '#lib/extend/apply.js';
@@ -18,7 +19,8 @@
 		year,
 		busy = false,
 		onradius,
-		onapply
+		onapply,
+		onrerun
 	}: {
 		bundle: LoadedBundle;
 		/** The dams as matched at `radiusM`. */
@@ -29,6 +31,7 @@
 		busy?: boolean;
 		onradius: (metres: number) => void;
 		onapply: (next: LoadedBundle, status: string) => void;
+		onrerun: () => void;
 	} = $props();
 
 	interface Override {
@@ -99,7 +102,7 @@
 		<span class="note">{DEFAULT_MATCH_RADIUS_M} m by default.</span>
 	</div>
 
-	<div class="scroll">
+	<div class="scroll" use:scrollable>
 		<table class="data dams" aria-label="Matched dams">
 			<thead>
 				<tr>
@@ -133,6 +136,7 @@
 								class="capacity"
 								aria-label={`Your capacity for ${damName(dams[i]!)}, million m³`}
 								aria-invalid={failed ? 'true' : undefined}
+								aria-describedby={failed ? `landuse-dam-${i}-msg` : undefined}
 								value={noteOf(dam.id).text}
 								oninput={(e) => edit(dam.id, { text: e.currentTarget.value })}
 								disabled={busy}
@@ -147,7 +151,7 @@
 								oninput={(e) => edit(dam.id, { note: e.currentTarget.value })}
 								disabled={busy}
 							/>
-							{#if failed}<span class="error said" role="alert">{failed}</span>{/if}
+							{#if failed}<span id={`landuse-dam-${i}-msg`} class="error said" role="alert">{failed}</span>{/if}
 						</td>
 					</tr>
 				{/each}
@@ -185,9 +189,14 @@
 		{#if blocked.length > 0}<p class="warn" role="status">Finish or clear the {blocked.length === 1 ? 'override' : `${blocked.length} overrides`} above before writing the row.</p>{/if}
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
 		<div class="actions">
-			<button type="button" class="primary" onclick={apply} disabled={!canApply}>Write the row to RV {reservoir?.ref.number}</button>
+			<button type="button" class="primary" onclick={apply} disabled={!canApply}>Apply: write the row to RV {reservoir?.ref.number}</button>
 		</div>
-		{#if applied}<p class="applied" role="status"><strong>Applied.</strong> {applied} Rerun the network to see the effect.</p>{/if}
+		{#if applied}
+			<div class="applied">
+				<p role="status"><strong>Applied.</strong> {applied} The old results were cleared.</p>
+				<div class="actions"><button type="button" onclick={onrerun} disabled={busy}>Rerun the network</button></div>
+			</div>
+		{/if}
 	{/if}
 {/if}
 
@@ -231,12 +240,5 @@
 	.said {
 		display: block;
 		font-size: var(--font-sm);
-	}
-	.applied {
-		border-left: 4px solid var(--accent);
-		background: var(--accent-soft);
-		border-radius: var(--radius);
-		padding: 0.5rem 1rem;
-		margin: 1rem 0;
 	}
 </style>

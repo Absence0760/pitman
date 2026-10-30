@@ -26,6 +26,15 @@ export interface MapModule {
 	readonly lngLat: readonly [number, number];
 }
 
+/** A crop field from the land-use data: what is on the ground, not something waiting to be accepted. */
+export interface MapField {
+	readonly id: string;
+	readonly crop: string;
+	/** What the layer says of irrigation; `null` when it doesn't say. */
+	readonly irrigated: boolean | null;
+	readonly geometry: AreaGeometry;
+}
+
 /** The props of `$lib/map/Map.svelte`. */
 export interface MapProps {
 	readonly quaternaries: QuaternaryCollection | null;
@@ -33,6 +42,8 @@ export interface MapProps {
 	readonly selected: string | null;
 	readonly modules?: readonly MapModule[];
 	readonly pieces?: readonly MapPiece[];
+	/** Crop fields, solid-edged and filled by what is known of their irrigation. */
+	readonly fields?: readonly MapField[];
 	/** Drawn while the tributary tool is on. */
 	readonly channels?: ChannelCollection | null;
 	/** The MAP grid as a layer, off when `null`. */

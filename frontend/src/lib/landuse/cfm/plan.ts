@@ -8,7 +8,6 @@
 
 import {
 	irrigationCropTypes,
-	type AreaGeometry,
 	type CropField,
 	type CropMapping,
 	type DamRecord,
@@ -129,13 +128,6 @@ export function reservoirChoices(bundle: NetworkBundle): readonly ReservoirChoic
 /** Whether a typed year can head a row. */
 export function validYear(year: HydroYear | null): year is HydroYear {
 	return year !== null && Number.isInteger(year) && year >= ROW_YEARS.from && year <= ROW_YEARS.to;
-}
-
-/** The fields as one shape for the map: it has no field layer yet, so they go as the `proposal`. `null` with none. */
-export function fieldsShape(fields: readonly CropField[]): AreaGeometry | null {
-	if (fields.length === 0) return null;
-	const parts = fields.flatMap((f) => (f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates));
-	return { type: 'MultiPolygon', coordinates: parts };
 }
 
 /** The matched dams as points on the map, named under the pointer. */

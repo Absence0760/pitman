@@ -37,6 +37,10 @@ const TEXT_PAIRS: readonly (readonly [string, string])[] = [
 	['--text', '--surface-2'],
 	['--text', '--accent-soft'],
 	['--text', '--warning-soft'],
+	['--text', '--danger-soft'],
+	['--text-muted', '--accent-soft'],
+	['--text-muted', '--warning-soft'],
+	['--danger', '--warning-soft'],
 	['--text-muted', '--bg'],
 	['--text-muted', '--surface'],
 	['--text-muted', '--surface-2'],
@@ -72,6 +76,18 @@ describe.each([
 
 	it('a control outline stands 3:1 off the surface', () => {
 		expect(contrast(theme['--border-strong'] as string, theme['--surface'] as string)).toBeGreaterThanOrEqual(3);
+	});
+
+	it.each([
+		['--focus', '--surface'],
+		['--focus', '--bg'],
+		['--bar-accent', '--bar-bg']
+	])('the focus ring %s stands 3:1 off %s', (ring, ground) => {
+		expect(contrast(theme[ring] as string, theme[ground] as string)).toBeGreaterThanOrEqual(3);
+	});
+
+	it.each(['--map-quaternary', '--map-selected', '--map-proposal', '--map-field'])('the map key’s %s stands 3:1 off the surface', (mark) => {
+		expect(contrast(theme[mark] as string, theme['--surface'] as string)).toBeGreaterThanOrEqual(3);
 	});
 });
 

@@ -1,5 +1,5 @@
 <!--
-	"Land use" (docs/data.md § Cape Farm Mapper, D3, D4): choose a
+	"Crop fields and farm dams" (docs/data.md § Cape Farm Mapper, D3, D4): choose a
 	(sub-)catchment, fetch its crop fields and dams through the backend, confirm
 	how crops map to the irrigation module's crop types, and write the rows. The
 	request is the area's geometry alone (rule 7). The map arrives as a snippet,
@@ -11,15 +11,18 @@
 	import { DEFAULT_MATCH_RADIUS_M, matchDams, type AreaGeometry, type LandUseAnswer, type LoadedBundle, type QuaternaryCollection } from '@pitman/wrsm';
 	import { MAX_AREA_FILE_BYTES, parseArea } from '#lib/extend/area.js';
 	import type { MapProps } from '#lib/map/contract.js';
+	import { fieldState } from '#lib/map/mapStyle.js';
+	import { plural } from '#lib/network/format.js';
 	import { formatNumber, hydroYearLabel } from '#lib/results/format.js';
 	import { LandUseRequestError, landUseClient, type LandUseClient } from './api.js';
 	import CropStep from './CropStep.svelte';
 	import DamStep from './DamStep.svelte';
-	import { DEFAULT_ROW_YEAR, ROW_YEARS, damMarkers, fieldsShape, validYear } from './plan.js';
+	import { DEFAULT_ROW_YEAR, ROW_YEARS, damMarkers, validYear } from './plan.js';
 
 	let {
 		bundle,
 		onupdate,
+		onrerun,
 		busy = false,
 		quaternary,
 		client = landUseClient,
@@ -28,6 +31,8 @@
 		bundle: LoadedBundle;
 		/** The working copy changed: the page replaces its bundle, stores it and says `status`. */
 		onupdate: (next: LoadedBundle, status: string) => void;
+		/** Run the network again (the page's Run, with the modes chosen there). */
+		onrerun: () => void;
 		/** A run is in progress: no apply until it finishes. */
 		busy?: boolean;
 		/** The quaternary chosen on the page's map: the starting choice here. */
@@ -65,16 +70,28 @@
 	let typedYear = $state<number | null>(DEFAULT_ROW_YEAR);
 	const year = $derived(validYear(typedYear) ? typedYear : null);
 
+	/** What the key names: only what is on the map. */
+	const fieldStates = $derived(new Set((answer?.fields ?? []).map((f) => fieldState(f.irrigated))));
+
 	const totalHa = $derived(answer?.fields.reduce((sum, f) => sum + f.areaHa, 0) ?? 0);
 
-	onMount(() => {
-		const list = new AbortController();
-		client.quaternaries(list.signal).then(
+	let list = new AbortController();
+
+	function loadBoundaries() {
+		list.abort();
+		const mine = new AbortController();
+		list = mine;
+		boundaries = { state: 'loading' };
+		client.quaternaries(mine.signal).then(
 			(result) => (boundaries = { state: 'ok', collection: result }),
 			(e: Error) => {
-				if (!list.signal.aborted) boundaries = { state: 'failed', message: e.message };
+				if (!mine.signal.aborted) boundaries = { state: 'failed', message: e.message };
 			}
 		);
+	}
+
+	onMount(() => {
+		loadBoundaries();
 		return () => {
 			list.abort();
 			controller?.abort();
@@ -151,7 +168,8 @@
 		quaternaries: collection,
 		selected: custom ? null : code || null,
 		modules: damMarkers(dams),
-		proposal: fieldsShape(answer?.fields ?? []) ?? custom?.geometry ?? null,
+		fields: answer?.fields ?? [],
+		proposal: custom?.geometry ?? null,
 		tool: drawing ? 'draw' : 'select',
 		onselect: chooseCode,
 		ondraw: (geometry) => chooseShape('The boundary you drew', geometry)
@@ -159,7 +177,7 @@
 </script>
 
 <section aria-labelledby="landuse-h" class="card">
-	<h2 id="landuse-h">Land use</h2>
+	<h2 id="landuse-h">Crop fields and farm dams</h2>
 	<p>
 		Bring irrigated areas and farm dams up to date: fetch the crop census and the dams for a catchment or a piece of one, confirm how the crops map to the irrigation
 		module, and write each row. Only the area’s shape is sent, never the network’s files.
@@ -167,7 +185,18 @@
 
 	<div class="work" class:with-map={map !== undefined}>
 		{#if map}
-			<div class="map-slot" data-map-tool={drawing ? 'draw' : 'select'}>{@render map(mapProps)}</div>
+			<div class="map-side">
+				<div class="map-slot" data-map-tool={drawing ? 'draw' : 'select'}>{@render map(mapProps)}</div>
+				<ul class="key" aria-label="Map key">
+					<li><span class="swatch" aria-hidden="true"></span>Quaternary</li>
+					{#if code && !custom}<li><span class="swatch chosen" aria-hidden="true"></span>The quaternary chosen</li>{/if}
+					{#if custom}<li><span class="swatch boundary" aria-hidden="true"></span>Your boundary</li>{/if}
+					{#if fieldStates.has('irrigated')}<li><span class="swatch field irrigated" aria-hidden="true"></span>Field, irrigated</li>{/if}
+					{#if fieldStates.has('unknown')}<li><span class="swatch field unknown" aria-hidden="true"></span>Field, the layer doesn’t say</li>{/if}
+					{#if fieldStates.has('dry')}<li><span class="swatch field" aria-hidden="true"></span>Field, dryland</li>{/if}
+					{#if dams.length > 0}<li><span class="swatch dam" aria-hidden="true"></span>Dam, the matched source</li>{/if}
+				</ul>
+			</div>
 		{/if}
 		<div class="flow">
 			<h3 id="landuse-area-h">The area</h3>
@@ -181,7 +210,11 @@
 					<span class="note">{boundaries.collection.source}</span>
 				</div>
 			{:else if boundaries.state === 'failed'}
-				<p class="note">The list of quaternaries isn’t available here ({boundaries.message}). Upload a boundary instead.</p>
+				<p class="warn">
+					<strong>No quaternaries from the service:</strong>
+					{boundaries.message} Upload a boundary instead.
+					<button type="button" class="retry" onclick={loadBoundaries}>Try again</button>
+				</p>
 			{:else}
 				<p class="note">Loading the quaternaries…</p>
 			{/if}
@@ -235,7 +268,7 @@
 			<div><dt>Dataset</dt><dd data-value="dataset">{answer.dataset}</dd></div>
 			<div><dt>Census year</dt><dd>{answer.surveyYear}</dd></div>
 			<div><dt>Fetched</dt><dd>{answer.fetchedOn}</dd></div>
-			<div><dt>Found</dt><dd data-value="found">{answer.fields.length} fields, {formatNumber(totalHa, 1)} ha; {dams.length} dams</dd></div>
+			<div><dt>Found</dt><dd data-value="found">{plural(answer.fields.length, 'field')}, {formatNumber(totalHa, 1)} ha; {plural(dams.length, 'dam')}</dd></div>
 		</dl>
 
 		<div class="field">
@@ -253,8 +286,8 @@
 		</div>
 
 		{#key answer}
-			<CropStep {bundle} {answer} {year} {busy} onapply={onupdate} />
-			<DamStep {bundle} {dams} {radiusM} {year} {busy} onradius={(m) => (radiusM = m)} onapply={onupdate} />
+			<CropStep {bundle} {answer} {year} {busy} onapply={onupdate} {onrerun} />
+			<DamStep {bundle} {dams} {radiusM} {year} {busy} onradius={(m) => (radiusM = m)} onapply={onupdate} {onrerun} />
 		{/key}
 	{/if}
 </section>
@@ -287,11 +320,62 @@
 			grid-column: 1;
 			grid-row: 1;
 		}
-		.work.with-map .map-slot {
+		.work.with-map .map-side {
 			grid-column: 2;
 			grid-row: 1;
+		}
+		.work.with-map .map-slot {
 			height: 24rem;
 		}
+	}
+	.work .map-slot[data-map-tool='draw'] {
+		height: auto;
+	}
+	.map-side {
+		min-width: 0;
+	}
+	.key {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.2rem 1rem;
+		margin: 0.4rem 0 0;
+		padding: 0;
+		list-style: none;
+		font-size: var(--font-sm);
+	}
+	.key li {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+	.swatch {
+		flex: none;
+		width: 1.1rem;
+		height: 0.8rem;
+		border-radius: 2px;
+		border: 1.5px solid var(--map-quaternary);
+	}
+	.swatch.chosen {
+		border: 3px solid var(--map-selected);
+	}
+	.swatch.boundary {
+		border: 2px dashed var(--map-proposal);
+	}
+	.swatch.field {
+		border: 1.5px solid var(--map-field);
+	}
+	.swatch.irrigated {
+		background: color-mix(in srgb, var(--map-field) 55%, transparent);
+	}
+	.swatch.unknown {
+		background: color-mix(in srgb, var(--map-field) 22%, transparent);
+	}
+	.swatch.dam {
+		width: 0.8rem;
+		border-radius: 50%;
+		border: 2px solid var(--map-casing);
+		outline: 1px solid var(--border-strong);
+		background: var(--map-module);
 	}
 	h3 {
 		font-size: 1.05rem;
@@ -318,5 +402,8 @@
 	}
 	#landuse-year {
 		width: 8rem;
+	}
+	.retry {
+		margin-left: 0.5rem;
 	}
 </style>

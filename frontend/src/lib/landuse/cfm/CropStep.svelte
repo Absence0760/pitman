@@ -4,6 +4,7 @@
 	so a new fetch starts it afresh.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { applyIrrigatedAreas, irrigatedRowKm2, sumIrrigatedAreas, type LandUseAnswer, type LoadedBundle } from '@pitman/wrsm';
 	import { formatNumber, hydroYearLabel } from '#lib/results/format.js';
 	import { confirmedMapping, countedHa, cropRows, irrigationChoices, startingChoice, undecidedCrops, type CropChoice } from './plan.js';
@@ -13,7 +14,8 @@
 		answer,
 		year,
 		busy = false,
-		onapply
+		onapply,
+		onrerun
 	}: {
 		bundle: LoadedBundle;
 		answer: LandUseAnswer;
@@ -21,6 +23,7 @@
 		year: number | null;
 		busy?: boolean;
 		onapply: (next: LoadedBundle, status: string) => void;
+		onrerun: () => void;
 	} = $props();
 
 	const rows = $derived(cropRows(answer.fields));
@@ -98,7 +101,7 @@
 		{#if module?.refused}<p class="warn">{module.refused}</p>{/if}
 	{/if}
 
-	<div class="scroll">
+	<div class="scroll" use:scrollable>
 		<table class="data crops" aria-label="Fields by crop">
 			<thead>
 				<tr>
@@ -165,7 +168,7 @@
 	{#if module && !module.refused}
 		<h4>The row</h4>
 		{#if areas.length > 0}
-			<div class="scroll">
+			<div class="scroll" use:scrollable>
 				<table class="data preview" aria-label="Irrigated area by crop type">
 					<thead><tr><th scope="col">Crop type</th><th scope="col" class="num">Area, km²</th><th scope="col" class="num">Share, %</th></tr></thead>
 					<tbody>
@@ -194,9 +197,14 @@
 		{/if}
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
 		<div class="actions">
-			<button type="button" class="primary" onclick={apply} disabled={!canApply}>Write the row to RR {module.ref.number}</button>
+			<button type="button" class="primary" onclick={apply} disabled={!canApply}>Apply: write the row to RR {module.ref.number}</button>
 		</div>
-		{#if applied}<p class="applied" role="status"><strong>Applied.</strong> {applied} Rerun the network to see the effect.</p>{/if}
+		{#if applied}
+			<div class="applied">
+				<p role="status"><strong>Applied.</strong> {applied} The old results were cleared.</p>
+				<div class="actions"><button type="button" onclick={onrerun} disabled={busy}>Rerun the network</button></div>
+			</div>
+		{/if}
 	{/if}
 {/if}
 
@@ -240,16 +248,10 @@
 		display: block;
 		white-space: nowrap;
 	}
-	.applied {
-		border-left: 4px solid var(--accent);
-		background: var(--accent-soft);
-		border-radius: var(--radius);
-		padding: 0.5rem 1rem;
-		margin: 1rem 0;
-	}
 	.tick {
 		display: inline-flex;
 		align-items: center;
 		min-height: var(--control-h);
+		min-width: var(--control-h);
 	}
 </style>

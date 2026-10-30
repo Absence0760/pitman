@@ -11,6 +11,7 @@
 	its results then, so the panel keeps the runs from before for the compare.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import { onMount, tick, untrack, type Snippet } from 'svelte';
 	import type { AreaGeometry, ChannelCollection, MapGridCells, RunResult, SplitPreview, SplitRecord } from '@pitman/wrsm';
 	import { API_BASE_URL } from '#lib/extend/api-base.js';
@@ -112,7 +113,7 @@
 		return feature && collection ? { code, geometry: feature.geometry, source: collection.source } : undefined;
 	});
 	const boundaryKm2 = $derived(quaternary ? geometryAreaKm2(quaternary.geometry) : undefined);
-	const block = $derived(module ? splitBlock(bundle, module.ref) : null);
+	const block = $derived(module ? splitBlock(bundle, module.ref, quaternary?.code) : null);
 	const earlyCheck = $derived(module && boundaryKm2 !== undefined ? attempt(() => engine.scalePieceAreas(module.areaKm2, [boundaryKm2])) : undefined);
 
 	// The steps
@@ -246,11 +247,17 @@
 		return () => controller.abort();
 	});
 
-	// The page's map answers the same question first: start from what was picked there, never over a choice made here.
+	// The page's map answers the same question first: follow what is picked there through step 1, never over a choice made here.
+	let followedMap: string | undefined;
 	$effect(() => {
 		const picked = pickedOnMap;
 		const collection = loaded.state === 'ok' ? loaded.collection : undefined;
-		if (picked && collection && featureOf(collection, picked) !== undefined && untrack(() => code === '')) untrack(() => chooseQuaternary(picked));
+		if (!picked || !collection || featureOf(collection, picked) === undefined) return;
+		untrack(() => {
+			if (code !== '' && !(stage === 1 && code === followedMap)) return;
+			followedMap = picked;
+			chooseQuaternary(picked);
+		});
 	});
 
 	function chooseQuaternary(next: string) {
@@ -322,6 +329,17 @@
 	async function startAgain() {
 		restart();
 		await focusById(moduleNumber === undefined ? 'subdivide-module' : 'subdivide-continue');
+	}
+
+	function askRestart() {
+		if ((set?.splits.length ?? 0) === 0) return startAgain();
+		confirmRestart = true;
+		return focusById('subdivide-keep');
+	}
+
+	function keepSplits() {
+		confirmRestart = false;
+		return focusById('subdivide-restart');
 	}
 
 	async function readSample(piece: Piece) {
@@ -516,7 +534,7 @@
 	</p>
 
 	{#if done.length > 0}
-		<div class="scroll">
+		<div class="scroll" use:scrollable>
 			<table class="done" aria-label="Quaternaries already sub-divided">
 				<thead>
 					<tr><th scope="col">Quaternary</th><th scope="col">Module split</th><th scope="col">Pieces</th><th scope="col">Target natural MAR</th><th scope="col">Calibration</th></tr>
@@ -612,13 +630,13 @@
 				<div class="warn" role="alert">
 					<p><strong>Start again?</strong> This drops {plural(set?.splits.length ?? 0, 'split')}, the pieces and any calibration.</p>
 					<div class="actions">
+						<button type="button" id="subdivide-keep" onclick={keepSplits}>Keep them</button>
 						<button type="button" onclick={startAgain}>Drop them and start again</button>
-						<button type="button" onclick={() => (confirmRestart = false)}>Keep them</button>
 					</div>
 				</div>
 			{:else}
 				<div class="actions">
-					<button type="button" onclick={() => ((set?.splits.length ?? 0) > 0 ? (confirmRestart = true) : startAgain())}>Start again</button>
+					<button type="button" id="subdivide-restart" onclick={askRestart}>Start again</button>
 				</div>
 			{/if}
 
@@ -727,7 +745,10 @@
 				</ul>
 				<h4>Changes to the network</h4>
 				{#if refusal}
-					<p id="subdivide-refused" class="error" role="alert" tabindex="-1">This split can’t be applied: {refusal}</p>
+					<div id="subdivide-refused" role="alert" tabindex="-1">
+						<p class="error">This split can’t be applied: {refusal}</p>
+						<p>Nothing has changed. Undo the last split to try another, or start again with a different module.</p>
+					</div>
 				{:else if preview?.ok}
 					{#each preview.value.messages.filter((m) => !(areas?.ok && m === areas.value.warning)) as message (message)}
 						<p class="warn"><strong>Check:</strong> {message}</p>
@@ -794,13 +815,6 @@
 		width: 100%;
 		min-width: 44rem;
 		margin-bottom: 0.75rem;
-	}
-	.applied {
-		border-left: 4px solid var(--accent);
-		background: var(--accent-soft);
-		border-radius: var(--radius);
-		padding: 0.25rem 1rem 0.75rem;
-		margin: 1rem 0;
 	}
 	/* Tiles and charts lift off the tinted block. */
 	.applied :global(table) {
@@ -907,6 +921,9 @@
 			top: calc(var(--bar-h) + 1rem);
 			height: min(34rem, calc(100vh - var(--bar-h) - 2rem));
 		}
+	}
+	.work .map-slot[data-map-tool='draw'] {
+		height: auto;
 	}
 	h3 {
 		font-size: 1.05rem;

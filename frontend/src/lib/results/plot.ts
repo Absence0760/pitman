@@ -1,9 +1,8 @@
 /**
- * Svelte action that draws a `ChartSpec` with uPlot. uPlot is loaded on
- * first use (it only runs in the browser), the chart follows the width of
- * its container through a ResizeObserver, and everything is torn down when
- * the element goes away. No logic lives here that a test needs: the data and
- * labels come from `charts.ts`.
+ * Svelte action that draws a `ChartSpec` with uPlot, and the life every chart
+ * on the page shares (`uPlotAction`): the extension's fit and the land-use
+ * series use it too, and `e2e/charts.spec.ts` holds all three to it. No logic
+ * lives here that a test needs: the data and labels come from `charts.ts`.
  *
  * Line series are told apart by style as well as colour (WCAG 1.4.1): every
  * style slot has its own dash pattern, and observed flows are a heavier line
@@ -127,46 +126,61 @@ function data(spec: ChartSpec): uPlot.AlignedData {
 	return [spec.x as number[], ...spec.lines.map((l) => l.values as (number | null)[])];
 }
 
-/** `use:plot={spec}` on an empty element. */
-export function plot(node: HTMLElement, initial: ChartSpec) {
-	let spec = initial;
-	let chart: uPlot | null = null;
-	let U: typeof uPlot | null = null;
-	let destroyed = false;
+/** What one chart draws: uPlot's options and data for a spec at a width. */
+export type ChartBuild<Spec> = (U: typeof uPlot, spec: Spec, width: number, node: HTMLElement) => { options: uPlot.Options; data: uPlot.AlignedData };
 
-	const width = () => Math.max(node.clientWidth, 200);
-	const draw = () => {
-		if (U === null || destroyed) return;
-		chart?.destroy();
-		chart = new U(options(U, spec, width(), node), data(spec), node);
-		drawnWidth = width();
-		// A real readiness signal for end-to-end tests: the chart is drawn.
-		node.dataset['ready'] = 'true';
-	};
-	let drawnWidth = 0;
-	const observer = new ResizeObserver(() => {
-		if (crossesNarrow(drawnWidth, width())) draw();
-		else chart?.setSize({ width: width(), height: HEIGHT });
-		drawnWidth = width();
-	});
-	observer.observe(node);
-	const stopTheme = onThemeChange(draw);
-	void import('uplot').then((m) => {
-		U = m.default;
-		draw();
-	});
+/**
+ * The Svelte action for a kind of chart, on an empty element. All three chart
+ * screens share this life: uPlot loads on first use, the chart follows its
+ * box's width and is rebuilt when it crosses `NARROW_CHART`, a theme flip or a
+ * new spec redraws it, and it is torn down with the element.
+ */
+export function uPlotAction<Spec>(height: number, build: ChartBuild<Spec>) {
+	return (node: HTMLElement, initial: Spec) => {
+		let spec = initial;
+		let chart: uPlot | null = null;
+		let U: typeof uPlot | null = null;
+		let destroyed = false;
+		let drawnWidth = 0;
 
-	return {
-		update(next: ChartSpec) {
-			spec = next;
-			draw();
-		},
-		destroy() {
-			destroyed = true;
-			observer.disconnect();
-			stopTheme();
+		const width = () => Math.max(node.clientWidth, 200);
+		const draw = () => {
+			if (U === null || destroyed) return;
 			chart?.destroy();
-			chart = null;
-		}
+			node.dataset['ready'] = 'false';
+			const { options, data } = build(U, spec, width(), node);
+			chart = new U(options, data, node);
+			drawnWidth = width();
+			// A real readiness signal for end-to-end tests: the chart is drawn.
+			node.dataset['ready'] = 'true';
+		};
+		const observer = new ResizeObserver(() => {
+			if (crossesNarrow(drawnWidth, width())) draw();
+			else chart?.setSize({ width: width(), height });
+			drawnWidth = width();
+		});
+		observer.observe(node);
+		const stopTheme = onThemeChange(draw);
+		void import('uplot').then((m) => {
+			U = m.default;
+			draw();
+		});
+
+		return {
+			update(next: Spec) {
+				spec = next;
+				draw();
+			},
+			destroy() {
+				destroyed = true;
+				observer.disconnect();
+				stopTheme();
+				chart?.destroy();
+				chart = null;
+			}
+		};
 	};
 }
+
+/** `use:plot={spec}` on an empty element. */
+export const plot = uPlotAction<ChartSpec>(HEIGHT, (U, spec, width, node) => ({ options: options(U, spec, width, node), data: data(spec) }));

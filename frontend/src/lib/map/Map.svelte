@@ -27,6 +27,8 @@
 		absoluteUrl,
 		basemapLayerIds,
 		channelData,
+		FIELD_LAYER,
+		fieldData,
 		mapGridData,
 		mapGridLabelMinZoom,
 		mapStyle,
@@ -45,7 +47,7 @@
 	import { boxOf, boxOfAll, interiorPoint, type Box } from './pieces.js';
 	import { GLYPHS_URL, TERRAIN_URL, TILES_URL } from './tiles-base.js';
 
-	let { quaternaries, selected, modules = [], pieces = [], channels = null, mapGrid = null, proposal = null, tool = 'select', onselect, onpoint, ondraw, onview }: MapProps = $props();
+	let { quaternaries, selected, modules = [], pieces = [], fields = [], channels = null, mapGrid = null, proposal = null, tool = 'select', onselect, onpoint, ondraw, onview }: MapProps = $props();
 
 	type Lib = typeof import('./maplibre');
 	type LiveMap = InstanceType<Lib['MapLibreMap']>;
@@ -115,6 +117,7 @@
 				quaternaries: quaternariesNow(),
 				channels: channelData(plain(channels)),
 				pieces: pieceData(plain(pieces)),
+				fields: fieldData(plain(fields)),
 				proposal: proposalData(plain(proposal)),
 				modules: moduleData(modules),
 				mapGrid: mapGridData(mapGrid),
@@ -193,8 +196,8 @@
 	}
 
 	function hoverAt(m: LiveMap, point: { x: number; y: number }) {
-		const hits = m.queryRenderedFeatures([point.x, point.y], { layers: [MODULE_LAYER, MAP_GRID_LAYER, QUATERNARY_HIT_LAYER].filter((l) => m.getLayer(l)) });
-		const moduleHit = hits.find((f) => f.layer.id === MODULE_LAYER)?.properties?.['label'];
+		const hits = m.queryRenderedFeatures([point.x, point.y], { layers: [MODULE_LAYER, FIELD_LAYER, MAP_GRID_LAYER, QUATERNARY_HIT_LAYER].filter((l) => m.getLayer(l)) });
+		const moduleHit = (hits.find((f) => f.layer.id === MODULE_LAYER) ?? hits.find((f) => f.layer.id === FIELD_LAYER))?.properties?.['label'];
 		const code = hits.find((f) => f.layer.id === QUATERNARY_HIT_LAYER)?.properties?.['code'];
 		const mm = hits.find((f) => f.layer.id === MAP_GRID_LAYER)?.properties?.['label'];
 		hover = typeof moduleHit === 'string' ? moduleHit : [code, mm ? `MAP ${mm}` : undefined].filter(Boolean).join(' · ') || null;
@@ -332,6 +335,7 @@
 	// of it; a derived signals only when its own value changes.
 	const channelsNow = $derived(channels);
 	const piecesNow = $derived(pieces);
+	const fieldsNow = $derived(fields);
 	const proposalNow = $derived(proposal);
 	const modulesNow = $derived(modules);
 	const gridNow = $derived(mapGrid);
@@ -349,6 +353,10 @@
 		const data = pieceData(plain(piecesNow));
 		setSource('pieces', () => data);
 		if (status === 'ready') untrack(syncBadges);
+	});
+	$effect(() => {
+		const data = fieldData(plain(fieldsNow));
+		setSource('fields', () => data);
 	});
 	$effect(() => {
 		const data = proposalData(plain(proposalNow));
@@ -387,6 +395,14 @@
 			if (b) untrack(() => frame(b));
 		}
 		if (!code) framedCode = null;
+	});
+
+	// New fields are framed: an uploaded area may lie anywhere, and a quaternary's frame may not hold them all.
+	$effect(() => {
+		const list = fieldsNow;
+		if (status !== 'ready' || list.length === 0) return;
+		const b = boxOfAll(list.map((f) => f.geometry));
+		if (b) untrack(() => frame(b));
 	});
 
 	// Drawing mode follows the tool; without a map the bar still takes a pasted shape.
@@ -431,8 +447,8 @@
 	const chip = $derived(hover ?? (selected ? `Selected: ${selected}` : null));
 </script>
 
-<div class="map-wrap" class:labels-off={zoomedOut} data-status={status} data-view={view || undefined} data-tool={tool} data-theme-drawn={dark ? 'dark' : 'light'}>
-	<div class="map" role="region" aria-label="Map" bind:this={el} data-testid="map">
+<div class="map-wrap" class:labels-off={zoomedOut} data-status={status} data-view={view || undefined} data-tool={tool} data-fields={fields.length} data-theme-drawn={dark ? 'dark' : 'light'}>
+	<div class="map" role="group" aria-label="Map" bind:this={el} data-testid="map">
 		{#if crosshair}
 			<!-- Where Enter acts: the map's middle; the arrow keys move the map under it. -->
 			<span class="crosshair" aria-hidden="true" data-testid="map-crosshair"></span>
@@ -479,6 +495,22 @@
 			height: 50vh;
 			min-height: 240px;
 		}
+	}
+	/* In a panel's slot the slot sets the height: a fixed one here would hide the map's middle, where the crosshair
+	   acts, its attribution, and the drawing bar. While drawing the slot grows to hold the bar. */
+	:global(.map-slot) .map-wrap {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+	}
+	:global(.map-slot) .map {
+		flex: 1 1 auto;
+		height: auto;
+		min-height: 0;
+	}
+	:global(.map-slot[data-map-tool='draw']) .map {
+		flex: none;
+		height: 20rem;
 	}
 	.map :global(.maplibregl-canvas:focus-visible) {
 		outline: 3px solid var(--focus);

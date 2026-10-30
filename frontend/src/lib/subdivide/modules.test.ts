@@ -84,6 +84,11 @@ describe('a sub-division already applied', () => {
 		expect(splitBlock(workedBundle(), { type: 'RU', number: 3 })).toBeNull();
 	});
 
+	it('refuses a second module under a quaternary already split, before any work is done on it', () => {
+		expect(splitBlock(bundle, { type: 'RU', number: 7 }, 'Z01A')).toContain('Z01A is already sub-divided, and RU 7 is not one of its pieces');
+		expect(splitBlock(bundle, { type: 'RU', number: 7 }, 'Z02B')).toBeNull();
+	});
+
 	it('shows each piece, the target’s source and the state in words', () => {
 		const [row] = doneRows(bundle);
 		expect(row?.pieces).toBe('RU 16: 120.0 km², MAP 765 mm; RU 3: 280.0 km², MAP 569 mm');

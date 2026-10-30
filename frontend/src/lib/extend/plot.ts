@@ -1,13 +1,12 @@
 /**
- * Svelte action that draws an `ExtendChartSpec` with uPlot, following
- * `#lib/results/plot.ts` (load uPlot on first use, follow the container's
- * width, tear down with the element, `data-ready` once drawn) and reusing
- * its line styles. It adds what the fit diagnostics need and the results
- * charts don't: scatter points, a shaded x band and a note above each x.
+ * Svelte action that draws an `ExtendChartSpec` with uPlot, on the life and
+ * line styles of `#lib/results/plot.ts`. It adds what the fit diagnostics need
+ * and the results charts don't: scatter points, a shaded x band and a note
+ * above each x.
  */
 
 import type uPlot from 'uplot';
-import { axisStyle, axisTitle, crossesNarrow, LINE_STYLES, onThemeChange, tokenColour } from '#lib/results/plot.js';
+import { axisStyle, axisTitle, LINE_STYLES, tokenColour, uPlotAction } from '#lib/results/plot.js';
 import { HYDRO_MONTHS, hydroYearLabel } from '#lib/results/format.js';
 import type { ExtendChartSpec, ExtendSeries } from './charts.js';
 
@@ -121,46 +120,4 @@ function data(spec: ExtendChartSpec): uPlot.AlignedData {
 }
 
 /** `use:extendPlot={spec}` on an empty element. */
-export function extendPlot(node: HTMLElement, initial: ExtendChartSpec) {
-	let spec = initial;
-	let chart: uPlot | null = null;
-	let U: typeof uPlot | null = null;
-	let destroyed = false;
-
-	const width = () => Math.max(node.clientWidth, 200);
-	const draw = () => {
-		if (U === null || destroyed) return;
-		chart?.destroy();
-		node.dataset['ready'] = 'false';
-		chart = new U(options(U, spec, width(), node), data(spec), node);
-		drawnWidth = width();
-		// A real readiness signal for end-to-end tests: the chart is drawn.
-		node.dataset['ready'] = 'true';
-	};
-	let drawnWidth = 0;
-	const observer = new ResizeObserver(() => {
-		if (crossesNarrow(drawnWidth, width())) draw();
-		else chart?.setSize({ width: width(), height: HEIGHT });
-		drawnWidth = width();
-	});
-	observer.observe(node);
-	const stopTheme = onThemeChange(draw);
-	void import('uplot').then((m) => {
-		U = m.default;
-		draw();
-	});
-
-	return {
-		update(next: ExtendChartSpec) {
-			spec = next;
-			draw();
-		},
-		destroy() {
-			destroyed = true;
-			observer.disconnect();
-			stopTheme();
-			chart?.destroy();
-			chart = null;
-		}
-	};
-}
+export const extendPlot = uPlotAction<ExtendChartSpec>(HEIGHT, (U, spec, width, node) => ({ options: options(U, spec, width, node), data: data(spec) }));

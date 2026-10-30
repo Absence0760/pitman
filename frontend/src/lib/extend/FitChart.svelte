@@ -4,6 +4,7 @@
 	the uPlot canvas (described as an image) and a collapsible data table.
 -->
 <script lang="ts">
+	import { scrollable } from '#lib/shell/scrollable.js';
 	import type { Snippet } from 'svelte';
 	import { chartTable, type ExtendChartSpec, type ScatterPoint } from './charts.js';
 	import { extendPlot, seriesStyle } from './plot.js';
@@ -54,7 +55,7 @@
 	<details bind:open>
 		<summary>Data table: {spec.title}</summary>
 		{#if table}
-			<div class="scroll">
+			<div class="scroll" use:scrollable>
 				<table class="data">
 					<caption>{table.caption}</caption>
 					<thead>

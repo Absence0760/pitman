@@ -28,6 +28,8 @@ export interface WorkingCopy {
 	/** ISO date-time the copy was written. */
 	readonly storedAt: string;
 	readonly modes?: ModeChoice;
+	/** Changes made since the last zip: only this browser holds them. */
+	readonly unsaved?: boolean;
 }
 
 function request<T>(req: IDBRequest<T>): Promise<T> {
@@ -83,7 +85,8 @@ function isWorkingCopy(value: unknown): value is WorkingCopy {
 		typeof v.files === 'object' &&
 		v.files !== null &&
 		Object.values(v.files).every((t) => typeof t === 'string') &&
-		(v.modes === undefined || isModeChoice(v.modes))
+		(v.modes === undefined || isModeChoice(v.modes)) &&
+		(v.unsaved === undefined || typeof v.unsaved === 'boolean')
 	);
 }
 

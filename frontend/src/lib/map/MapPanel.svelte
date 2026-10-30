@@ -151,7 +151,7 @@
 				</select>
 			</div>
 		{:else if loadState === 'loading'}
-			<p class="note" role="status">Loading the quaternary boundaries…</p>
+			<p class="note" role="status">Loading the quaternaries…</p>
 		{/if}
 		<label class="tick"><input type="checkbox" bind:checked={showGrid} /> MAP grid</label>
 		<p class="note grid-status" role="status" data-testid="map-grid-status">{gridNote}</p>

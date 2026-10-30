@@ -5,7 +5,7 @@
 	docs/architecture.md § App flow describes it.
 -->
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import IssueList from '#lib/network/IssueList.svelte';
 	import LoadPanel from '#lib/network/LoadPanel.svelte';
 	import ModePicker from '#lib/network/ModePicker.svelte';
@@ -31,10 +31,11 @@
 	import MapPanel from '#lib/map/MapPanel.svelte';
 	import TributaryTool from '#lib/map/tributary/TributaryTool.svelte';
 	import AppBar from '#lib/shell/AppBar.svelte';
+	import Fold from '#lib/shell/Fold.svelte';
 	import SubdividePanel from '#lib/subdivide/SubdividePanel.svelte';
 	import Landing from '#lib/shell/Landing.svelte';
 	import StepRail from '#lib/shell/StepRail.svelte';
-	import { runStatus, workflowSteps } from '#lib/shell/steps.js';
+	import { OPTIONAL_STEPS, runStatus, sidecarProgress, workflowSteps } from '#lib/shell/steps.js';
 
 	type Phase = 'empty' | 'reading' | 'choose' | 'invalid' | 'loaded';
 	type RunState = 'idle' | 'running' | 'done' | 'failed';
@@ -61,6 +62,15 @@
 	let saveError = $state<string | undefined>();
 	let quaternary = $state<string | undefined>();
 	let controller: AbortController | undefined;
+	/** The optional cards opened: they start closed (decision R7-U1). */
+	let opened = $state.raw<ReadonlySet<string>>(new Set());
+	/** What changed the network after its last run, which cleared the results. */
+	let changedSinceRun = $state<string | undefined>();
+	/** Changes made since the last zip; only this browser holds them. */
+	let unsaved = $state(false);
+	let confirmForget = $state(false);
+	/** A readiness signal: the working copy holds the page's latest state. */
+	let stored = $state(false);
 
 	const summary = $derived(bundle ? summarise(bundle) : undefined);
 	const runs = $derived(outcomes.flatMap((o) => (o.ok ? [o.result] : [])));
@@ -75,10 +85,23 @@
 			rainfallFiles: rainfall.length,
 			extendedFiles: rainfall.filter((f) => f.extension).length,
 			run: runState,
+			changed: changedSinceRun !== undefined,
+			progress: sidecarProgress(bundle?.sidecar),
 			modesRun: runs.length,
 			modesFailed: failedModes.length
 		})
 	);
+	const stepDetail = (id: string) => steps.find((s) => s.id === id)?.detail ?? '';
+
+	function openSection(id: string) {
+		if (OPTIONAL_STEPS.includes(id) && !opened.has(id)) opened = new Set(opened).add(id);
+	}
+
+	function toggleSection(id: string) {
+		const next = new Set(opened);
+		if (!next.delete(id)) next.add(id);
+		opened = next;
+	}
 
 	function reset() {
 		phase = 'empty';
@@ -94,6 +117,11 @@
 		runError = undefined;
 		saveError = undefined;
 		modeError = undefined;
+		opened = new Set();
+		changedSinceRun = undefined;
+		unsaved = false;
+		confirmForget = false;
+		stored = false;
 	}
 
 	async function loadSources(sources: SourceFile[]) {
@@ -142,16 +170,18 @@
 
 	async function keepWorkingCopy() {
 		const factory = browserIndexedDB();
+		stored = false;
 		if (!bundle || !factory) {
 			storageNote = 'This browser does not allow a working copy, so a reload will start empty. Save the zip to keep your work.';
 			return;
 		}
 		try {
 			await storeWorkingCopy(
-				{ schema: 1, name, network: bundle.files.network, files: writeBundle(bundle), storedAt: new Date().toISOString(), modes: $state.snapshot(choice) },
+				{ schema: 1, name, network: bundle.files.network, files: writeBundle(bundle), storedAt: new Date().toISOString(), modes: $state.snapshot(choice), unsaved },
 				factory
 			);
 			storageNote = undefined;
+			stored = true;
 		} catch {
 			storageNote = 'The working copy could not be stored (the browser may be out of space or in private mode). Save the zip to keep your work.';
 		}
@@ -160,11 +190,27 @@
 	/** A step changed the working copy (the CHIRPS extension): keep it, and drop results that no longer match it. */
 	function updateBundle(next: LoadedBundle, message: string) {
 		bundle = next;
+		unsaved = true;
+		if (outcomes.length > 0 || changedSinceRun !== undefined) changedSinceRun = message;
 		outcomes = [];
 		runState = 'idle';
 		runError = undefined;
 		status = message;
 		void keepWorkingCopy();
+	}
+
+	/** The zip is the user's own copy, so only work that isn't in one needs asking about. */
+	async function askForget() {
+		if (!unsaved) return forget();
+		confirmForget = true;
+		await tick();
+		document.getElementById('forget-keep')?.focus();
+	}
+
+	async function keepCopy() {
+		confirmForget = false;
+		await tick();
+		document.getElementById('forget')?.focus();
 	}
 
 	async function forget() {
@@ -190,6 +236,7 @@
 		}
 		modeError = undefined;
 		runError = undefined;
+		changedSinceRun = undefined;
 		outcomes = [];
 		runState = 'running';
 		progress = undefined;
@@ -229,14 +276,20 @@
 			const fileName = saveFileName(bundle, name);
 			downloadBytes(fileName, saveZip(bundle, { writtenBy: `Pitman ${__PITMAN_VERSION__}` }));
 			status = `Saved ${fileName}.`;
+			unsaved = false;
+			void keepWorkingCopy();
 		} catch (error) {
 			saveError = (error as Error).message;
 		}
 	}
 
 	onMount(() => {
+		// A link to a closed card, from outside the rail, opens it.
+		const followHash = () => openSection(location.hash.slice(1));
+		followHash();
+		addEventListener('hashchange', followHash);
 		const factory = browserIndexedDB();
-		if (!factory) return;
+		if (!factory) return () => removeEventListener('hashchange', followHash);
 		loadWorkingCopy(factory)
 			.then((copy) => {
 				if (!copy || phase !== 'empty') return;
@@ -245,13 +298,18 @@
 				if (copy.modes) choice = { ...copy.modes };
 				if (open(copy.network, false)) {
 					restoredAt = copy.storedAt;
+					unsaved = copy.unsaved === true;
+					stored = true;
 					status = `Restored the working copy of network ${bundle?.network.code ?? ''}.`;
 				}
 			})
 			.catch(() => {
 				storageNote = 'The working copy could not be read.';
 			});
-		return () => controller?.abort();
+		return () => {
+			removeEventListener('hashchange', followHash);
+			controller?.abort();
+		};
 	});
 </script>
 
@@ -265,14 +323,14 @@
 
 <AppBar network={summary?.code} {years} run={bundle ? runStatus(steps) : undefined} onsave={bundle ? save : undefined} />
 
-<main>
+<main id="main" tabindex="-1">
 	{#if !bundle}
 		<Landing onload={loadSources} busy={phase === 'reading' || runState === 'running'} />
 	{/if}
 
 	<div class="workspace" class:loaded={bundle !== undefined}>
 		{#if bundle}
-			<StepRail {steps} />
+			<StepRail {steps} onnavigate={openSection} />
 		{/if}
 		<div class="sections">
 			{#if !bundle}
@@ -311,7 +369,7 @@
 			{/if}
 
 			{#if bundle && summary}
-				<section class="card" aria-labelledby="network-h">
+				<section class="card" aria-labelledby="network-h" data-working-copy={stored ? 'stored' : 'storing'} data-unsaved={unsaved}>
 					<h1 id="network-h">Network {summary.code}</h1>
 					<dl class="facts overview">
 						<div><dt>Years</dt><dd>{years} (hydrological years)</dd></div>
@@ -331,14 +389,27 @@
 					{#if storageNote}
 						<p class="note warn">{storageNote}</p>
 					{/if}
-					<div class="actions">
-						<button type="button" onclick={forget}>Forget the working copy</button>
-					</div>
+					{#if confirmForget}
+						<div class="warn" role="alert">
+							<p><strong>Forget the working copy?</strong> It holds changes that aren’t in a saved zip, and they would be lost. Save first to keep them.</p>
+							<div class="actions">
+								<button type="button" id="forget-keep" onclick={keepCopy}>Keep it</button>
+								<button type="button" onclick={forget}>Forget it, and lose the changes</button>
+							</div>
+						</div>
+					{:else}
+						<div class="actions">
+							<button type="button" id="forget" onclick={askForget}>Forget the working copy</button>
+						</div>
+					{/if}
 					{#if saveError}
 						<p class="error" role="alert">The zip could not be saved: {saveError}</p>
 					{/if}
 					<details class="another">
 						<summary>Load a different network</summary>
+						{#if unsaved}
+							<p class="warn">Loading another network replaces the working copy, which holds changes that aren’t in a saved zip. Save first to keep them.</p>
+						{/if}
 						<LoadPanel onload={loadSources} busy={runState === 'running'} />
 					</details>
 				</section>
@@ -349,24 +420,36 @@
 
 				<MapPanel {bundle} picked={quaternary} onselect={(code) => (quaternary = code)} />
 
-			<ExtendPanel {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
+				<Fold id="extend-h" title="Extend rainfall with CHIRPS" status={stepDetail('extend-h')} open={opened.has('extend-h')} ontoggle={toggleSection}>
+					<ExtendPanel {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
+				</Fold>
 
-			<SubdividePanel {bundle} {runs} {quaternary} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'}>
-				{#snippet map(props)}<Map {...props} />{/snippet}
-				{#snippet tributary(slot)}
-					<TributaryTool within={slot.within} click={slot.click} onresult={slot.onaccept} onchannels={slot.onchannels} onproposal={slot.onproposal} />
-				{/snippet}
-			</SubdividePanel>
+				<Fold id="subdivide-h" title="Sub-divide a quaternary" status={stepDetail('subdivide-h')} open={opened.has('subdivide-h')} ontoggle={toggleSection}>
+					<SubdividePanel {bundle} {runs} {quaternary} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'}>
+						{#snippet map(props)}<Map {...props} />{/snippet}
+						{#snippet tributary(slot)}
+							<TributaryTool within={slot.within} click={slot.click} onresult={slot.onaccept} onchannels={slot.onchannels} onproposal={slot.onproposal} />
+						{/snippet}
+					</SubdividePanel>
+				</Fold>
 
-			<LandUsePanel {bundle} {quaternary} onupdate={updateBundle} busy={runState === 'running'}>
-				{#snippet map(props)}<Map {...props} />{/snippet}
-			</LandUsePanel>
+				<Fold id="landuse-h" title="Crop fields and farm dams" status={stepDetail('landuse-h')} open={opened.has('landuse-h')} ontoggle={toggleSection}>
+					<LandUsePanel {bundle} {quaternary} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'}>
+						{#snippet map(props)}<Map {...props} />{/snippet}
+					</LandUsePanel>
+				</Fold>
 
-			<LandUseEditor {bundle} onupdate={updateBundle} busy={runState === 'running'} />
+				<Fold id="tables-h" title="Land-use tables" status={stepDetail('tables-h')} open={opened.has('tables-h')} ontoggle={toggleSection}>
+					<LandUseEditor {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
+				</Fold>
 
-			<DemandPanel {bundle} onupdate={updateBundle} busy={runState === 'running'} />
+				<Fold id="demand-h" title="Demands" status={stepDetail('demand-h')} open={opened.has('demand-h')} ontoggle={toggleSection}>
+					<DemandPanel {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
+				</Fold>
 
-			<CalibratePanel {bundle} onupdate={updateBundle} busy={runState === 'running'} />
+				<Fold id="calibrate-h" title="Calibrate" status={stepDetail('calibrate-h')} open={opened.has('calibrate-h')} ontoggle={toggleSection}>
+					<CalibratePanel {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
+				</Fold>
 
 				<section class="card" aria-labelledby="run-h">
 					<h2 id="run-h">Run</h2>
@@ -403,6 +486,8 @@
 					{/if}
 					{#if runs.length > 0}
 						<Results {bundle} {runs} />
+					{:else if changedSinceRun}
+						<p class="note" data-results="cleared">The last results were cleared because the network changed. {changedSinceRun} Run it again to see new ones.</p>
 					{:else if runState !== 'done'}
 						<p class="note">Choose the modes and run the network to see results here.</p>
 					{/if}

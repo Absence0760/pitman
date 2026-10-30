@@ -46,7 +46,7 @@ pitman/
 │       ├── lib/map/mapzone/  The MAP-zone tool: threshold, drawn or pasted zone (§ App flow, step 6)
 │       ├── lib/landuse/cfm/  Land use: the /cfm/land-use client (api), its logic (plan), LandUsePanel.svelte with CropStep and DamStep (docs/data.md § Cape Farm Mapper)
 │       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
-│       ├── lib/shell/        The frame around the steps: app bar, landing page, step rail (steps.ts holds its wording), the design-token guards; rules in docs/design/ui-playbook.md
+│       ├── lib/shell/        The frame around the steps: app bar, landing page, step rail (steps.ts holds its wording), the fold round each optional card, the design-token guards; rules in docs/design/ui-playbook.md
 │       └── routes/           +page.svelte: the app shell; methods/: the Methods page (prerendered, mapped by infra/functions/spa_rewrite.js)
 ├── backend/
 │   ├── package.json          Build script runs esbuild → dist/lambda.mjs

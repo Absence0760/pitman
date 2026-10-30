@@ -8,6 +8,7 @@ async function open(page: Page) {
 	await page.goto('/');
 	await page.getByLabel('Network zip', { exact: true }).setInputFiles({ name: 'SY.zip', mimeType: 'application/zip', buffer: Buffer.from(syntheticNetworkZip({ startYear: 1980, years: 30 })) });
 	await expect(page.getByRole('heading', { name: 'Network SY' })).toBeVisible();
+	await page.getByRole('button', { name: 'Show Calibrate' }).click();
 	await page.getByRole('region', { name: 'Calibrate' }).getByLabel('Runoff module', { exact: true }).selectOption('1');
 	await expect(page.getByRole('table', { name: /WR2012 flow statistics/ })).toBeVisible();
 }
@@ -40,8 +41,10 @@ test('apply writes the value and the sidecar, clears results, and survives a sav
 	await page.getByRole('button', { name: 'Apply to the working copy' }).click();
 	await expect(page.locator('#calibrate-applied')).toBeFocused();
 	await expect(page.locator('#calibrate-applied')).toContainText('pitman.json');
+	await expect(page.locator('[data-working-copy]')).toHaveAttribute('data-working-copy', 'stored');
 	await page.reload();
 	await expect(page.getByRole('heading', { name: 'Network SY' })).toBeVisible();
+	await page.getByRole('button', { name: 'Show Calibrate' }).click();
 	await page.getByRole('region', { name: 'Calibrate' }).getByLabel('Runoff module', { exact: true }).selectOption('1');
 	await expect(page.getByLabel(/^ST /)).toHaveValue('420');
 	await expect(page.getByRole('button', { name: /Reset ST to/ })).toBeEnabled();

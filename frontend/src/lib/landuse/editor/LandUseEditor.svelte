@@ -7,7 +7,7 @@
 	beside this one. docs/user-guide.md § Land-use tables.
 -->
 <script lang="ts">
-	import { tick, untrack } from 'svelte';
+	import { tick } from 'svelte';
 	import { applyTableEdits, type LandUseTable, type LoadedBundle, type RunoffModule } from '@pitman/wrsm';
 	import { plural } from '#lib/network/format.js';
 	import { coverageSummary, moduleChoices, moduleLabel, moduleRole, pieceOrigin, TABLE_ORDER, tableOffer } from './offers.js';
@@ -17,11 +17,14 @@
 	let {
 		bundle,
 		onupdate,
+		onrerun,
 		busy = false
 	}: {
 		bundle: LoadedBundle;
 		/** The working copy changed: the page replaces its bundle, stores it and says `status`. */
 		onupdate: (next: LoadedBundle, status: string) => void;
+		/** Run the network again (the page's Run, with the modes chosen there). */
+		onrerun: () => void;
 		/** A run is in progress: no apply until it finishes. */
 		busy?: boolean;
 	} = $props();
@@ -53,21 +56,12 @@
 
 	/** A refusal stays in view at Apply, however long the table holding its row. */
 	const refused = $derived(review ? refusedRows(review) : []);
+	/** What stops Apply, in one always-present live region: a refusal appears beside a box that keeps the focus. */
+	const blocked = $derived(review === null ? '' : ([...refused, ...review.errors, ...(review.missingNotes > 0 ? [`${plural(review.missingNotes, 'value')} still ${review.missingNotes === 1 ? 'needs' : 'need'} a source.`] : [])][0] ?? ''));
 	const canApply = $derived(review !== null && review.changes.length > 0 && review.valid && review.missingNotes === 0 && review.saved.problem === null && !busy);
 
 	let applied = $state<string | undefined>();
 	let sharedNote = $state('');
-
-	// A different network was loaded: nothing here applies to it.
-	let loadedFrom = untrack(() => bundle.files);
-	$effect(() => {
-		if (bundle.files === loadedFrom) return;
-		loadedFrom = bundle.files;
-		selected = undefined;
-		drafts = {};
-		applied = undefined;
-		sharedNote = '';
-	});
 
 	function choose(value: string) {
 		selected = value === '' ? undefined : Number(value);
@@ -148,6 +142,8 @@
 		</div>
 	{/if}
 
+	<p class="sr" role="status" data-live>{blocked}</p>
+
 	{#if waiting.length > 0}
 		<div class="waiting">
 			<p>Not applied yet:</p>
@@ -160,7 +156,10 @@
 	{#if applied}
 		<div class="applied" id="tables-applied" tabindex="-1" role="status">
 			<p><strong>Applied to the working copy.</strong> {applied}</p>
-			<p>It’s recorded in <code>pitman.json</code> with the value it replaced and its source, and goes out with the next save. The old results were cleared: <a href="#run-h">run the network</a> to see them with these values.</p>
+			<p>It’s recorded in <code>pitman.json</code> with the value it replaced and its source, and goes out with the next save. The old results were cleared.</p>
+			<div class="actions">
+				<button type="button" class="primary" onclick={onrerun} disabled={busy}>Rerun the network</button>
+			</div>
 		</div>
 	{/if}
 
@@ -295,13 +294,6 @@
 	.waiting p {
 		margin: 0;
 		font-weight: 600;
-	}
-	.applied {
-		border-left: 4px solid var(--accent);
-		background: var(--accent-soft);
-		border-radius: var(--radius);
-		padding: 0.25rem 1rem;
-		margin: 1rem 0;
 	}
 	.children {
 		display: flex;

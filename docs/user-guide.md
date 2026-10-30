@@ -25,6 +25,18 @@ listed under "Kept but not modelled".
 The browser keeps a working copy, so a reload brings the network back. **Forget
 the working copy** removes it. Your real copy is the zip you save.
 
+The steps down the left say where the network stands and mark the section you're
+in. The optional steps start closed: **Show** opens one, and so does its step.
+**Hide** only hides it. Nothing you typed there is lost.
+
+If the working copy holds changes that aren't in a saved zip, **Forget the working
+copy** asks first, and loading another network warns you. Applying a change clears
+old results; the card you applied it in offers **Rerun the network**.
+
+Everything works from the keyboard. **Skip to the page** is the first stop. On a map,
+the arrow keys move it under a crosshair and Enter acts there; a quaternary can also be
+chosen from its list, and a shape pasted as GeoJSON or WKT.
+
 ## Extend rainfall with CHIRPS
 
 Optional. **Extend rainfall with CHIRPS** lists each `.RAN` with the modules that
@@ -216,6 +228,10 @@ boundaries and terrain; real ones need a licence decision. The method is in
   change, and a factor that doesn't converge is never applied silently.
 - A tributary drains into the remainder, in series. MAP-zone pieces drain side by side
   to the same outlet. The final factor and its source go into `pitman.json`.
+- A quaternary is sub-divided once. Once a split is applied, step 1 stops a further split
+  of its pieces and a second module under the same code, and says to go back to the zip
+  saved before it. A plan the network can't carry (the pieces can't be connected, say) is
+  refused at the review, with nothing changed: undo the split or start again.
 
 ## Demands
 
@@ -256,9 +272,18 @@ changed outside Pitman, or the run now goes further than a file, open it and app
 regenerate it.
 
 Natural mode ignores demands (decision D1). After applying, run again to see the effect.
-The Land use screen fetches a (sub-)catchment's crop fields and dams, lets you confirm
-how crops map to the irrigation module's crop types, and writes the irrigation and
-farm-dam rows, 2025 by default. It needs the operator's Cape Farm Mapper token, so a
-deployed site says the data isn't available until then. Run locally it shows invented
-data and says so. The remaining year tables and demand files are specified but not
-built.
+
+## Crop fields and farm dams
+
+**Crop fields and farm dams** fetches a (sub-)catchment's crop fields and dams, lets you
+confirm how crops map to the irrigation module's crop types, and writes the irrigation
+and farm-dam rows, 2025 by default. Choose a quaternary, upload a boundary or draw one;
+only the shape is sent.
+
+On the map a field has a solid edge: filled for irrigated, lightly filled where the
+layer doesn't say, and empty for dryland. A dot is a dam, and a dashed line is the
+boundary you gave. The key under the map names what's there, and the pointer gives a
+field's crop.
+
+It needs the operator's Cape Farm Mapper token, so a deployed site says the data isn't
+available until then. Run locally it shows invented data and says so.
