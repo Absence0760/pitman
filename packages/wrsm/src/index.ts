@@ -64,6 +64,9 @@ export * from './landuse/forest.js';
 export * from './landuse/sfr.js';
 export * from './landuse/alien.js';
 export * from './landuse/paved.js';
+// Round 7: the land-use data (docs/data.md § Cape Farm Mapper, D3, D4).
+export * from './landuse/cfm.js';
+export * from './landuse/dams.js';
 export * from './runoff/wiring.js';
 export * from './network/sfr-groups.js';
 
