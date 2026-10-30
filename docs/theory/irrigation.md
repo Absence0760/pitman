@@ -73,8 +73,10 @@ because of two facts:
 1. **Demand never depends on supply.** Under every method demand is a function
    of rainfall, the module's data and the run mode. TT 690 eq. 4.7 reduces the
    *area* after the fact; eqs. 6.24–6.29 apply before "insufficient water at
-   source" (p.42). The one place a reading could make demand depend on supply is
-   ACCALOC, and it is charged with the demand (R7-I3).
+   source" (pp.40, 42), and TT 689 pp.84–85 re-runs only losses, storages and
+   return flows. The exception is a choice, not a fact: "unused portion" (p.41)
+   doesn't settle what ACCALOC is charged with, and charging demand (R7-I3) is
+   what keeps this true for type 4.
 2. **A return flow can't reach its supplier.** Validation rejects that as a
    circular argument (TT 689 p.85, p.104; `network.md` §4).
 
@@ -146,6 +148,9 @@ figure is 0, the irrigation block will generate no abstractions whatsoever"
 (TT 689 p.95). What doesn't return is used: there is no store.
 
 ## 5. Effective rainfall
+
+Type 4 runs the modified WQT form below. TT 690 pp.35, 37 and 41 also allow
+SAPWAT rainfall under type 4, but no file field chooses it (R7-I23).
 
 **WQT (L.021 limits, RRERL1 upper, RRERL2 lower):** TT 690 eqs. 5.3–5.6 as
 corrected (E-5), the same as TT 689 pp.96–97 and eq. 6.18 with RRERFM = 1.
@@ -242,7 +247,10 @@ that would go below zero ends at zero and takes the shortfall from ET (R7-I11).
 only split RET for salinity (eq. 4.31).
 
 **QC,** eq. 4.18: the unit runoff of the runoff module the block lies in (L.013
-v5), its generated runoff less paved flow over its pervious area (R7-I12).
+v5), its generated runoff less paved flow over its pervious area (R7-I12). That
+runoff reads no route, so the block asks for it on demand and the module's place
+in the list doesn't matter. A WQT block can only lie in a parent, never an SFR
+child: an error (TT 689 p.165; TT 691 p.211 item 113).
 
 **Net and total** (TT 689 p.106, pp.166–167; R7-I13). Net (L.014 v2 = 1, the
 default): the block gives up QC in its soil balance but the water stays with the
@@ -274,8 +282,9 @@ QIG here is the supply.
 Eq. 6.42 was re-derived from 6.36–6.41 and agrees. When QIS = 0, RAIN is set to
 zero so the tank declines smoothly (eq. 6.36a, p.50). S2 is held within RRHMIN …
 RRHMAX (eqs. 6.43b, 6.44b), and QIOUT then uses the final S2 (p.54). QE closes the
-tank at the top and counts as evaporation; at the bottom the outflows give way
-(R7-I11).
+tank at the top and counts as evaporation; at the bottom evaporation gives way
+("the irrigation evapotranspiration demand will be reduced", p.53), and the return
+only if it alone is more than the tank holds (R7-I11).
 
 QGI and QSI (eqs. 6.45–6.48) pass through and are "flow neutral". TT 691 p.172:
 "Net Return flows or Total return flows should give the same answer in Type 4";
@@ -292,7 +301,16 @@ TT 689 p.106: "the default is always to Net". So type 4 is always net (R7-I13):
         + catchment runoff (net only) + Δ soil storage
 
 Tested in `supply.test.ts` for all five set-ups × four supply patterns, to 1e-9
-million m³, with no term negative. Also tested: application ≤ supply; less supply
+million m³, with no term negative.
+
+**What this balance can't catch.** Three terms are remainders by construction:
+land transfer, QE, and type 1's ET. So any S2 closes the type 4 tank, and the
+balance proves nothing about eq. 6.42. Separate tests pin what it can't: eqs. 6.37
+and 6.41 exact between the limits (QE is then zero), the return at RRHMIN, and
+transfer = depth × change in area. The type 2–3 stores are a real check: HEF, ET
+and RE are computed separately.
+
+Also tested: application ≤ supply; less supply
 never returns more; demand doesn't change with supply; S ≤ demand on a demand
 route; the route's flow is the block's supply; the river loses what the block
 takes. Through the network the block is a sink for its abstraction and a source
@@ -319,6 +337,7 @@ depth, area and effective area for the screens.
 | E-12 | p.50 | QIOUT "(=QUP+QLOW)" | only if RRPRFU + RRPRFL = 1 |
 | E-13 | eq. 6.41; p.43 | `RRMIN`; RRPTLR's limit names RRTLPE | RRHMIN; RRPTLR |
 | E-14 | eq. 6.17a p.35 vs eq. 4.1 | total clipped at zero vs per crop | per crop (R7-I5) |
+| E-15 | pp.16, 29, 36 | "previous zone"; RAINavg(a) in mm/month; `RRELRL1` | pervious; mm/year; RRERL1 |
 
 TT 691 p.159's "the value for line type 8" means L.009; TT 691 p.159 repeats the
 heading "Other default data" over the Pitman fields; TT 689 p.175 gives lower-zone
@@ -337,11 +356,19 @@ RRPRFL holds for types 2–3, not type 4.
   solving.
 - **R7-I4** WQT RRMA ≤ 0 means no limit (`zeroAllocation: 'noWater'` for eq. 4.8 as
   printed). TT 689 p.95's "no abstractions" is said of PERM only, and the repo's v32
-  example carries a type 2 block with 0.00. Highest-risk default: if WRSM2000 reads 0
-  as no water those blocks abstract nothing.
+  example carries a type 2 block with 0.00. Against it: TT 690 p.42 and TT 689 p.95
+  switch a limit off with a large value (9999), not with 0, and TT 689 p.98 has
+  values below 1 reduce the allocation. So this covers RRMA alone: a year-table value
+  of 0 is no water. Highest-risk default: if WRSM2000 reads RRMA 0 as no water those
+  blocks abstract nothing; if the default is wrong the other way, they abstract too
+  much.
 - **R7-I5** Crop demand is cut off per crop (`cropDemandClip: 'total'` for p.35).
+  That is the default for type 4 too, against ch.6's own sentence on p.35.
 - **R7-I6** RRIE and RRLF above 1 are percentages: TT 690 eq. 4.3 has EFI in %, TT
-  691 p.160's example has 96 and 6. Efficiency is capped at 1; 0 or less is an error.
+  691 p.160's example has 96 and 6. Efficiency is capped at 1, with a warning; 0 or
+  less is an error. Open conflict: that same example has L.030 = 60, 70, which isn't
+  a growth near 1 (TT 689 p.102). If L.030 is really a percentage in type 2, the cap
+  understates QIG by 40 % or more. Real files have no L.030 (formats §8.1).
 - **R7-I7** Table meanings as §3. TT 691 p.172 says type 4's L.015 RRIE "does not
   appear to be used"; used only when L.028 is 0.
 - **R7-I8** SAPWAT ER within 0 … rain. TT 691 p.210 item 84 records a "constraint
@@ -349,18 +376,21 @@ RRPRFL holds for types 2–3, not type 4.
 - **R7-I9** Means run over the rainfall file's whole record, not the run. A month
   with no mean rain counts 0 in DF.
 - **R7-I10** Clipping caps each month at the allocation / 12 (TT 689 p.95: "reduced
-  evenly to a monthly value"), which can leave the block under its allocation. Type
-  4 follows eqs. 6.25–6.29 whatever the flag.
+  evenly to a monthly value"), which can leave the block under its allocation. TT 689
+  p.95 also says some months may go higher after redistribution; the code only ever
+  reduces. Type 4 follows eqs. 6.25–6.29 whatever the flag.
 - **R7-I11** Store limits close the balance: a store below zero takes the shortfall
-  from ET; the tank's outflows give way at RRHMIN; QE is what's left at RRHMAX; RRHI
-  outside RRHMIN … RRHMAX is moved inside it.
+  from ET; at RRHMIN the tank's evaporation gives way, then its return; QE is what's
+  left at RRHMAX; RRHI outside RRHMIN … RRHMAX is moved inside it.
 - **R7-I12** QC is the runoff module's generated runoff less paved flow over its
   pervious area (the manuals' pervious zone comes from WQT's SW module, which
-  WRSM2000 doesn't have). No module, or one not yet solved, gives QC = 0 with a
-  warning. TT 691 p.211 item 113 suggests WRSM2000 treats that order as a sequence
-  error.
+  WRSM2000 doesn't have). It is solved on demand, so a module later in the list is
+  fine. A missing or unsolved module gives QC = 0 with a warning.
 - **R7-I13** Net as §7; total scales the runoff by area share rather than re-running
-  it (DP-6); type 4 always net.
+  it (DP-6); an unsolved block takes no area. Type 4 is always net, with a warning
+  when L.014 v2 = 0. Against that: TT 689 p.166 says type 4 can use either option, and
+  printed eq. 6.49 includes QGI + QSI. TT 691 p.172's "same answer" can't hold exactly
+  if the return route doesn't end where the runoff module's route does.
 - **R7-I14** Type 4's minimum factor is L.017, not L.031 (TT 691 p.174).
 - **R7-I15** RRCAP of 0 is no limit: it is the default (TT 689 p.175), and "no
   water" would stop every default block.
@@ -374,6 +404,14 @@ RRPRFL holds for types 2–3, not type 4.
 - **R7-I20** TT 689 p.95's "the annual allocation limit is applied to the end of
   period area specified and adjustments are made prior to that" is not modelled:
   p.98 says a volume doesn't follow the area, and eq. 4.8 doesn't either.
+- **R7-I21** `RunResult.irrigation` reports each block; the old "not simulated yet"
+  warning is gone; an RR's missing rainfall file fails validation.
+- **R7-I22** TT 689 p.169: when defined routes take everything, "Return flows for
+  step 3 will then also be set to zero". Pitman doesn't: at no supply types 2–4 still
+  return from their stores, as TT 690 pp.50 and 54 say for type 4. Open: the two
+  manuals disagree, and the reference comparison decides.
+- **R7-I23** Type 4 always uses the modified WQT effective rainfall. No file field
+  selects SAPWAT under type 4, so `wqt4Din` has no such branch.
 
 ## 13. Reference comparison
 

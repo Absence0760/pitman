@@ -44,10 +44,11 @@ All proposed defaults in these specs are **accepted as provisional**, with the e
 | `docs/theory/reservoir.md` | R3-RV1 … R3-RV23 | Round 3: 39 reference reservoirs, run on WRSM2000's own route flows, all within 1 % spill MAR (NSE ≥ 0.996); the rest when the network runs |
 | `docs/theory/channel.md` | OQ-CR1 … OQ-CR19 | Round 6/8 (the reference set has no wetland, bed loss or active diversion: those paths are manual-only) |
 | `docs/theory/statistics.md` | R3-S1 … R3-S9 | none yet: no WRSM2000 `.OUT` statistics file in the reference set |
-| `docs/theory/irrigation.md` | R7-I1 … R7-I20 | not yet: built without `WRSM_REFERENCE_DIR`. The whole-network comparison checks them, R7-I4, R7-I2 and R7-I12 first |
+| `docs/theory/irrigation.md` | R7-I1 … R7-I23, errata E-1 … E-15 | not yet: built without `WRSM_REFERENCE_DIR`. The whole-network comparison checks them, R7-I4, R7-I2 and R7-I12 first |
 
 Notes:
 
+- **TT 690 irrigation misprints:** E-1 … E-15 in `docs/theory/irrigation.md` §11. Eqs. 4.6, 4.15, 4.24, 4.25 and 5.5 change the arithmetic; code follows the corrected forms.
 - **TT 690 misprints** (`pitman.md`): eq. 1.10 is missing its minus sign, eq. 1.14 is coded with `+ C2(I2 − I1)`, eq. 1.4 has lost its Σ, and p.6's "lagged by GW" means GL. Code follows the corrected forms.
 - **OQ-22** (TL below 0.5 month gives negative month-to-month outflow with the printed Muskingum form): keep the literal form; Round 2 checks it against the reference and switches to per-step routing if WRSM2000 doesn't go negative. Recorded in `departures.md` either way. **Superseded by R6-R6** (Round 6): per-step routing is the default, taken as WRSM2000's behaviour rather than a departure.
 - **OQ-23** (initial soil moisture ST/2) was a placeholder with no manual basis; **settled in Round 6 (R6-I1)** from WRSM2000's outputs. #21 (R1) asks the hydrologist to export the "Pitman S" and surface-runoff series from the classic-GW run, which settles it.
@@ -225,16 +226,16 @@ Spec: `docs/theory/irrigation.md`. Every row is provisional until the reference 
 | R7-I1 | L.002 picks the method (1 ch.3, 2 ch.4, 3 ch.5, 4 ch.6). A 12-line file runs as type 1; type 4 without the v42 lines is an error | Provisional |
 | R7-I2 | **Two passes, no iteration.** Demand never depends on supply, and a return can't reach its supplier, so an RR puts its demand on the route at its place in the list and settles once the route has a flow. `ReservoirSimulator` and `ChannelSimulator` take an optional fourth argument `demands` (closes R3-4 for irrigation, R3-N2, OQ-CR4, C-1). Whole-record solving (R3-1) stands. One reorder: a supplier moves ahead of a module taking its block's return (R3-N22), with an info message | Provisional; DP-7 |
 | R7-I3 | ACCALOC (eqs. 6.28–6.29) is charged with demand, not supply. The alternative needs month-by-month solving | Provisional |
-| R7-I4 | A WQT allocation of 0 or less is no limit (`zeroAllocation`). PERM = 0 is no water (TT 689 p.95). Highest-risk default | Provisional; check first |
+| R7-I4 | A WQT RRMA of 0 or less is no limit (`zeroAllocation`); a year-table value of 0 is no water; PERM = 0 is no water (TT 689 p.95). TT 690 p.42 and TT 689 p.95 switch limits off with a large value, which counts against this default. Highest-risk default | Provisional; check first |
 | R7-I5 | DIN is cut off per crop (eq. 4.1; `cropDemandClip`) | Provisional |
-| R7-I6 | RRIE and RRLF above 1 are percentages; efficiency capped at 1, 0 or less an error | Provisional |
+| R7-I6 | RRIE and RRLF above 1 are percentages; efficiency capped at 1 with a warning, 0 or less an error. TT 691 p.160's L.030 = 60, 70 doesn't fit a growth; real files have no L.030 | Provisional |
 | R7-I7 | L.024, L.030 are growth for types 2–3, values for type 4 (RRIE or RRMA when empty); L.027 growth for all; tables flat beyond their ends | Provisional |
 | R7-I8 | SAPWAT effective rainfall kept within 0 … rain, 0 when ET is 0 | Provisional |
 | R7-I9 | Rainfall means run over the file's whole record; a month with no mean rain counts 0 in DF | Provisional |
 | R7-I10 | Clipping (L.003 v4) caps each month at the allocation / 12; type 4 ignores the flag | Provisional |
-| R7-I11 | Store limits close the balance: below zero ET gives way, at RRHMIN the outflows give way, at RRHMAX QE is the remainder; RRHI is moved inside RRHMIN … RRHMAX | Provisional |
-| R7-I12 | QC is the L.013 v5 runoff module's generated runoff less paved flow over its pervious area; a missing or later module gives QC = 0 with a warning | Provisional |
-| R7-I13 | Net: QC stays with the runoff module. Total: the return carries it and the module's runoff falls by the block's area share. Type 4 is always net | Provisional; DP-6 |
+| R7-I11 | Store limits close the balance: below zero ET gives way, at RRHMIN evaporation and then the return give way, at RRHMAX QE is the remainder; RRHI is moved inside RRHMIN … RRHMAX | Provisional |
+| R7-I12 | QC is the L.013 v5 runoff module's generated runoff less paved flow over its pervious area, solved on demand so its list position doesn't matter. A missing or unsolved module gives QC = 0 with a warning. A WQT block in an SFR child is an error (TT 689 p.165) | Provisional |
+| R7-I13 | Net: QC stays with the runoff module. Total: the return carries it and the module's runoff falls by the area share of each solved block. Type 4 is always net, warned when L.014 v2 = 0, though TT 689 p.166 and printed eq. 6.49 point the other way | Provisional; DP-6 |
 | R7-I14 | Type 4's minimum factor is L.017, its maximum L.032; L.031 unused; RRERF above RRERFM warned, used as it stands | Provisional |
 | R7-I15 | RRCAP of 0 is no limit | Provisional |
 | R7-I16 | All a route carries enters the block, even above demand (warned) | Provisional |
@@ -243,3 +244,5 @@ Spec: `docs/theory/irrigation.md`. Every row is provisional until the reference 
 | R7-I19 | A defined or `'*'` route to a block carries its file; the block takes what it brings | Provisional |
 | R7-I20 | TT 689 p.95's scaling of the allocation to the end-of-period area is not modelled (p.98 and eq. 4.8 don't) | Provisional |
 | R7-I21 | `RunResult.irrigation` (additive) reports each block; the "not simulated yet" warning is gone. An RR's missing rainfall file is a validation error | Decided |
+| R7-I22 | TT 689 p.169 sets return flows to zero when defined routes take everything; Pitman's stores keep returning (TT 690 pp.50, 54). The manuals disagree | Open: reference comparison |
+| R7-I23 | Type 4 always uses the modified WQT effective rainfall: no file field selects SAPWAT under it (TT 690 pp.35, 37, 41 allow it) | Provisional |
