@@ -113,7 +113,7 @@ test('a plan the engine refuses stops the wizard at the review, and says the way
 	// a line its file version (2) doesn't have (docs/formats.md § 5.2). A network as an old WRSM2000 wrote it.
 	await stubApi(page);
 	const bundle = syntheticBundle();
-	const old = { ...bundle, modules: bundle.modules.map((m) => (m.kind === 'RU' && m.number === 1 ? { ...m, fileVersion: 2 } : m)) };
+	const old = { ...bundle, modules: bundle.modules.map((m) => (m.kind === 'RU' && m.number === 1 ? { ...m, fileVersion: 2 as const } : m)) };
 	await page.goto('/');
 	await page.getByLabel('Network zip', { exact: true }).setInputFiles({ name: 'SY.zip', mimeType: 'application/zip', buffer: Buffer.from(packZip(writeBundle(old))) });
 	const panel = page.getByRole('region', { name: 'Sub-divide a quaternary' });
