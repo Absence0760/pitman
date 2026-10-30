@@ -13,7 +13,7 @@
  */
 
 import type { NetworkBundle, RunoffModule, Sidecar } from '@pitman/wrsm';
-import { readRunoff, writeRunoff } from '@pitman/wrsm';
+import { describeValueSplit, readRunoff, writeRunoff } from '@pitman/wrsm';
 import { fieldValue, formatValue, withValues, type ParameterField } from './parameters.js';
 
 export interface ParameterChange {
@@ -56,23 +56,30 @@ export interface CalibrationEntry {
 	readonly to: number;
 	readonly reason: string;
 	readonly date: string;
+	/** Set when a sub-division divided or scaled the value afterwards, in the screen's words: `from` and `to` are the whole module's, not this one's. */
+	readonly reshaped?: string;
 }
 
 /** What the sidecar records for one field of one module, oldest first. Entries this screen didn't write are skipped. */
 export function calibrationLog(sidecar: Sidecar | undefined, moduleNumber: number, path: string): CalibrationEntry[] {
 	const entries: CalibrationEntry[] = [];
-	for (const { target, source } of sidecar?.values ?? []) {
+	for (const { target, source, splits } of sidecar?.values ?? []) {
 		if (target.field !== path || target.module?.type !== 'RU' || target.module.number !== moduleNumber) continue;
 		const match = NOTE.exec(source.note ?? '');
 		if (match === null) continue;
-		entries.push({ from: Number(match[1]), to: Number(match[2]), reason: match[3] ?? '', date: source.date ?? '' });
+		const reshaped = splits?.filter((s) => s.how === 'divided' || s.how === 'scaled').at(-1);
+		entries.push({ from: Number(match[1]), to: Number(match[2]), reason: match[3] ?? '', date: source.date ?? '', ...(reshaped && { reshaped: describeValueSplit(reshaped) }) });
 	}
 	return entries;
 }
 
-/** The value the network file had: what the first logged change started from, else the value in use. */
+/**
+ * The value the network file had: what the first logged change started from,
+ * else the value in use. A change made before a sub-division divided or scaled
+ * the value started from the whole module's, which this module never held.
+ */
 export function fileValue(sidecar: Sidecar | undefined, module: RunoffModule, path: string): number {
-	return calibrationLog(sidecar, module.number, path)[0]?.from ?? fieldValue(module, path);
+	return calibrationLog(sidecar, module.number, path).find((e) => e.reshaped === undefined)?.from ?? fieldValue(module, path);
 }
 
 /**

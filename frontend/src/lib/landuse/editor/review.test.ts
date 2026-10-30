@@ -250,6 +250,28 @@ describe('changeLine', () => {
 	});
 });
 
+describe('tableRows after a sub-division', () => {
+	const pieces = [{ type: 'RU', number: 1 }, { type: 'RU', number: 16 }] as const;
+	const sidecar = {
+		schema: 'pitman-sidecar',
+		schemaVersion: 1,
+		values: [
+			{
+				target: { module: pieces[0], field: 'afforestation.areaKm2', year: 2004 },
+				source: { kind: 'manual', note: 'Land use: 8 → 10; Survey', date: DATE },
+				splits: [{ quaternary: 'Z01A', from: pieces[0], how: 'divided', pieces, whole: 40, part: 10 }]
+			}
+		]
+	} as const;
+
+	it('takes the piece’s share as the value to go back to, and says the source was divided', () => {
+		const r = row(tableRows(free, 'afforestation', { 2004: { text: '11', note: '' } }, sidecar as never), 2004);
+		expect(r.file).toBe(10);
+		expect(r.applied).toBe('Applied 2026-10-30: Survey; divided among RU 1 and RU 16 when Z01A was sub-divided: 10 here of 40');
+		expect(resetRow({ 2004: { text: '11', note: '' } }, 'afforestation', r)).toEqual({});
+	});
+});
+
 describe('fillNotes', () => {
 	it('fills only the values that have no source', () => {
 		const draft: ModuleDraft = { paved: { 2025: { text: '0.03', note: '' } }, afforestation: { 2004: { text: '11', note: 'Own' } } };

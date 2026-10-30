@@ -13,6 +13,7 @@
 
 import {
 	activeAreaTable,
+	describeValueSplit,
 	LAND_USE_TABLES,
 	readRunoff,
 	sfrKind,
@@ -93,9 +94,10 @@ function rowError(table: LandUseTable, year: number, text: string, n: number | n
 }
 
 function rowFor(module: RunoffModule, table: LandUseTable, year: number, current: number | null, draft: CellDraft | undefined, sidecar: NetworkBundle['sidecar']): RowView {
-	const { file, edits } = tableCellHistory(sidecar, module.number, table, year, current);
-	const latest = edits.at(-1);
-	const applied = latest && latest.kind !== 'networkFile' ? `Applied ${latest.date.slice(0, 10)}: ${latest.note}` : null;
+	const { file, edits, divided } = tableCellHistory(sidecar, module.number, table, year, current);
+	const latest = edits.at(-1) ?? divided;
+	const how = latest?.division ? `; ${describeValueSplit(latest.division)}` : '';
+	const applied = latest && latest.kind !== 'networkFile' ? `Applied ${latest.date.slice(0, 10)}: ${latest.note}${how}` : null;
 	const base = { year, current, file, note: draft?.note ?? '', hint: null, error: null, applied };
 	const shown = current === null ? '' : formatCell(table, current);
 
