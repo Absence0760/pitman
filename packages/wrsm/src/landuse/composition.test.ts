@@ -129,7 +129,7 @@ describe('compositionProblem', () => {
 	});
 
 	it('has no lines to edit in a version 0 file', () => {
-		const m = { ...runoff(network(), 1), fileVersion: 0 };
+		const m: RunoffModule = { ...runoff(network(), 1), fileVersion: 0 };
 		expect(compositionProblem(m, 'afforestation')).toContain('version 0');
 	});
 });

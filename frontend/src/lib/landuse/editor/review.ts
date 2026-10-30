@@ -13,6 +13,7 @@
 
 import {
 	activeAreaTable,
+	COMPOSITION_FIELDS,
 	LAND_USE_TABLES,
 	readRunoff,
 	sfrKind,
@@ -37,6 +38,7 @@ import {
 import { saveCheck } from '#lib/calibrate/apply.js';
 import { parameterFields } from '#lib/calibrate/parameters.js';
 import { parseNumber } from '#lib/calibrate/validate.js';
+import { fillCompositionNotes, reviewComposition, type CompositionChange, type CompositionDraft, type CompositionView } from './composition.js';
 import { moduleRole, TABLE_ORDER, TABLE_TITLE, TARGET_YEAR, type ModuleRole } from './offers.js';
 
 /** What the user has done to one cell. A cell left alone has no entry. */
@@ -49,7 +51,7 @@ export interface CellDraft {
 }
 
 export type TableDraft = Readonly<Record<number, CellDraft>>;
-export type ModuleDraft = Readonly<Partial<Record<LandUseTable, TableDraft>>>;
+export type ModuleDraft = Readonly<Partial<Record<LandUseTable, TableDraft>>> & { readonly composition?: CompositionDraft };
 
 export type RowState =
 	| 'same' // as the working copy has it
@@ -261,6 +263,13 @@ export interface ModuleReview {
 	/** The module with every good draft in it: the preview. */
 	readonly next: RunoffModule;
 	readonly changes: readonly PendingChange[];
+	/** The values behind the tables, block by block, where the file can hold them. */
+	readonly composition: readonly CompositionView[];
+	readonly compositionChanges: readonly CompositionChange[];
+	/** Year rows and composition values waiting to be applied. */
+	readonly pending: number;
+	/** Each refused composition value, named. */
+	readonly compositionRefused: readonly string[];
 	/** Errors no single row owns: they stop Apply. */
 	readonly errors: readonly string[];
 	readonly warnings: readonly string[];
@@ -275,10 +284,15 @@ export interface ModuleReview {
 /** The rows saving would round: the loaded file may hold more than the format keeps. */
 function roundedRows(next: RunoffModule): string[] {
 	const back = readRunoff(writeRunoff(next), 'runoff module');
-	return TABLE_ORDER.flatMap((table) => {
+	const years = TABLE_ORDER.flatMap((table) => {
 		const saved = yearTableOf(back, table);
 		return yearTableOf(next, table).flatMap((row, k) => (saved[k]?.value === row.value ? [] : [`${TABLE_TITLE[table].toLowerCase()} ${row.year}`]));
 	});
+	const values = Object.values(COMPOSITION_FIELDS)
+		.flat()
+		.filter((f) => f.read(next) !== null && f.read(back) !== null && f.read(back) !== f.read(next))
+		.map((f) => f.label.toLowerCase());
+	return [...years, ...values];
 }
 
 function saveReview(next: RunoffModule): ModuleReview['saved'] {
@@ -286,7 +300,8 @@ function saveReview(next: RunoffModule): ModuleReview['saved'] {
 	return fields.problem !== null ? fields : { rounded: [...fields.rounded, ...roundedRows(next)], problem: null };
 }
 
-export function reviewModule(bundle: NetworkBundle, module: RunoffModule, draft: ModuleDraft): ModuleReview {
+/** `fileName`: the module's file as the network has it, for the composition's source line. */
+export function reviewModule(bundle: NetworkBundle, module: RunoffModule, draft: ModuleDraft, fileName = `RU ${module.number}`): ModuleReview {
 	const tables = {} as Record<LandUseTable, readonly RowView[]>;
 	const changes: PendingChange[] = [];
 	let next = module;
@@ -298,21 +313,29 @@ export function reviewModule(bundle: NetworkBundle, module: RunoffModule, draft:
 		for (const row of moved) changes.push({ table, year: row.year, from: row.current, to: row.target, note: row.note.trim(), backToFile: row.backToFile });
 	}
 	const { errors, warnings } = changes.length > 0 ? checkAreas(bundle, moduleRole(bundle, module), module, next, tables.alienVegetation) : { errors: [], warnings: [] };
+	const composition = reviewComposition(bundle, next, draft.composition ?? {}, fileName);
+	const pending = changes.length + composition.changes.length;
+	const allErrors = [...errors, ...composition.errors];
+	const noted = [...changes, ...composition.changes];
 	return {
 		tables,
-		next,
+		next: composition.next,
 		changes,
-		errors,
+		composition: composition.views,
+		compositionChanges: composition.changes,
+		pending,
+		compositionRefused: composition.refused,
+		errors: allErrors,
 		warnings,
-		missingNotes: changes.filter((c) => !c.backToFile && c.note === '').length,
-		valid: errors.length === 0 && !Object.values(tables).flat().some((r) => r.error !== null),
-		saved: changes.length > 0 ? saveReview(next) : { rounded: [], problem: null }
+		missingNotes: noted.filter((c) => !c.backToFile && c.note === '').length,
+		valid: allErrors.length === 0 && composition.refused.length === 0 && !Object.values(tables).flat().some((r) => r.error !== null),
+		saved: pending > 0 ? saveReview(composition.next) : { rounded: [], problem: null }
 	};
 }
 
 /** Each row's refusal, named, for the list at Apply. */
 export function refusedRows(review: ModuleReview): string[] {
-	return TABLE_ORDER.flatMap((table) => review.tables[table].flatMap((r) => (r.error === null ? [] : [`${TABLE_TITLE[table]} ${r.year}: ${r.error}`])));
+	return [...TABLE_ORDER.flatMap((table) => review.tables[table].flatMap((r) => (r.error === null ? [] : [`${TABLE_TITLE[table]} ${r.year}: ${r.error}`]))), ...review.compositionRefused];
 }
 
 /** The changes as `applyTableEdits` takes them. `date` is stamped by the caller: the engine doesn't read the clock. */
@@ -325,7 +348,7 @@ export function toEdits(module: RunoffModule, changes: readonly PendingChange[],
 
 /** `note` on every changed value that has none yet: one survey often answers several cells. */
 export function fillNotes(draft: ModuleDraft, review: ModuleReview, note: string): ModuleDraft {
-	const next: Partial<Record<LandUseTable, TableDraft>> = { ...draft };
+	const next: { -readonly [K in keyof ModuleDraft]: ModuleDraft[K] } = { ...draft, composition: fillCompositionNotes(draft.composition ?? {}, review.compositionChanges, note) };
 	for (const change of review.changes) {
 		if (change.backToFile || change.note !== '') continue;
 		const cell = next[change.table]?.[change.year];

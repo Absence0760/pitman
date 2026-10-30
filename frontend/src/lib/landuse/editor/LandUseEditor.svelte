@@ -1,15 +1,18 @@
 <!--
 	Land-use tables: pick a runoff module and edit its afforestation, alien
-	vegetation and paved year tables in place, with a source for every changed
-	value (issue #3 rule 8) and a chart of each series. Edits stay a preview
+	vegetation and paved year tables in place, and under them the species split
+	and composition, with a source for every changed value (issue #3 rule 8) and
+	a chart of each series. Edits stay a preview
 	until they are applied; applying hands the page an updated bundle
 	(`onupdate`), and the sidecar logs each change. Logic is in the .ts files
 	beside this one. docs/user-guide.md § Land-use tables.
 -->
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { applyTableEdits, type LandUseTable, type LoadedBundle, type RunoffModule } from '@pitman/wrsm';
+	import { applyCompositionEdits, applyTableEdits, type LandUseTable, type LoadedBundle, type RunoffModule } from '@pitman/wrsm';
 	import { plural } from '#lib/network/format.js';
+	import { compositionChangeLine, resetValue, toCompositionEdits, type CompositionRow } from './composition.js';
+	import CompositionTable from './CompositionTable.svelte';
 	import { coverageSummary, moduleChoices, moduleLabel, moduleRole, pieceOrigin, TABLE_ORDER, tableOffer } from './offers.js';
 	import { changeLine, fillNotes, putBack, refusedRows, removeRow, resetRow, reviewModule, toEdits, type ModuleDraft, type RowView, type TableDraft } from './review.js';
 	import YearTable from './YearTable.svelte';
@@ -43,13 +46,13 @@
 	/** Drafts by module: picking another module keeps what was typed. */
 	let drafts = $state.raw<Readonly<Record<number, ModuleDraft>>>({});
 	const draft = $derived(selected === undefined ? {} : (drafts[selected] ?? {}));
-	const review = $derived(module ? reviewModule(bundle, module, draft) : null);
+	const review = $derived(module ? reviewModule(bundle, module, draft, fileName) : null);
 	const waiting = $derived(
 		Object.keys(drafts)
 			.map(Number)
 			.flatMap((number) => {
 				const other = number === selected ? undefined : runoffOf(number);
-				const count = other ? reviewModule(bundle, other, drafts[number] ?? {}).changes.length : 0;
+				const count = other ? reviewModule(bundle, other, drafts[number] ?? {}).pending : 0;
 				return other && count > 0 ? [{ number, label: moduleLabel(other), count }] : [];
 			})
 	);
@@ -58,7 +61,7 @@
 	const refused = $derived(review ? refusedRows(review) : []);
 	/** What stops Apply, in one always-present live region: a refusal appears beside a box that keeps the focus. */
 	const blocked = $derived(review === null ? '' : ([...refused, ...review.errors, ...(review.missingNotes > 0 ? [`${plural(review.missingNotes, 'value')} still ${review.missingNotes === 1 ? 'needs' : 'need'} a source.`] : [])][0] ?? ''));
-	const canApply = $derived(review !== null && review.changes.length > 0 && review.valid && review.missingNotes === 0 && review.saved.problem === null && !busy);
+	const canApply = $derived(review !== null && review.pending > 0 && review.valid && review.missingNotes === 0 && review.saved.problem === null && !busy);
 
 	let applied = $state<string | undefined>();
 	let sharedNote = $state('');
@@ -82,6 +85,15 @@
 	}
 
 	const setTable = (table: LandUseTable, next: TableDraft) => setDraft({ ...draft, [table]: next });
+	const compositionDraft = $derived(draft.composition ?? {});
+
+	function setCompositionValue(row: CompositionRow, text: string) {
+		setDraft({ ...draft, composition: { ...compositionDraft, [row.field.field]: { text, note: row.note } } });
+	}
+
+	function setCompositionNote(row: CompositionRow, note: string) {
+		setDraft({ ...draft, composition: { ...compositionDraft, [row.field.field]: { text: compositionDraft[row.field.field]?.text ?? row.text, note } } });
+	}
 	const tableDraft = (table: LandUseTable): TableDraft => draft[table] ?? {};
 
 	function setValue(table: LandUseTable, row: RowView, text: string) {
@@ -98,7 +110,8 @@
 		for (const table of TABLE_ORDER) {
 			next = { ...next, [table]: review.tables[table].reduce((d, row) => resetRow(d, table, row), next[table] ?? {}) };
 		}
-		setDraft(next);
+		const values = review.composition.flatMap((v) => [...v.shares, ...v.others]);
+		setDraft({ ...next, composition: values.reduce(resetValue, next.composition ?? {}) });
 	}
 
 	function useSharedNote() {
@@ -109,8 +122,11 @@
 
 	async function apply() {
 		if (!module || !review || !canApply) return;
-		const text = `Applied ${plural(review.changes.length, 'change')} to RU ${module.number}: ${review.changes.map(changeLine).join('; ')}.`;
-		const next = applyTableEdits(bundle, toEdits(module, review.changes, new Date().toISOString()));
+		const lines = [...review.changes.map(changeLine), ...review.compositionChanges.map(compositionChangeLine)];
+		const text = `Applied ${plural(review.pending, 'change')} to RU ${module.number}: ${lines.join('; ')}.`;
+		const date = new Date().toISOString();
+		const tabled = review.changes.length > 0 ? applyTableEdits(bundle, toEdits(module, review.changes, date)) : bundle;
+		const next = review.compositionChanges.length > 0 ? applyCompositionEdits(tabled, toCompositionEdits(module, review.compositionChanges, date)) : tabled;
 		const { [module.number]: _done, ...rest } = drafts;
 		drafts = rest;
 		sharedNote = '';
@@ -124,7 +140,7 @@
 <section aria-labelledby="tables-h" class="card">
 	<h2 id="tables-h">Land-use tables</h2>
 	<p>
-		Bring a runoff module’s afforestation, alien vegetation and paved area up to date, each new value with where it came from. Nothing changes in the working copy until you apply it.
+		Bring a runoff module’s afforestation, alien vegetation and paved area up to date, with the species split and composition behind them, each new value with where it came from. Nothing changes in the working copy until you apply it.
 	</p>
 
 	{#if choices.length === 0}
@@ -209,8 +225,10 @@
 		{/each}
 
 		{#each offers.filter((o) => o.shown) as offer (offer.table)}
+			{@const view = offer.open ? review.composition.find((v) => v.table === offer.table) : undefined}
 			<YearTable
 				{offer}
+				facts={view ? offer.algorithm : offer.facts}
 				rows={review.tables[offer.table]}
 				run={bundle.network}
 				areaKm2={module.areaKm2}
@@ -221,14 +239,20 @@
 				onputback={(row) => setTable(offer.table, putBack(tableDraft(offer.table), offer.table, row))}
 				onadd={(year) => setTable(offer.table, { ...tableDraft(offer.table), [year]: { text: '', note: '' } })}
 			/>
+			{#if view}
+				<CompositionTable {view} onvalue={setCompositionValue} onnote={setCompositionNote} onreset={(row) => setDraft({ ...draft, composition: resetValue(compositionDraft, row) })} />
+			{/if}
 		{/each}
 
-		{#if review.changes.length > 0 || refused.length > 0}
+		{#if review.pending > 0 || refused.length > 0}
 			<div class="pending">
 				<p><strong>Preview only:</strong> results and a save keep the earlier values until you apply.</p>
 				<ul class="list">
 					{#each review.changes as change (`${change.table}-${change.year}`)}
 						<li>{changeLine(change)}</li>
+					{/each}
+					{#each review.compositionChanges as change (change.field.field)}
+						<li>{compositionChangeLine(change)}</li>
 					{/each}
 				</ul>
 				{#each [...refused, ...review.errors] as text (text)}
@@ -261,7 +285,7 @@
 					<p class="note">Wait for the run to finish.</p>
 				{/if}
 			</div>
-		{:else if Object.values(review.tables).flat().some((r) => r.current !== r.file)}
+		{:else if [...Object.values(review.tables).flat(), ...review.composition.flatMap((v) => [...v.shares, ...v.others])].some((r) => r.current !== r.file)}
 			<div class="actions">
 				<button type="button" onclick={resetAll}>Reset all to the file</button>
 			</div>

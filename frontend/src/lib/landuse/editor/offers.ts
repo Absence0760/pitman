@@ -111,16 +111,24 @@ export interface TableOffer {
 	readonly why: string | null;
 	/** What a run does with this table in this module. */
 	readonly notes: readonly string[];
-	/** The file's other lines for this table, read-only here. */
+	/** The file's other lines for this table, in words, for a table whose values can't be edited. */
 	readonly facts: string | null;
+	/** The algorithm alone, for a table whose values are edited below it. */
+	readonly algorithm: string | null;
 	/** Where the rows came from, when the log doesn't say otherwise. */
 	readonly origin: string;
 }
 
+function tableAlgorithm(module: RunoffModule, table: LandUseTable): string | null {
+	if (table === 'afforestation') return `Algorithm: ${AFFORESTATION_ALGORITHM[module.afforestation.algorithm]} (L.006)`;
+	if (table === 'alienVegetation' && module.alienVegetation) return `Algorithm: ${ALIEN_ALGORITHM[module.alienVegetation.algorithm]} (L.011)`;
+	return null;
+}
+
 function tableFacts(module: RunoffModule, table: LandUseTable): string | null {
+	const algorithm = tableAlgorithm(module, table);
 	if (table === 'afforestation') {
 		const a = module.afforestation;
-		const algorithm = `Algorithm: ${AFFORESTATION_ALGORITHM[a.algorithm]} (L.006)`;
 		if (!a.species) return `${algorithm}.`;
 		const { pine, eucalyptus, wattle } = a.species;
 		const shares = [`pine ${pine.percent} %, ${pine.rotationYears}-year rotation`, `eucalyptus ${eucalyptus.percent} %, ${eucalyptus.rotationYears}-year rotation`, `wattle ${wattle.percent} %, ${wattle.rotationYears}-year rotation`];
@@ -129,7 +137,6 @@ function tableFacts(module: RunoffModule, table: LandUseTable): string | null {
 	if (table === 'alienVegetation') {
 		const v = module.alienVegetation;
 		if (!v) return null;
-		const algorithm = `Algorithm: ${ALIEN_ALGORITHM[v.algorithm]} (L.011)`;
 		if (!v.composition) return `${algorithm}.`;
 		const { tallTrees, mediumTrees, tallShrubs } = v.composition;
 		const shares = [`tall trees ${tallTrees.percent} %, ${tallTrees.ageYears} years old`, `medium trees ${mediumTrees.percent} %, ${mediumTrees.ageYears} years old`, `tall shrubs ${tallShrubs.percent} %, ${tallShrubs.ageYears} years old`];
@@ -163,11 +170,12 @@ function tableNotes(module: RunoffModule, table: LandUseTable, role: ModuleRole,
 	if (role.kind === 'parent' && table !== 'paved' && hasRows) notes.push('The manual doesn’t allow this on a parent (TT 689 p.140): the area belongs in a child’s table.');
 	if (role.kind === 'child' && table === 'alienVegetation' && hasRows && sfrKind(module) === 'forest') notes.push('This child has afforestation too, and a child holds one kind: a run uses the afforestation and ignores these rows (R6-F11).');
 	if (!hasRows && table === 'afforestation' && !module.afforestation.species && module.fileVersion >= 1) {
-		notes.push('The file has no species split for this module (L.009). The first year saves it with 0 % of each genus, so set the split in WRSM2000 before relying on a run.');
+		notes.push('The file has no species split for this module (L.009). The first year saves it with 0 % of each genus, so set the split below that year before relying on a run.');
 	}
 	if (!hasRows && table === 'alienVegetation' && !module.alienVegetation?.composition) {
-		notes.push('The file has no composition for this module (L.014). The first year saves it with 0 % of each class, so set it in WRSM2000 before relying on a run.');
+		notes.push('The file has no composition for this module (L.014). The first year saves it with 0 % of each class, so set it below that year before relying on a run.');
 	}
+	if (table === 'afforestation' && module.fileVersion < 1) notes.push('This module’s file is version 0, which has no species split or rotations to edit (L.009–L.010). Save it from WRSM2000 in a newer version to add them.');
 	return notes;
 }
 
@@ -190,6 +198,7 @@ export function tableOffer(bundle: NetworkBundle, module: RunoffModule, table: L
 		why: order !== null ? `${order} This screen can’t tell which row an edit means, so correct the module’s file (${fileName}, ${lines}) and load it again.` : refused,
 		notes: tableNotes(module, table, role, rows.length > 0),
 		facts: tableFacts(module, table),
+		algorithm: tableAlgorithm(module, table),
 		origin: `${piece ? `From RU ${piece.original}’s table, ${piece.basis[table]} in the ${piece.quaternary} sub-division` : `From ${fileName}, ${lines}`}${table === 'paved' ? ', as a fraction of the catchment' : ''}`
 	};
 }

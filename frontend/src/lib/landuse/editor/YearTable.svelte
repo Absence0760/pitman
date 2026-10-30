@@ -16,6 +16,7 @@
 
 	let {
 		offer,
+		facts,
 		rows,
 		run,
 		areaKm2,
@@ -27,6 +28,8 @@
 		onadd
 	}: {
 		offer: TableOffer;
+		/** The file's other lines, in words: the algorithm alone when they're edited under this table. */
+		facts: string | null;
 		rows: readonly RowView[];
 		run: { readonly startYear: number; readonly endYear: number };
 		/** The module's area, to say a paved fraction in km². */
@@ -82,8 +85,8 @@
 
 <article class="block" aria-labelledby={`${prefix}-h`}>
 	<h3 id={`${prefix}-h`}>{offer.title}</h3>
-	{#if offer.facts}
-		<p class="note facts-line">{offer.facts}</p>
+	{#if facts}
+		<p class="note facts-line">{facts}</p>
 	{/if}
 	{#each offer.notes as note (note)}
 		<p class="warn">{note}</p>

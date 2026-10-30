@@ -16,8 +16,8 @@
  * calibrated to them there and then, so no stored calibration goes stale. One
  * thing can't be checked here: on a CSIR child WRSM2000 reads rotations and
  * % optimal through tables the manuals don't publish, Pitman runs Smoothed Gush
- * instead (R6-F2), and a wrong rotation stops WRSM2000's iteration closing. Those
- * are read-only there (`compositionLock`, R7-T10).
+ * instead (R6-F2), and WRSM2000's log points to rotations when that iteration
+ * doesn't close. Those are read-only there (`compositionLock`, R7-T10).
  */
 
 import { readRunoff, writeRunoff } from '../io/runoff.js';
@@ -238,7 +238,7 @@ const isRequiredReduction = (field: CompositionField) => field.field.startsWith(
 export function compositionLock(module: RunoffModule, field: CompositionField, sfrChild: boolean): string | null {
 	const { algorithm } = module.afforestation;
 	if (sfrChild && algorithm === 1 && usesCsirTables(field)) {
-		return 'Read-only on a CSIR child. WRSM2000 reads this through tables the manuals don’t publish, so Pitman runs the child on Smoothed Gush targets (R6-F2) and can’t show what a change does, and a wrong rotation stops WRSM2000’s SFR calibration closing. Change it in WRSM2000.';
+		return 'Read-only on a CSIR child. WRSM2000 reads this through tables the manuals don’t publish, so Pitman runs the child on Smoothed Gush targets (R6-F2) and can’t show what a change does, and WRSM2000’s own log points to rotations when the SFR calibration doesn’t close. Change it in WRSM2000.';
 	}
 	if (isRequiredReduction(field) && algorithm !== 4) return 'Read-only: only the User-defined algorithm reads this (L.010), and the algorithm is set in WRSM2000.';
 	return null;
