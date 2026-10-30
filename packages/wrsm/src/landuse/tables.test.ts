@@ -273,7 +273,7 @@ describe('tableCellHistory', () => {
 		expect(tableCellHistory(undefined, 1, 'paved', 2000, 0.012)).toEqual({ file: 0.012, edits: [] });
 	});
 
-	it('ignores a log something else has overtaken: a sub-division scaled the table under it (R7-T3)', () => {
+	it('ignores a log something else has overtaken: a sub-division in a sidecar with no record of it, a hand-edited file (R7-T3)', () => {
 		expect(tableCellHistory(second.sidecar, 1, 'afforestation', 2004, 6)).toEqual({ file: 6, edits: [] });
 		const after = applyTableEdits(
 			{ ...second, modules: second.modules.map((m) => (m.kind === 'RU' && m.number === 1 ? withYearTable(m, 'afforestation', [{ year: 2004, value: 6 }]) : m)) },

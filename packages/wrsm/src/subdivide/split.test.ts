@@ -5,12 +5,14 @@ import { placeModules } from '../network/modules.js';
 import { validateNetwork } from '../network/validate.js';
 import { run } from '../run.js';
 import type { AreaGeometry } from '../extend/contract.js';
-import type { IrrigationModule, IrrigationWqtLayout, Module, NetworkBundle, ReservoirModule, RunoffModule } from '../types.js';
+import type { IrrigationModule, IrrigationWqtLayout, Module, ModuleRef, NetworkBundle, ReservoirModule, RunoffModule, ValueEntry, ValueSource } from '../types.js';
 import { calibrateMap, planNaturalMar, unsplitNaturalMar } from './calibrate.js';
 import type { ApplySplit, ApplySplitOptions, CalibrationResult, PiecePlan, PreviewSplit, SplitPlan } from './contract.js';
 import { exampleBundle, examplePlan, hand, piece, samiBlock } from './fixtures.js';
 import { SubdivisionError } from './pieces.js';
 import { applySplit, mergePieces, previewSplit } from './split.js';
+import { applyIrrigatedAreas } from '../landuse/cfm.js';
+import { applyTableEdits, tableCellHistory, tableEditNote } from '../landuse/tables.js';
 
 // The functions implement the contract's types exactly: a mismatch fails the typecheck.
 export const contract: { apply: ApplySplit; preview: PreviewSplit } = { apply: applySplit, preview: previewSplit };
@@ -899,6 +901,225 @@ describe('repeated splits', () => {
 		const eight = applyMaps(bundle, seven, Array.from({ length: 8 }, () => 600));
 		expect(previewSplit(eight, again(3, [piece('zone', 5, 600), piece('rest', 5, 600)])).messages[0]).toMatch(/9 pieces .*at most 8/);
 		expect(previewSplit(first(), again(15, [piece('zone', 5, 600), piece('rest', 5, 600)])).messages[0]).toMatch(/not one of its pieces/);
+	});
+});
+
+describe('sidecar values follow their value (R7-C14)', () => {
+	const DATE = '2026-10-30';
+	const source: ValueSource = { kind: 'manual', note: 'Survey', date: DATE };
+	const RU3: ModuleRef = { type: 'RU', number: 3 };
+	const RV2: ModuleRef = { type: 'RV', number: 2 };
+	const RR7: ModuleRef = { type: 'RR', number: 7 };
+	const note = (module: ModuleRef, field: string, year?: number): ValueEntry => ({ target: { module, field, ...(year === undefined ? {} : { year }) }, source });
+	const noted = <B extends NetworkBundle>(b: B, ...values: ValueEntry[]): B => ({ ...b, sidecar: { schema: 'pitman-sidecar', schemaVersion: 1, values } });
+	const on = (b: NetworkBundle, type: string, number: number, field: string) => (b.sidecar?.values ?? []).filter((v) => v.target.module?.type === type && v.target.module.number === number && v.target.field === field);
+	const edit = (year: number, value: number) => ({ target: { module: RU3, table: 'afforestation' as const, row: 'areaKm2' }, year, value, source });
+	const AREA = examplePlan({ pieces: [piece('tributary', 100, 800), piece('remainder', 300, 600)], shares: ALL_AREA });
+
+	/** The invariant: every entry names a module in the network, or is retired and names none; and the same holds after saving and reloading. */
+	function expectNoDangling(b: NetworkBundle): void {
+		const keys = new Set(b.network.modules.map((e) => `${e.type}${e.number}`));
+		for (const v of b.sidecar?.values ?? []) {
+			if (v.target.module) expect(keys.has(`${v.target.module.type}${v.target.module.number}`), JSON.stringify(v.target)).toBe(true);
+			if (v.retired) expect(v.target.module).toBeUndefined();
+			for (const s of v.splits?.at(-1)?.pieces ?? []) if (!v.retired) expect(keys.has(`${s.type}${s.number}`), JSON.stringify(s)).toBe(true);
+		}
+		const back = roundTrip(b);
+		expect(sameData(back.sidecar, b.sidecar)).toBe(true);
+		expect(writeBundle(back)['pitman.json']).toBe(writeBundle(b)['pitman.json']);
+	}
+
+	it('divides a table edit: each piece gets the note, what it holds and the whole', () => {
+		const edited = applyTableEdits(exampleBundle(), [edit(2009, 16)]);
+		const split = applyMaps(edited, examplePlan(), [765, 569]);
+		expect(ru(split, 16).afforestation.areaKm2.at(-1)!.value).toBe(4);
+		const [tributary] = on(split, 'RU', 16, 'afforestation.areaKm2');
+		const [remainder] = on(split, 'RU', 3, 'afforestation.areaKm2');
+		const pieces = [{ type: 'RU', number: 16 }, RU3];
+		expect(tributary!.source).toEqual(edited.sidecar!.values![0]!.source);
+		expect(tributary!.splits).toEqual([{ quaternary: 'Z01A', from: RU3, how: 'divided', pieces, whole: 16, part: 4 }]);
+		expect(remainder!.splits).toEqual([{ quaternary: 'Z01A', from: RU3, how: 'divided', pieces, whole: 16, part: 12 }]);
+		expectNoDangling(split);
+	});
+
+	it('starts a piece\'s history at its share of a divided value, so a reset can\'t give it the whole', () => {
+		const split = applyMaps(applyTableEdits(exampleBundle(), [edit(2009, 16)]), examplePlan(), [765, 569]);
+		const history = tableCellHistory(split.sidecar, 16, 'afforestation', 2009, 4);
+		expect(history).toMatchObject({ file: 4, edits: [], divided: { from: 12, to: 16, note: 'Survey' } });
+		const later = applyTableEdits(split, [{ ...edit(2009, 5), target: { ...edit(2009, 5).target, module: { type: 'RU', number: 16 } } }]);
+		const after = tableCellHistory(later.sidecar, 16, 'afforestation', 2009, 5);
+		expect(after.file).toBe(4);
+		expect(after.edits.map((e) => [e.from, e.to])).toEqual([[4, 5]]);
+		expect(after.divided?.division?.whole).toBe(16);
+	});
+
+	it('says nothing of a cell something else has overtaken since the split (R7-T3)', () => {
+		const split = applyMaps(applyTableEdits(exampleBundle(), [edit(2009, 16)]), examplePlan(), [765, 569]);
+		expect(tableCellHistory(split.sidecar, 16, 'afforestation', 2009, 4.5)).toEqual({ file: 4.5, edits: [] });
+	});
+
+	it('leaves a piece with none of a located value out of its note', () => {
+		const located = examplePlan({ pieces: [piece('tributary', 100, 800, { locationShares: { afforestation: 0, damCapacity: 0.5 } }), piece('remainder', 300, 600, { locationShares: { afforestation: 1, damCapacity: 0.5 } })] });
+		const split = applyMaps(applyTableEdits(exampleBundle(), [edit(2009, 16)]), located, [800, 600]);
+		expect(on(split, 'RU', 16, 'afforestation.areaKm2')).toEqual([]);
+		// All of it stays where it was, so the note reads as it did and the file's value is still reachable.
+		expect(on(split, 'RU', 3, 'afforestation.areaKm2')[0]!.splits).toBeUndefined();
+		expect(tableCellHistory(split.sidecar, 3, 'afforestation', 2009, 16).file).toBe(12);
+	});
+
+	it('copies an intensive value\'s note to every piece, and the file\'s value with it', () => {
+		const paved = { target: { module: RU3, table: 'paved' as const, row: 'fraction' }, year: 2009, value: 0.03, source };
+		const split = applyMaps(applyTableEdits(noted(exampleBundle(), note(RU3, 'pitman.ST')), [paved]), AREA, [800, 600]);
+		for (const n of [16, 3]) {
+			expect(on(split, 'RU', n, 'pitman.ST')[0]!.splits).toEqual([{ quaternary: 'Z01A', from: RU3, how: 'copied', pieces: [{ type: 'RU', number: 16 }, RU3] }]);
+			expect(tableCellHistory(split.sidecar, n, 'paved', 2009, 0.03)).toMatchObject({ file: 0.02, edits: [{ from: 0.02, to: 0.03 }] });
+		}
+		expectNoDangling(split);
+	});
+
+	it('retires a note on the MAP, which the split replaced, and keeps it readable', () => {
+		const split = applyMaps(noted(exampleBundle(), note(RU3, 'mapMm')), AREA, [800, 600]);
+		const [entry] = split.sidecar!.values!;
+		expect(entry).toEqual({ target: { field: 'mapMm' }, source, retired: { quaternary: 'Z01A', from: RU3, reason: 'the sub-division set a new MAP' } });
+		expectNoDangling(split);
+	});
+
+	it('scales HGRAD and divides the Sami volumes', () => {
+		const base = exampleBundle();
+		const m = ru(base, 3);
+		const b = noted({ ...base, modules: base.modules.map((x) => (x === m ? { ...m, groundwaterModel: 2 as const, sami: samiBlock({ ...m.pitman, GW: 0, GL: 0 }) } : x)) }, note(RU3, 'sami.maxHydraulicGradient'), note(RU3, 'sami.gwEvaporationArea'), note(RU3, 'sami.abstractions', 2009), note(RU3, 'sami.pitman.ST'));
+		const split = applyMaps(b, AREA, [800, 600]);
+		expect(on(split, 'RU', 16, 'sami.maxHydraulicGradient')[0]!.splits![0]).toMatchObject({ how: 'scaled', whole: 0.001, part: ru(split, 16).sami!.maxHydraulicGradient });
+		const shares = [...on(split, 'RU', 16, 'sami.gwEvaporationArea'), ...on(split, 'RU', 3, 'sami.gwEvaporationArea')].map((v) => v.splits![0]!);
+		expect(shares.every((s) => s.how === 'divided' && s.whole === 12)).toBe(true);
+		expect(shares.reduce((sum, s) => sum + s.part!, 0)).toBeCloseTo(12, 9);
+		expect(on(split, 'RU', 16, 'sami.abstractions')[0]!.splits![0]).toMatchObject({ how: 'divided', whole: 0.801 });
+		expect(on(split, 'RU', 16, 'sami.pitman.ST')[0]!.splits![0]!.how).toBe('copied');
+		expectNoDangling(split);
+	});
+
+	it('carries an SFR child\'s notes with the child: its table divided, its MAP retired', () => {
+		const b = noted(withChild(exampleBundle()), note({ type: 'RU', number: 11 }, 'afforestation.areaKm2', 1990), note({ type: 'RU', number: 11 }, 'mapMm'), note({ type: 'RU', number: 11 }, 'pitman.ST'));
+		const split = applyMaps(b, AREA, [800, 600]);
+		const [outlet] = on(split, 'RU', 11, 'afforestation.areaKm2');
+		const [made] = on(split, 'RU', 17, 'afforestation.areaKm2');
+		expect(outlet!.splits![0]).toMatchObject({ how: 'divided', whole: 12.1, part: ru(split, 11).afforestation.areaKm2[0]!.value });
+		expect(made!.splits![0]).toMatchObject({ how: 'divided', whole: 12.1, part: ru(split, 17).afforestation.areaKm2[0]!.value });
+		expect(on(split, 'RU', 17, 'pitman.ST')).toHaveLength(1);
+		expect(split.sidecar!.values!.find((v) => v.target.field === 'mapMm')!.retired?.from).toEqual({ type: 'RU', number: 11 });
+		expectNoDangling(split);
+	});
+
+	it('moves a child\'s notes when it goes wholly to another piece', () => {
+		const b = noted(withChild(exampleBundle()), note({ type: 'RU', number: 11 }, 'afforestation.areaKm2', 1990));
+		const plan = examplePlan({ pieces: [piece('tributary', 100, 800, { locationShares: { afforestation: 1, damCapacity: 0.5 } }), piece('remainder', 300, 600, { locationShares: { afforestation: 0, damCapacity: 0.5 } })] });
+		const split = applyMaps(b, plan, [800, 600]);
+		expect(ru(split, 11)).toBeUndefined();
+		expect(on(split, 'RU', 17, 'afforestation.areaKm2')[0]!.splits![0]).toMatchObject({ how: 'moved', from: { type: 'RU', number: 11 } });
+		expectNoDangling(split);
+	});
+
+	it('carries an RR\'s census row and crop mix to the blocks, and the land-use source with them', () => {
+		const census: ValueSource = { kind: 'capeFarmMapper', note: 'Invented census', date: DATE };
+		const b = applyIrrigatedAreas(exampleBundle({ irrigation: 'wqt' }), RR7, 2009, [{ crop: 'composite', areaKm2: 6 }], census, {});
+		const withCrops = noted(b, ...b.sidecar!.values!, note(RR7, 'crops.percent'), note(RR7, 'maxAllocationMm3PerYear'), note(RR7, 'allocation.values', 2009), note(RR7, 'abstractionRoute'));
+		const split = applyMaps(withCrops, examplePlan(), [765, 569]);
+		const [block] = on(split, 'RR', 8, 'areaKm2');
+		const [outlet] = on(split, 'RR', 7, 'areaKm2');
+		expect(block!.source).toEqual(census);
+		expect(block!.target.year).toBe(2009);
+		expect(block!.splits![0]).toMatchObject({ how: 'divided', whole: 6, part: rr(split, 8).areaKm2.at(-1)!.value });
+		expect(block!.splits![0]!.part! + outlet!.splits![0]!.part!).toBeCloseTo(6, 9);
+		expect(on(split, 'RR', 8, 'crops.percent')[0]!.splits![0]!.how).toBe('copied');
+		expect(on(split, 'RR', 8, 'maxAllocationMm3PerYear')[0]!.splits![0]).toMatchObject({ how: 'divided', whole: 3.33 });
+		expect(on(split, 'RR', 8, 'allocation.values')[0]!.splits![0]).toMatchObject({ how: 'divided', whole: 1.001 });
+		expect(split.sidecar!.values!.find((v) => v.target.field === 'abstractionRoute')!.retired?.from).toEqual(RR7);
+		expectNoDangling(split);
+	});
+
+	it('gives the same provenance on a block for land use applied before or after the split', () => {
+		const census: ValueSource = { kind: 'capeFarmMapper', note: 'Invented census', date: DATE };
+		const bundle = exampleBundle({ irrigation: true });
+		const after = applyIrrigatedAreas(applyMaps(bundle, examplePlan(), [765, 569]), { type: 'RR', number: 8 }, 2009, [{ crop: 'composite', areaKm2: 2 }], census, {});
+		const before = applyMaps(applyIrrigatedAreas(bundle, RR7, 2009, [{ crop: 'composite', areaKm2: 6 }], census, {}), examplePlan(), [765, 569]);
+		for (const split of [after, before]) {
+			expect(on(split, 'RR', 8, 'areaKm2')[0]!.source).toEqual(census);
+			expect(on(split, 'RR', 8, 'areaKm2')[0]!.target.year).toBe(2009);
+			expectNoDangling(split);
+		}
+		// Applied after, a later census replaces the note, carried or not.
+		const again = applyIrrigatedAreas(before, { type: 'RR', number: 8 }, 2009, [{ crop: 'composite', areaKm2: 2 }], { ...census, note: 'Later census' }, {});
+		expect(on(again, 'RR', 8, 'areaKm2').map((v) => v.source.note)).toEqual(['Later census']);
+		expect(on(again, 'RR', 8, 'areaKm2')[0]!.splits).toBeUndefined();
+		expect(on(again, 'RR', 7, 'areaKm2')[0]!.source).toEqual(census);
+	});
+
+	it('moves an RR\'s notes when the block goes wholly to another piece', () => {
+		const plan = examplePlan({ pieces: [piece('tributary', 100, 800, { locationShares: { damCapacity: 0.5, afforestation: 0.5, irrigation: 1 } }), piece('remainder', 300, 600, { locationShares: { damCapacity: 0.5, afforestation: 0.5, irrigation: 0 } })] });
+		const split = applyMaps(noted(exampleBundle({ irrigation: true }), note(RR7, 'areaKm2', 2009)), plan, [800, 600]);
+		expect(rr(split, 7)).toBeUndefined();
+		expect(on(split, 'RR', 8, 'areaKm2')[0]!.splits![0]).toEqual({ quaternary: 'Z01A', from: RR7, how: 'moved', pieces: [{ type: 'RR', number: 8 }] });
+		expectNoDangling(split);
+	});
+
+	it('leaves a block that wasn\'t split alone, and every module the split didn\'t touch', () => {
+		const plan = examplePlan({ pieces: [piece('tributary', 100, 800, { locationShares: { damCapacity: 0.5, afforestation: 0.5, irrigation: 0 } }), piece('remainder', 300, 600, { locationShares: { damCapacity: 0.5, afforestation: 0.5, irrigation: 1 } })] });
+		const values = [note(RR7, 'areaKm2', 2009), note({ type: 'RU', number: 15 }, 'pitman.ST'), { target: { file: 'SYRQ9.ABS', field: 'growth', year: 2020 }, source }, { target: { field: 'other' }, source }];
+		const split = applyMaps(noted(exampleBundle({ irrigation: true }), ...values), plan, [800, 600]);
+		expect(split.sidecar!.values).toEqual(values);
+	});
+
+	it('divides a reservoir\'s capacity and storage among the copies, copying its other fields and the 50 % sentinel', () => {
+		const b = noted(exampleBundle({ initialStorageMm3: 3 }), note(RV2, 'capacity.fullSupplyVolumeMm3', 2009), note(RV2, 'capacity.fullSupplyAreaKm2', 2009), note(RV2, 'initialStorageMm3'), note(RV2, 'areaVolumePower'));
+		const split = applyMaps(b, examplePlan(), [765, 569]);
+		const pieces = [RV2, { type: 'RV', number: 9 }];
+		expect(on(split, 'RV', 9, 'capacity.fullSupplyVolumeMm3')[0]!.splits![0]).toEqual({ quaternary: 'Z01A', from: RV2, how: 'divided', pieces, whole: 6, part: 2 });
+		expect(on(split, 'RV', 2, 'capacity.fullSupplyVolumeMm3')[0]!.splits![0]).toMatchObject({ whole: 6, part: 4 });
+		expect(on(split, 'RV', 9, 'initialStorageMm3')[0]!.splits![0]).toMatchObject({ how: 'divided', whole: 3, part: rv(split, 9).initialStorageMm3 });
+		expect(on(split, 'RV', 9, 'areaVolumePower')[0]!.splits![0]!.how).toBe('copied');
+		const sentinel = applyMaps(noted(exampleBundle({ initialStorageMm3: -1 }), note(RV2, 'initialStorageMm3')), examplePlan(), [765, 569]);
+		expect(on(sentinel, 'RV', 9, 'initialStorageMm3')[0]!.splits![0]!.how).toBe('copied');
+		expectNoDangling(split);
+	});
+
+	it('moves a reservoir\'s volume note to the copy when all the dams lie there', () => {
+		const plan = examplePlan({ pieces: [piece('tributary', 100, 800, { locationShares: { afforestation: 0.5, damCapacity: 1 } }), piece('remainder', 300, 600, { locationShares: { afforestation: 0.5, damCapacity: 0 } })] });
+		const split = applyMaps(noted(exampleBundle(), note(RV2, 'capacity.fullSupplyVolumeMm3', 2009)), plan, [800, 600]);
+		expect(on(split, 'RV', 9, 'capacity.fullSupplyVolumeMm3')[0]!.splits![0]).toMatchObject({ how: 'moved', from: RV2 });
+		expect(on(split, 'RV', 2, 'capacity.fullSupplyVolumeMm3')).toEqual([]);
+	});
+
+	it('follows a value through a second split, and retires the other pieces\' rescaled MAP', () => {
+		const bundle = applyTableEdits(noted(exampleBundle(), note(RU3, 'mapMm')), [edit(2009, 16)]);
+		const firstPlan = examplePlan({ pieces: [piece('tributary', 120, 800), piece('remainder', 280, 600)], shares: ALL_AREA });
+		const one = applyMaps(bundle, firstPlan, [800, 600]);
+		const entry = { ...one, sidecar: { ...one.sidecar!, values: [...one.sidecar!.values!, note({ type: 'RU', number: 16 }, 'mapMm')] } };
+		const two = applyMaps(entry, examplePlan({ module: RU3, pieces: [piece('zone', 100, 700), piece('rest', 180, 560)], layout: 'sideBySide', splits: [{ kind: 'zone-drawn' }], shares: ALL_AREA }), [700, 560, 800]);
+		const third = on(two, 'RU', 17, 'afforestation.areaKm2')[0]!;
+		expect(third.splits!.map((s) => s.how)).toEqual(['divided', 'divided']);
+		expect(third.splits![1]).toMatchObject({ from: RU3, part: ru(two, 17).afforestation.areaKm2.at(-1)!.value });
+		expect(third.splits![1]!.whole).toBe(third.splits![0]!.part);
+		expect(tableCellHistory(two.sidecar, 17, 'afforestation', 2009, ru(two, 17).afforestation.areaKm2.at(-1)!.value).divided?.division).toEqual(third.splits![1]);
+		// The piece not split keeps its share and its one split.
+		expect(on(two, 'RU', 16, 'afforestation.areaKm2')[0]!.splits).toHaveLength(1);
+		expect(two.sidecar!.values!.filter((v) => v.target.field === 'mapMm').map((v) => v.retired?.from.number)).toEqual([3, 16]);
+		expectNoDangling(two);
+	});
+
+	it('retires a note an older sidecar left on a module no longer in the network', () => {
+		const split = applyMaps(noted(exampleBundle(), note({ type: 'RR', number: 70 }, 'areaKm2', 2009)), AREA, [800, 600]);
+		expect(split.sidecar!.values).toEqual([{ target: { field: 'areaKm2', year: 2009 }, source, retired: { quaternary: 'Z01A', from: { type: 'RR', number: 70 }, reason: 'its module is no longer in the network' } }]);
+		expectNoDangling(split);
+	});
+
+	it('adds no `values` to a sidecar that has none', () => {
+		expect(applyMaps(exampleBundle(), AREA, [800, 600]).sidecar).not.toHaveProperty('values');
+	});
+
+	it('still reads a note from before splits carried them, as a log whose chain has ended', () => {
+		const old = noted(exampleBundle(), { target: { module: RU3, field: 'afforestation.areaKm2', year: 2009 }, source: { kind: 'manual', note: tableEditNote(10, 12, 'Survey'), date: DATE } });
+		expect(tableCellHistory(old.sidecar, 3, 'afforestation', 2009, 3)).toEqual({ file: 3, edits: [] });
+		expect(sameData(roundTrip(old).sidecar, old.sidecar)).toBe(true);
 	});
 });
 

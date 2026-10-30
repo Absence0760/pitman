@@ -8,4 +8,5 @@ export { FACTOR_BOUNDS, MAP_LIMITS_MM, MAR_TOLERANCE, MAX_EVALUATIONS, calibrate
 export { cellAreaKm2, geometryAreaKm2 } from './geodesic.js';
 export { MAX_PIECES, SubdivisionError } from './pieces.js';
 export { applySplit, mergePieces, previewSplit } from './split.js';
+export { describeValueSplit, distinctValues } from './values.js';
 export { differenceGeometry, intersectGeometry, pointInGeometry, splitByZone, zoneFromThreshold } from './zones.js';

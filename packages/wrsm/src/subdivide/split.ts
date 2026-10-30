@@ -36,6 +36,7 @@ import { MAR_TOLERANCE, planNaturalMar, roundMap } from './calibrate.js';
 import type { ApplySplitOptions, PiecePlan, PreviewSplit, ShareBasis, SplitPlan, SplitPreview } from './contract.js';
 import { pointInGeometry } from './zones.js';
 import { findRunoff, hughesPieces, plannedModule, samiPieces, siblingsOf, splitYearTable, subdivisionOf, SubdivisionError } from './pieces.js';
+import { carryValues, type SplitLineage } from './values.js';
 
 /** Afforestation and alien tables are `F0.1` (RU L.008, L.013); RV capacity and area `F0.2` (L.005, L.006); RV initial storage `F8.3` (L.015); RR area `F0.2` (L.006), RRMA `F0.2` (L.013), allocation `F0.3` (L.024). */
 const TABLE_DECIMALS = 1;
@@ -279,6 +280,11 @@ function withLandUse(module: RunoffModule, afforestation: YearTable, alien: Year
 	return { ...module, afforestation: forest, ...(vegetation ? { alienVegetation: vegetation } : {}) };
 }
 
+interface IrrigationBlock {
+	readonly number: number;
+	readonly pieces: readonly number[];
+}
+
 /** What `rewire` hands back: the network, and what the screen and the sidecar need. */
 interface Rewired {
 	readonly network: Network;
@@ -290,6 +296,10 @@ interface Rewired {
 	readonly children: readonly SubdivisionChild[];
 	readonly irrigation: ShareBasis | undefined;
 	readonly irrigationOwners: readonly { readonly number: number; readonly piece: number }[];
+	/** Each RR split, and the RRs that hold it now. */
+	readonly irrigationBlocks: readonly IrrigationBlock[];
+	/** The farm-dam reservoir and each copy of it, when the module has the pattern. */
+	readonly reservoirs: { readonly number: number; readonly pieces: readonly number[] } | undefined;
 	readonly module: RunoffModule;
 	readonly changes: readonly string[];
 	readonly messages: readonly string[];
@@ -344,6 +354,7 @@ function rewire(bundle: NetworkBundle, plan: SplitPlan, maps: readonly number[])
 		}
 	});
 	const reservoirKeys = new Map<number, Key>();
+	const reservoirCopies: number[] = [];
 
 	// The pieces that aren't the outlet: their modules, routes and farm dams.
 	const joining: Key[] = [];
@@ -380,6 +391,7 @@ function rewire(bundle: NetworkBundle, plan: SplitPlan, maps: readonly number[])
 				const { initialStorageMm3: _dropped, ...rest } = copy;
 				d.insert(initial ? { ...rest, initialStorageMm3: initial[i]! } : rest, self);
 				reservoirKeys.set(i, vKey);
+				reservoirCopies.push(vNumber);
 				d.changes.push(`New reservoir RV ${vNumber}, a copy of RV ${reservoir.number} for the dams in RU ${number}.`);
 				for (const o of module.outflows) send(o === dam.feed ? vKey : dam.downstream, o.percent);
 				const spill = d.addRoute(vKey, dam.downstream);
@@ -467,7 +479,8 @@ function rewire(bundle: NetworkBundle, plan: SplitPlan, maps: readonly number[])
 		}
 	});
 
-	return { ...d.finish(), outlet, numbers, areasKm2, scaleWarning, children, irrigation: irrigation?.basis, irrigationOwners: irrigation?.owners ?? [], module, changes: d.changes, messages: d.messages };
+	const reservoirs = dam ? { number: dam.reservoir.number, pieces: [dam.reservoir.number, ...reservoirCopies] } : undefined;
+	return { ...d.finish(), outlet, numbers, areasKm2, scaleWarning, children, irrigation: irrigation?.basis, irrigationOwners: irrigation?.owners ?? [], irrigationBlocks: irrigation?.blocks ?? [], reservoirs, module, changes: d.changes, messages: d.messages };
 }
 
 /** `MAP_child,i = MAP_i · MAP_child / MAP_M` (subdivide.md § SFR parent and children). */
@@ -540,7 +553,7 @@ function splitIrrigation(
 	d: Draft,
 	plan: SplitPlan,
 	at: { damKey: Key | null; numbers: readonly number[]; outlet: number; areaShares: readonly number[]; reservoirKeys: ReadonlyMap<number, Key>; self: Key; foreign: ReadonlySet<number>; own: ReadonlySet<number> }
-): { readonly basis: ShareBasis; readonly owners: readonly { readonly number: number; readonly piece: number }[] } | undefined {
+): { readonly basis: ShareBasis; readonly owners: readonly { readonly number: number; readonly piece: number }[]; readonly blocks: readonly IrrigationBlock[] } | undefined {
 	const blocks = d.finish().modules.filter((m): m is IrrigationModule => m.kind === 'RR' && (at.own.has(m.number) || (at.damKey !== null && d.route(m.abstractionRoute)?.up === at.damKey && !at.foreign.has(m.number))));
 	// Rounded as the file holds it (R5-E3): a block whose area rounds to 0 every year is left whole on the outlet,
 	// with all its allocation (R5-E10).
@@ -549,7 +562,9 @@ function splitIrrigation(
 	const located = plan.pieces.every((p) => p.locationShares?.irrigation !== undefined);
 	const shares = located ? locationShares(plan, 'irrigation') : at.areaShares;
 	const owners: { number: number; piece: number }[] = [];
+	const lineage: IrrigationBlock[] = [];
 	for (const rr of live) {
+		const holders: number[] = [];
 		const tables = splitYearTable(rr.areaKm2, shares, IRRIGATION_DECIMALS);
 		// Only pieces that get a block share its allocation, or a block too small to reach one would lose that part.
 		const blockShares = shares.map((s, i) => (tables[i]!.some((row) => row.value > 0) ? s : 0));
@@ -581,15 +596,19 @@ function splitIrrigation(
 			}
 			d.insert({ ...fieldsFor(i), number, name: shortName(rr.name, `R${number}`), abstractionRoute: route, returnFlowRoute: returnRoute }, at.reservoirKeys.get(i) ?? at.self);
 			owners.push({ number, piece: at.numbers[i]! });
+			holders.push(number);
 			d.changes.push(`New irrigation module RR ${number} of RU ${at.numbers[i]}, drawing from ${label(sourceKey)} by route ${route}.`);
 		});
-		if (tables[at.outlet]!.some((row) => row.value > 0)) d.set(fieldsFor(at.outlet));
-		else {
+		if (tables[at.outlet]!.some((row) => row.value > 0)) {
+			d.set(fieldsFor(at.outlet));
+			holders.unshift(rr.number);
+		} else {
 			d.remove(keyOfModule(rr));
 			d.changes.push(`RR ${rr.number} moves wholly to the other pieces.`);
 		}
+		lineage.push({ number: rr.number, pieces: holders });
 	}
-	return { basis: located ? 'location' : 'area', owners };
+	return { basis: located ? 'location' : 'area', owners, blocks: lineage };
 }
 
 /** Show what a plan would do. Never throws for a plan it refuses: the reason is the message. */
@@ -714,9 +733,21 @@ function repointDam(dam: DamRecord, plan: SplitPlan, r: Rewired): DamRecord {
 	return i < 0 ? dam : { ...dam, module: { type: 'RU', number: r.numbers[i]! } };
 }
 
+/** Each module the split divided, and what it became. */
+function lineageOf(r: Rewired): SplitLineage[] {
+	const refs = (type: ModuleTypeCode, numbers: readonly number[]) => numbers.map((number) => ({ type, number }));
+	return [
+		{ kind: 'runoff', from: { type: 'RU', number: r.module.number }, pieces: refs('RU', r.numbers) },
+		...r.children.map((c): SplitLineage => ({ kind: 'child', from: { type: 'RU', number: c.number }, pieces: refs('RU', c.pieces) })),
+		...(r.reservoirs ? [{ kind: 'reservoir' as const, from: { type: 'RV' as const, number: r.reservoirs.number }, pieces: refs('RV', r.reservoirs.pieces) }] : []),
+		...r.irrigationBlocks.map((b): SplitLineage => ({ kind: 'irrigation', from: { type: 'RR', number: b.number }, pieces: refs('RR', b.pieces) }))
+	];
+}
+
 /**
  * The bundle with the module split and rewired and the sidecar's
- * `subdivisions` entry written. Throws with a plain-language message if the
+ * `subdivisions` entry written, each note in `values` following its value
+ * (R7-C14). Throws with a plain-language message if the
  * calibration didn't converge and the user didn't accept it, or if an
  * invariant fails: nothing unconverged is applied silently.
  */
@@ -749,7 +780,18 @@ export function applySplit<B extends NetworkBundle>(bundle: B, plan: SplitPlan, 
 		schemaVersion: 1,
 		...bundle.sidecar,
 		subdivisions: { ...bundle.sidecar?.subdivisions, [plan.quaternary]: sidecarEntry(bundle, plan, r, options) },
-		...(bundle.sidecar?.dams ? { dams: bundle.sidecar.dams.map((dam) => repointDam(dam, plan, r)) } : {})
+		...(bundle.sidecar?.dams ? { dams: bundle.sidecar.dams.map((dam) => repointDam(dam, plan, r)) } : {}),
+		...(bundle.sidecar?.values
+			? {
+					values: carryValues(bundle.sidecar.values, {
+						quaternary: plan.quaternary,
+						before: bundle.modules,
+						after: r,
+						lineage: lineageOf(r),
+						rescaled: siblings.flatMap(({ module }) => [module.number, ...(module.sfrChildren ?? [])]).map((number) => ({ type: 'RU' as const, number }))
+					})
+				}
+			: {})
 	};
 	return { ...bundle, network: r.network, modules: r.modules, sidecar };
 }
