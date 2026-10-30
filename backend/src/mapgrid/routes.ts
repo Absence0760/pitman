@@ -1,9 +1,11 @@
 // POST /map-grid/mean (/api/map-grid/mean through CloudFront): `{ area }` → the area's mean MAP from the finest configured grid covering it
 // (MapGridSample plus provenance, mean.ts), cached per instance by (area hash, grids).
+// POST /map-grid/cells: `{ bbox }` → the finest grid's values over the box (cells.ts); a slice of memory, so not cached.
 import { Hono } from 'hono';
 import { parseArea } from '../http/area.js';
 import { ResultCache } from '../http/cache.js';
 import { ApiError, errorResponse } from '../http/errors.js';
+import { mapGridCells, parseBbox } from './cells.js';
 import { type MapGridMean, mapGridMean } from './mean.js';
 import type { MapGridCatalog } from './source.js';
 
@@ -35,6 +37,18 @@ export function mapGridRoutes(opts: MapGridRouteOptions) {
 				return r;
 			});
 			return c.json(result);
+		} catch (err) {
+			return errorResponse(c, err);
+		}
+	});
+	app.post('/cells', async (c) => {
+		try {
+			const body = await c.req.json().catch(() => {
+				throw new ApiError(400, 'the body is not JSON');
+			});
+			const box = parseBbox(body);
+			const grids = await opts.catalog.grids();
+			return c.json(mapGridCells(grids.map((g) => g.grid), box));
 		} catch (err) {
 			return errorResponse(c, err);
 		}
