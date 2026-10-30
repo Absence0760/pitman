@@ -142,12 +142,12 @@
 	let typed = $state.raw<Readonly<Record<string, string>>>({});
 	let showBlockers = $state(false);
 	const dams = $derived(set ? damsByPiece(bundle.sidecar?.dams ?? [], set.pieces) : []);
-	const shares = planShares();
+	const shares = $derived(planShares(dams));
 	const areas = $derived(set && module && set.pieces.length > 1 ? attempt(() => engine.scalePieceAreas(module.areaKm2, set?.pieces.map((p) => p.polygonKm2) ?? [])) : undefined);
 	const rowInput = $derived<RowInput | undefined>(set ? { set, samples, typed, areas: areas?.ok ? areas.value : undefined, dams, preview: undefined } : undefined);
 	const plan = $derived.by(() => {
 		if (!set || !rowInput || !module || !quaternary) return null;
-		return buildPlan(quaternary.code, module.ref, set, pieceRows(rowInput, module.ref), shares);
+		return buildPlan(quaternary.code, module.ref, set, pieceRows(rowInput, module.ref), shares, dams);
 	});
 	const preview = $derived.by((): Attempt<SplitPreview> | undefined => {
 		const planned = plan;

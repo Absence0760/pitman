@@ -185,9 +185,16 @@ export function damsByPiece(dams: readonly DamRecord[], pieces: readonly Piece[]
 	return counts;
 }
 
-/** Every table by area until a plan can carry location shares (Round 7): `buildPlan` sends none, and the engine refuses a location basis without them. */
-export function planShares(): SplitPlan['shares'] {
-	return { afforestation: 'area', alien: 'area', dams: 'area' };
+/** Every dam located or the total shared, never a mix (subdivide.md § Farm dams). Land-use polygons don't exist yet, so those share by area. */
+export function planShares(counts: readonly DamCount[]): SplitPlan['shares'] {
+	const dams: ShareBasis = counts.some((c) => c.capacityMm3 > 0) ? 'location' : 'area';
+	return { afforestation: 'area', alien: 'area', dams };
+}
+
+/** Each piece's share of the located capacity, as a plan shared by location carries it. */
+export function damShares(counts: readonly DamCount[]): number[] {
+	const total = counts.reduce((sum, c) => sum + c.capacityMm3, 0);
+	return counts.map((c) => c.capacityMm3 / total);
 }
 
 /** How each table is shared out, in words (subdivide.md § Fields: "the screen says which was used, per table"). */
@@ -282,11 +289,12 @@ export function planLayout(splits: readonly SplitRecord[]): SplitPlan['layout'] 
 }
 
 /** The plan the engine takes, or `null` until every piece has a MAP from one grid. */
-export function buildPlan(quaternary: string, module: ModuleRef, set: PieceSet, rows: readonly PieceRow[], shares: SplitPlan['shares']): SplitPlan | null {
+export function buildPlan(quaternary: string, module: ModuleRef, set: PieceSet, rows: readonly PieceRow[], shares: SplitPlan['shares'], dams: readonly DamCount[] = []): SplitPlan | null {
 	if (set.pieces.length < 2 || pieceBlockers(rows).length > 0) return null;
+	const located = shares.dams === 'location' ? damShares(dams) : undefined;
 	const pieces = set.pieces.flatMap((piece, i): PiecePlan[] => {
 		const map = rows[i]?.map;
-		return map === undefined || map.value === null ? [] : [{ role: piece.role, geometry: piece.geometry, polygonKm2: piece.polygonKm2, gridMapMm: map.value, mapSource: map.source }];
+		return map === undefined || map.value === null ? [] : [{ role: piece.role, geometry: piece.geometry, polygonKm2: piece.polygonKm2, gridMapMm: map.value, mapSource: map.source, ...(located ? { locationShares: { damCapacity: located[i]! } } : {}) }];
 	});
 	return { quaternary, module, pieces, splits: set.splits, grid: planGrid(rows), layout: planLayout(set.splits), shares };
 }

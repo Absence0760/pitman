@@ -14,6 +14,7 @@ import {
 	pieceRows,
 	planGrid,
 	planLayout,
+	damShares,
 	planShares,
 	resolutionNote,
 	resolveMap,
@@ -158,8 +159,17 @@ describe('dams and shares', () => {
 		]);
 	});
 
-	it('shares every table by area until a plan can carry location shares', () => {
-		expect(planShares()).toEqual({ afforestation: 'area', alien: 'area', dams: 'area' });
+	it('shares dams by location when some capacity is located, and land use by area until it has polygons', () => {
+		expect(planShares([{ count: 1, capacityMm3: 1 }, { count: 0, capacityMm3: 0 }])).toEqual({ afforestation: 'area', alien: 'area', dams: 'location' });
+		expect(planShares([{ count: 0, capacityMm3: 0 }]).dams).toBe('area');
+	});
+
+	it('carries each piece’s share of the located capacity into the plan (the worked example: two of six dams)', () => {
+		const counts = [{ count: 4, capacityMm3: 4 }, { count: 2, capacityMm3: 2 }];
+		expect(damShares(counts)).toEqual([4 / 6, 2 / 6]);
+		const set = split();
+		const plan = buildPlan('Z01A', MODULE, set, rowsOf(set, okAll(set, 610, 820)), planShares(counts), counts);
+		expect(plan?.pieces.map((p) => p.locationShares?.damCapacity)).toEqual([4 / 6, 2 / 6]);
 	});
 
 	it('says, per table, which basis was used', () => {
@@ -229,7 +239,7 @@ describe('pieceBlockers', () => {
 });
 
 describe('the plan', () => {
-	const shares = planShares();
+	const shares = planShares([]);
 
 	it('is series with a tributary anywhere, side by side otherwise', () => {
 		expect(planLayout([{ kind: 'zone-drawn' }])).toBe('sideBySide');

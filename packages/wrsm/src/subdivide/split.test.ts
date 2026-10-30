@@ -334,6 +334,11 @@ describe('invariants', () => {
 		const dust = { ...b, modules: b.modules.map((m) => (m.kind === 'RR' ? { ...m, areaKm2: m.areaKm2.map((row) => ({ ...row, value: 0.004 })) } : m)) };
 		const plan = examplePlan({ pieces: [piece('tributary', 10, 700), piece('remainder', 390, 600)], shares: ALL_AREA });
 		expect(previewSplit(dust, plan).refused).toBeUndefined();
+		const split = applyMaps(dust, plan, [700, 600]);
+		const block = rr(split, 7) as IrrigationWqtLayout;
+		expect(split.modules.filter((m) => m.kind === 'RR')).toHaveLength(1);
+		expect(block.maxAllocationMm3PerYear).toBe(3.33);
+		expect(split.sidecar?.subdivisions?.['Z01A']?.irrigation).toBeUndefined();
 	});
 
 	it('3: a piece too small to get a block takes no part of its allocation', () => {
@@ -858,9 +863,12 @@ describe('repeated splits', () => {
 		expect(previewSplit(one, { ...plan, grid: { ...plan.grid, dataset: 'another grid' } }).messages[0]).toMatch(/synthetic grid at 0\.001°.*one grid/);
 		expect(previewSplit(one, { ...plan, grid: { ...plan.grid, cellDeg: 0.01 } }).messages[0]).toMatch(/at 0\.001°.*one grid/);
 		expect(previewSplit(one, { ...plan, shares: { ...ALL_AREA, dams: 'location' } }).refused).toMatch(/either every dam is located/);
-		// R5-E7 binds a quaternary where there are dams: a piece left with no capacity has no basis to mix.
-		const noDams = { ...one, modules: one.modules.map((m) => (m.kind === 'RV' ? { ...m, capacity: m.capacity.map((row) => ({ ...row, fullSupplyVolumeMm3: 0 })) } : m)) };
-		expect(previewSplit(noDams, { ...plan, shares: { ...ALL_AREA, dams: 'location' } }).refused).not.toMatch(/either every dam is located/);
+		// R5-E7 binds a quaternary where there are dams: a piece with neither volume nor area has no basis to mix.
+		const empty = { ...one, modules: one.modules.map((m) => (m.kind === 'RV' ? { ...m, capacity: m.capacity.map((row) => ({ ...row, fullSupplyVolumeMm3: 0, fullSupplyAreaKm2: 0 })) } : m)) };
+		expect(previewSplit(empty, { ...plan, shares: { ...ALL_AREA, dams: 'location' } }).refused).not.toMatch(/either every dam is located/);
+		// Surface area alone still counts as dams.
+		const areaOnly = { ...one, modules: one.modules.map((m) => (m.kind === 'RV' ? { ...m, capacity: m.capacity.map((row) => ({ ...row, fullSupplyVolumeMm3: 0, fullSupplyAreaKm2: 0.84 })) } : m)) };
+		expect(previewSplit(areaOnly, { ...plan, shares: { ...ALL_AREA, dams: 'location' } }).refused).toMatch(/either every dam is located/);
 		const located = { ...plan, pieces: plan.pieces.map((p) => ({ ...p, locationShares: { afforestation: 0.5 } })), shares: { ...ALL_AREA, afforestation: 'location' as const } };
 		const entry = applyMaps(one, located, [900, 560, 800]).sidecar!.subdivisions!['Z01A']!;
 		expect(entry.shares.afforestation).toBe('area');
@@ -949,6 +957,11 @@ describe('applySplit refuses', () => {
 });
 
 describe('previewSplit', () => {
+	it('refuses what `applySplit` would, so no calibration is wasted on it', () => {
+		const b = definedInflowFirst(exampleBundle());
+		expect(previewSplit(b, examplePlan({ shares: ALL_AREA })).refused).toMatch(/would break the network/);
+	});
+
 	it('says a plan can’t be applied in `refused`, and leaves it out when it can', () => {
 		const plan = examplePlan();
 		expect(previewSplit(exampleBundle(), plan).refused).toBeUndefined();
