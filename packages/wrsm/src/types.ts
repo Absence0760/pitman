@@ -1287,10 +1287,16 @@ export interface Subdivision {
 		/** True when the user took the best factor of a calibration that didn't converge. */
 		readonly acceptedNotConverged?: true;
 		readonly factor: number;
+		/** The natural MAR of the MAPs as saved, whole mm (subdivide.md § Rounding). */
+		readonly finalMarMm3: number;
 		readonly iterations: readonly CalibrationIteration[];
 	};
-	/** Which share each split table used; `irrigation` only when irrigation was split. */
+	/** Which share each table used in the first split; `irrigation` only when irrigation was split. */
 	readonly shares: SplitPlan['shares'] & { readonly irrigation?: ShareBasis };
+	/** The same for each later split, in order; absent after one. */
+	readonly laterShares?: readonly (SplitPlan['shares'] & { readonly irrigation?: ShareBasis })[];
+	/** Each irrigation module a split made, with the piece it belongs to: a later split takes only its own piece's blocks (R5-E10). */
+	readonly irrigation?: readonly { readonly number: number; readonly piece: number }[];
 	/** Where each new farm-dam route's `p` came from (B6): the original `p` until dam catchments are delineated. */
 	readonly farmDamPercent: 'original';
 }

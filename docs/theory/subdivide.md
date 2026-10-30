@@ -98,7 +98,8 @@ recorded in the sidecar in order, so the pieces can be rebuilt.
 
 A plan may hold all its pieces at once (2 to 8), or split a piece of a
 quaternary already sub-divided: then every piece is calibrated again, since
-one factor scales them all (R5-E7). `calibrateMap`'s MAPs are the plan's pieces
+one factor scales them all (R5-E7), on the same grid and the same dam basis or
+it is refused. `calibrateMap`'s MAPs are the plan's pieces
 in order, then the quaternary's other pieces in sidecar order.
 
 ## Areas
@@ -281,6 +282,11 @@ or ratio. A Hughes module's abstractions (L.027, L.029) are split; its reach
 count stays copied, and the engine can't run Hughes yet, so `calibrateMap`
 refuses one (R5-E14).
 
+An SFR child's own Sami block is copied: at run time a child takes its parent's
+(`inheritFromParent`, TT 689 p.138), so it has no effect. A child's regional
+outflow uses its own area (R6-F20), which keeps the volume exactly when the
+child goes by area share, and only near it by location share.
+
 ### SFR parent and children
 
 An RU module with SFR children (sub-areas whose afforestation or alien
@@ -368,7 +374,8 @@ share): each piece with irrigation gets an RR copy drawing from its own
 `V_i` (or, with no dams of its own, a new route from `V`: an RR has one inflow,
 so two can't share a route, R5-E10), with its area-by-crop table; its
 allocation (RRMA, L.013, and L.022–L.024) splits with the area, and its return
-flow goes where the original's did. A piece with no irrigation gets no RR
+flow goes where the original's did. A later split takes only the blocks of the
+piece it splits, though another piece's block may draw from the same `V`. A piece with no irrigation gets no RR
 module; if that is the outlet, the original RR goes with its routes. **Main-stem reservoirs, channel reaches, demand files and
 gauges are never split**: they stay on their routes.
 
@@ -376,9 +383,11 @@ gauges are never split**: they stay on their routes.
 its polygon's centroid). Where only a total is known (no locations), the
 capacity and surface area are split by area share. The two are never mixed
 within one quaternary: either every dam is located or the total is shared.
-A reservoir's initial storage (L.015), a volume too, splits with its capacity.
-If all the dams lie in other pieces `V` stays, at no capacity, and the preview
-says so (R5-E4).
+A reservoir's initial storage (L.015), a volume too, splits with its capacity
+among the pieces with dams, none above its first year's capacity; a negative
+value (50 % of full supply) is copied. If all the dams lie in other pieces `V`
+stays, at no capacity, and the preview says so, as it does for dams that round
+to no surface area (R5-E4).
 
 ## Invariants (the engine's tests)
 
@@ -439,8 +448,12 @@ also has `mapSource`; `module.maxHydraulicGradient` holds the original HGRAD of
 a module with a Sami block; `children` lists each SFR child split
 (`{ number, areaKm2, mapMm, pieces }`); `shares.irrigation` appears when
 irrigation was split; `farmDamPercent` says where each new `p` came from (B6);
-`calibration.acceptedNotConverged` marks "Use the best factor". Those are what
-`mergePieces`, the inverse of invariant 8, needs (R5-E9).
+`calibration.acceptedNotConverged` marks "Use the best factor";
+`calibration.finalMarMm3` is the MAR of the MAPs as saved; `irrigation` names
+each RR a split made and its piece; `laterShares` holds each later split's
+shares, `shares` being the first's. `mergePieces`, the inverse of invariant 8,
+needs these (R5-E9). `applySplit` also moves a located dam in the sidecar's
+`dams` to the piece it lies in.
 
 ## Worked example
 

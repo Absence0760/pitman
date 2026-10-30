@@ -159,6 +159,15 @@ function plannedPieces(module: RunoffModule, plan: SplitPlan): RunoffModule[] {
 /** A MAP as the file holds it: RU L.002 is an `I5`, whole mm. */
 export const roundMap = (mapMm: number) => fileRound(mapMm, 0);
 
+/** The quaternary's natural MAR for a plan and its MAPs, in `calibrateMap`'s order. */
+export function planNaturalMar(bundle: NetworkBundle, plan: SplitPlan, mapsMm: readonly number[]): number {
+	const module = plannedModule(bundle, plan);
+	const siblings = siblingsOf(bundle, plan);
+	const period = naturalPeriod(bundle, module.rainfallFile, rainfallOf(bundle, module));
+	const members = [...plannedPieces(module, plan), ...siblings.map((s) => s.module)];
+	return members.reduce((sum, m, i) => sum + naturalMar({ ...m, mapMm: mapsMm[i]! }, rainfallOf(bundle, m), period), 0);
+}
+
 /**
  * A search's result as the wizard takes it: the final MAPs rounded to whole
  * mm and the MAR recomputed with them. That run is outside the 12 of the
@@ -219,6 +228,12 @@ export const unsplitNaturalMar: UnsplitNaturalMar = (bundle, ref) => {
 	const series = rainfallOf(bundle, module);
 	const period = naturalPeriod(bundle, module.rainfallFile, series);
 	const quaternary = Object.values(bundle.sidecar?.subdivisions ?? {}).find((entry) => entry.pieces.some((p) => p.number === module.number));
-	const members = quaternary ? quaternary.pieces.map((p) => findRunoff(bundle.modules, p.number) ?? module) : [module];
+	const members = quaternary
+		? quaternary.pieces.map((p) => {
+				const piece = findRunoff(bundle.modules, p.number);
+				if (!piece) throw new SubdivisionError(`the sidecar lists RU ${p.number} as a piece, but the network has no such module`);
+				return piece;
+			})
+		: [module];
 	return { marMm3: members.reduce((sum, m) => sum + naturalMar(m, rainfallOf(bundle, m), period), 0), period };
 };

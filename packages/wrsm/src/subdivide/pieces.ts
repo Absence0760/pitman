@@ -58,6 +58,12 @@ export function siblingsOf(bundle: NetworkBundle, plan: SplitPlan): Sibling[] {
 	if (entry && others.length === entry.pieces.length) {
 		throw new SubdivisionError(`${plan.quaternary} is already sub-divided and RU ${plan.module.number} is not one of its pieces`);
 	}
+	if (entry && (entry.grid.dataset !== plan.grid.dataset || entry.grid.cellDeg !== plan.grid.cellDeg)) {
+		throw new SubdivisionError(`${plan.quaternary} was sub-divided on ${entry.grid.dataset}: every piece of a quaternary uses one grid`);
+	}
+	if (entry && entry.shares.dams !== plan.shares.dams) {
+		throw new SubdivisionError(`${plan.quaternary}'s farm dams were shared by ${entry.shares.dams}: within one quaternary either every dam is located or the total is shared`);
+	}
 	const count = plan.pieces.length + others.length;
 	if (count > MAX_PIECES) throw new SubdivisionError(`this would make ${count} pieces in ${plan.quaternary}; a quaternary takes at most ${MAX_PIECES}`);
 	return others.map((p) => {

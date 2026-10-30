@@ -15,6 +15,7 @@ import { sfrKind } from '../landuse/sfr.js';
 import type {
 	Afforestation,
 	AlienVegetation,
+	DamRecord,
 	IrrigationModule,
 	Module,
 	ModuleTypeCode,
@@ -31,8 +32,9 @@ import type {
 	YearTable
 } from '../types.js';
 import { fileRound, largestRemainder, scalePieceAreas } from './areas.js';
-import { MAR_TOLERANCE, roundMap } from './calibrate.js';
+import { MAR_TOLERANCE, planNaturalMar, roundMap } from './calibrate.js';
 import type { ApplySplitOptions, PiecePlan, PreviewSplit, ShareBasis, SplitPlan, SplitPreview } from './contract.js';
+import { pointInGeometry } from './zones.js';
 import { findRunoff, hughesPieces, plannedModule, samiPieces, siblingsOf, splitYearTable, subdivisionOf, SubdivisionError } from './pieces.js';
 
 /** Afforestation and alien tables are `F0.1` (RU L.008, L.013); RV capacity and area `F0.2` (L.005, L.006); RV initial storage `F8.3` (L.015); RR area `F0.2` (L.006), RRMA `F0.2` (L.013), allocation `F0.3` (L.024). */
@@ -258,6 +260,19 @@ function splitCapacity(table: readonly ReservoirCapacity[], shares: { capacity: 
 	return shares.capacity.map((_, i) => table.map((row, r) => ({ year: row.year, fullSupplyVolumeMm3: volumes[r]![i]!, fullSupplyAreaKm2: areas[r]![i]! })));
 }
 
+/**
+ * The initial storage (RV L.015) per piece, with the capacity. A negative
+ * value means "50 % of full supply" (TT 691 p.158, reservoir.ts), so it is
+ * copied, never divided. Only pieces with dams share it, and none starts above
+ * its first year's capacity (R5-E4).
+ */
+function splitStorage(storage: number, shares: readonly number[], hasDams: readonly boolean[], capacity: readonly (readonly ReservoirCapacity[])[], outlet: number): number[] {
+	if (storage < 0) return shares.map(() => storage);
+	const live = shares.map((s, i) => (hasDams[i] ? s : 0));
+	if (!live.some((s) => s > 0)) return shares.map((_, i) => (i === outlet ? storage : 0));
+	return largestRemainder(storage, live, STORAGE_DECIMALS).map((v, i) => Math.min(v, capacity[i]?.[0]?.fullSupplyVolumeMm3 ?? v));
+}
+
 function withLandUse(module: RunoffModule, afforestation: YearTable, alien: YearTable | undefined): RunoffModule {
 	const forest: Afforestation = { ...module.afforestation, areaKm2: afforestation };
 	const vegetation: AlienVegetation | undefined = module.alienVegetation && alien ? { ...module.alienVegetation, areaKm2: alien } : module.alienVegetation;
@@ -274,6 +289,7 @@ interface Rewired {
 	readonly scaleWarning: string | null;
 	readonly children: readonly SubdivisionChild[];
 	readonly irrigation: ShareBasis | undefined;
+	readonly irrigationOwners: readonly { readonly number: number; readonly piece: number }[];
 	readonly module: RunoffModule;
 	readonly changes: readonly string[];
 	readonly messages: readonly string[];
@@ -315,8 +331,13 @@ function rewire(bundle: NetworkBundle, plan: SplitPlan, maps: readonly number[])
 	// Farm dams: capacity and surface area by year, and the initial storage with the capacity (R5-E4).
 	const dams = dam ? damShares(plan, areaShares) : undefined;
 	const capacity = dam && dams ? splitCapacity(dam.reservoir.capacity, dams) : undefined;
-	const initial = dam && dams && dam.reservoir.initialStorageMm3 !== undefined ? largestRemainder(dam.reservoir.initialStorageMm3, dams.capacity, STORAGE_DECIMALS) : undefined;
 	const hasDams = pieces.map((_, i) => capacity?.[i]!.some((row) => row.fullSupplyVolumeMm3 > 0 || row.fullSupplyAreaKm2 > 0) ?? false);
+	const initial = dam && dams && capacity && dam.reservoir.initialStorageMm3 !== undefined ? splitStorage(dam.reservoir.initialStorageMm3, dams.capacity, hasDams, capacity, outlet) : undefined;
+	capacity?.forEach((rows, i) => {
+		if (hasDams[i] && rows.some((row) => row.fullSupplyVolumeMm3 > 0 && row.fullSupplyAreaKm2 === 0)) {
+			d.messages.push(`The dams in piece ${numbers[i]} round to no surface area, so they get no rain or evaporation.`);
+		}
+	});
 	const reservoirKeys = new Map<number, Key>();
 
 	// The pieces that aren't the outlet: their modules, routes and farm dams.
@@ -382,6 +403,8 @@ function rewire(bundle: NetworkBundle, plan: SplitPlan, maps: readonly number[])
 	// A piece whose destination can't take another inflow (an RTIN is taken, an irrigation block, an unread module) joins through the next RTIN down to the outlet (B1, R3-N8, R5-E5).
 	if (joining.length > 0) {
 		if (module.inflowRoute) throw new SubdivisionError(`RU ${module.number}'s water goes where no second route can join it, and its own inflow route is taken, so the pieces can't be connected`);
+		// L.021 exists from file version 3 (docs/formats.md §5.2), and the writer keeps a module's version.
+		if (module.fileVersion < 3) throw new SubdivisionError(`RU ${module.number}'s water goes where no second route can join it, and its file version ${module.fileVersion} has no inflow route, so the pieces can't be connected`);
 		joining.forEach((key, k) => {
 			const target = joining[k + 1] ?? self;
 			const route = d.addRoute(key, target);
@@ -406,7 +429,8 @@ function rewire(bundle: NetworkBundle, plan: SplitPlan, maps: readonly number[])
 
 	const children = splitChildren(d, bundle, plan, module, { maps, numbers, outlet, areaShares });
 
-	const irrigation = dam ? splitIrrigation(d, plan, { dam, numbers, outlet, areaShares, reservoirKeys, self }) : undefined;
+	const foreign = new Set((subdivisionOf(bundle, plan.quaternary)?.irrigation ?? []).filter((o) => o.piece !== module.number).map((o) => o.number));
+	const irrigation = dam ? splitIrrigation(d, plan, { dam, numbers, outlet, areaShares, reservoirKeys, self, foreign }) : undefined;
 
 	// R5-E11: the outlet keeps the routes, so a gauge on one now sees only the outlet's share of the quaternary's water.
 	for (const gauge of bundle.network.gauges) {
@@ -425,7 +449,7 @@ function rewire(bundle: NetworkBundle, plan: SplitPlan, maps: readonly number[])
 		}
 	});
 
-	return { ...d.finish(), outlet, numbers, areasKm2, scaleWarning, children, irrigation, module, changes: d.changes, messages: d.messages };
+	return { ...d.finish(), outlet, numbers, areasKm2, scaleWarning, children, irrigation: irrigation?.basis, irrigationOwners: irrigation?.owners ?? [], module, changes: d.changes, messages: d.messages };
 }
 
 /** `MAP_child,i = MAP_i · MAP_child / MAP_M` (subdivide.md § SFR parent and children). */
@@ -493,17 +517,18 @@ function splitChildren(
 	return records;
 }
 
-/** Irrigation drawing from the farm dams (subdivide.md § Routes): each piece with irrigation gets its own block. Returns the basis used, or `undefined` when there is none. */
+/** Irrigation drawing from the farm dams (subdivide.md § Routes): each piece with irrigation gets its own block. A block another piece owns stays whole, though it may draw from these dams (R5-E10). Returns the basis used and the new blocks, or `undefined` when there is none. */
 function splitIrrigation(
 	d: Draft,
 	plan: SplitPlan,
-	at: { dam: FarmDam; numbers: readonly number[]; outlet: number; areaShares: readonly number[]; reservoirKeys: ReadonlyMap<number, Key>; self: Key }
-): ShareBasis | undefined {
-	const blocks = d.finish().modules.filter((m): m is IrrigationModule => m.kind === 'RR' && d.route(m.abstractionRoute)?.up === at.dam.key);
+	at: { dam: FarmDam; numbers: readonly number[]; outlet: number; areaShares: readonly number[]; reservoirKeys: ReadonlyMap<number, Key>; self: Key; foreign: ReadonlySet<number> }
+): { readonly basis: ShareBasis; readonly owners: readonly { readonly number: number; readonly piece: number }[] } | undefined {
+	const blocks = d.finish().modules.filter((m): m is IrrigationModule => m.kind === 'RR' && d.route(m.abstractionRoute)?.up === at.dam.key && !at.foreign.has(m.number));
 	const live = blocks.filter((rr) => rr.areaKm2.some((row) => row.value > 0));
 	if (live.length === 0) return undefined;
 	const located = plan.pieces.every((p) => p.locationShares?.irrigation !== undefined);
 	const shares = located ? locationShares(plan, 'irrigation') : at.areaShares;
+	const owners: { number: number; piece: number }[] = [];
 	for (const rr of live) {
 		const tables = splitYearTable(rr.areaKm2, shares, IRRIGATION_DECIMALS);
 		const allocations = 'maxAllocationMm3PerYear' in rr ? largestRemainder(rr.maxAllocationMm3PerYear, shares, IRRIGATION_DECIMALS) : undefined;
@@ -532,6 +557,7 @@ function splitIrrigation(
 				addInflow(d, down, returnRoute);
 			}
 			d.insert({ ...fieldsFor(i), number, name: shortName(rr.name, `R${number}`), abstractionRoute: route, returnFlowRoute: returnRoute }, at.reservoirKeys.get(i) ?? at.self);
+			owners.push({ number, piece: at.numbers[i]! });
 			d.changes.push(`New irrigation module RR ${number} of RU ${at.numbers[i]}, drawing from ${label(sourceKey)} by route ${route}.`);
 		});
 		if (tables[at.outlet]!.some((row) => row.value > 0)) d.set(fieldsFor(at.outlet));
@@ -540,7 +566,7 @@ function splitIrrigation(
 			d.changes.push(`RR ${rr.number} moves wholly to the other pieces.`);
 		}
 	}
-	return located ? 'location' : 'area';
+	return { basis: located ? 'location' : 'area', owners };
 }
 
 /** Show what a plan would do. Never throws for a plan it refuses: the reason is the message. */
@@ -618,13 +644,16 @@ function sidecarEntry(bundle: NetworkBundle, plan: SplitPlan, r: Rewired, option
 	const pieces = [...updated.slice(0, position), ...planned, ...updated.slice(position)];
 	const children = mergeChildRecords(previous?.children ?? [], r.children);
 	const hgrad = r.module.sami?.maxHydraulicGradient;
+	const shares = { ...plan.shares, ...(r.irrigation ? { irrigation: r.irrigation } : {}) };
+	const remaining = new Set(r.modules.filter((m) => m.kind === 'RR').map((m) => m.number));
+	const irrigation = [...(previous?.irrigation ?? []), ...r.irrigationOwners].filter((o) => remaining.has(o.number));
 	return {
 		method: 'subdivide-1',
 		module: previous?.module ?? { type: 'RU', number: r.module.number, areaKm2: r.module.areaKm2, mapMm: r.module.mapMm, ...(hgrad !== undefined ? { maxHydraulicGradient: hgrad } : {}) },
 		splits: [...(previous?.splits ?? []), ...plan.splits],
 		pieces,
 		...(children.length > 0 ? { children } : {}),
-		grid: plan.grid,
+		grid: previous?.grid ?? plan.grid,
 		calibration: {
 			target: options.target,
 			crossCheck: options.crossCheck,
@@ -632,9 +661,12 @@ function sidecarEntry(bundle: NetworkBundle, plan: SplitPlan, r: Rewired, option
 			status: calibration.status === 'converged' ? 'converged' : 'not_converged',
 			...(calibration.status === 'converged' ? {} : { acceptedNotConverged: true as const }),
 			factor: calibration.best!.s,
+			finalMarMm3: calibration.finalMarMm3!,
 			iterations: calibration.iterations
 		},
-		shares: { ...plan.shares, ...(r.irrigation ? { irrigation: r.irrigation } : {}) },
+		shares: previous?.shares ?? shares,
+		...(previous ? { laterShares: [...(previous.laterShares ?? []), shares] } : {}),
+		...(irrigation.length > 0 ? { irrigation } : {}),
 		farmDamPercent: 'original'
 	};
 }
@@ -650,6 +682,13 @@ function mergeChildRecords(previous: readonly SubdivisionChild[], latest: readon
 	return out;
 }
 
+/** A located dam of the split module now belongs to the piece it lies in. */
+function repointDam(dam: DamRecord, plan: SplitPlan, r: Rewired): DamRecord {
+	if (dam.module?.type !== 'RU' || dam.module.number !== plan.module.number) return dam;
+	const i = plan.pieces.findIndex((p) => pointInGeometry([dam.lon, dam.lat], p.geometry));
+	return i < 0 ? dam : { ...dam, module: { type: 'RU', number: r.numbers[i]! } };
+}
+
 /**
  * The bundle with the module split and rewired and the sidecar's
  * `subdivisions` entry written. Throws with a plain-language message if the
@@ -658,24 +697,32 @@ function mergeChildRecords(previous: readonly SubdivisionChild[], latest: readon
  */
 export function applySplit<B extends NetworkBundle>(bundle: B, plan: SplitPlan, options: ApplySplitOptions): B {
 	const { calibration, target } = options;
-	if (calibration.status === 'refused' || !calibration.best) throw new SubdivisionError(calibration.message ?? 'the calibration was refused, so there is nothing to apply');
+	if (calibration.status === 'refused' || !calibration.best || calibration.finalMarMm3 === null) throw new SubdivisionError(calibration.message ?? 'the calibration was refused, so there is nothing to apply');
 	if (calibration.status === 'not_converged' && !options.acceptNotConverged) {
 		throw new SubdivisionError(`the calibration did not converge (${calibration.message ?? 'no factor found'}): use the best factor, change the target or cancel`);
 	}
 	const { best } = calibration;
 	const off = Math.abs(best.marMm3 - target.marMm3) / target.marMm3;
 	if (calibration.status === 'converged' && !(off <= MAR_TOLERANCE)) throw new SubdivisionError('this calibration was made for another target: calibrate again');
-	calibration.finalMapsMm.forEach((map, i) => {
-		const exact = best.maps[i];
-		if (exact === undefined || Math.abs(map - exact) > 0.5 + 1e-6) throw new SubdivisionError('the final MAPs don\'t match the calibration\'s factor: calibrate again');
+	const siblings = siblingsOf(bundle, plan);
+	const maps = calibration.finalMapsMm;
+	if (maps.length !== plan.pieces.length + siblings.length) throw new SubdivisionError(`the calibration has ${maps.length} MAPs for ${plan.pieces.length + siblings.length} pieces: calibrate this plan again`);
+	const grid = [...plan.pieces.map((p) => p.gridMapMm), ...siblings.map((s) => s.gridMapMm)];
+	maps.forEach((map, i) => {
+		const exact = best.s * grid[i]!;
+		if (Math.abs(map - exact) > 0.5 + 1e-6) throw new SubdivisionError('the final MAPs don\'t match the calibration\'s factor: calibrate again');
 	});
+	// The areas came from the plan and the MAPs from the calibration: a boundary moved in between must not pass as converged.
+	const saved = planNaturalMar(bundle, plan, maps);
+	if (Math.abs(saved - calibration.finalMarMm3) > 1e-9 * Math.max(1, saved)) throw new SubdivisionError('this calibration was made for another plan: calibrate again');
 	const r = rewire(bundle, plan, calibration.finalMapsMm);
 	assertInvariants(bundle, r);
 	const sidecar: Sidecar = {
 		schema: 'pitman-sidecar',
 		schemaVersion: 1,
 		...bundle.sidecar,
-		subdivisions: { ...bundle.sidecar?.subdivisions, [plan.quaternary]: sidecarEntry(bundle, plan, r, options) }
+		subdivisions: { ...bundle.sidecar?.subdivisions, [plan.quaternary]: sidecarEntry(bundle, plan, r, options) },
+		...(bundle.sidecar?.dams ? { dams: bundle.sidecar.dams.map((dam) => repointDam(dam, plan, r)) } : {})
 	};
 	return { ...bundle, network: r.network, modules: r.modules, sidecar };
 }

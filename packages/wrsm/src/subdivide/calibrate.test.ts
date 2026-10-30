@@ -293,6 +293,15 @@ describe('unsplitNaturalMar', () => {
 		expect(unsplitNaturalMar(bundle, { type: 'RU', number: 3 }).marMm3).toBeCloseTo(series.reduce((a, b) => a + b, 0) / 20, 9);
 	});
 
+	it('refuses a sidecar that lists a piece the network does not hold', () => {
+		const { marMm3 } = unsplitNaturalMar(bundle, { type: 'RU', number: 3 });
+		const same = examplePlan({ pieces: [piece('tributary', 120, 640), piece('remainder', 280, 640)], shares: { afforestation: 'area', alien: 'area', dams: 'area' } });
+		const target = hand(marMm3);
+		const split = applySplit(bundle, same, { calibration: calibrateMap(bundle, same, target), target, crossCheck: target });
+		const broken = { ...split, modules: split.modules.filter((m) => !(m.kind === 'RU' && m.number === 16)) };
+		expect(() => unsplitNaturalMar(broken, { type: 'RU', number: 3 })).toThrow(/no such module/);
+	});
+
 	it('throws for anything but a runoff module', () => {
 		expect(() => unsplitNaturalMar(bundle, { type: 'RV', number: 2 })).toThrow(/not a runoff module/);
 	});
