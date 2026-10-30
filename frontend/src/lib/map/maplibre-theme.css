@@ -1,0 +1,68 @@
+/* Ported from IC-WBT (Absence0760/project-water-management, MIT) frontend/src/lib/components/map/maplibre-theme.css at f888e4461.
+
+   MapLibre's controls in the app's tokens. Its own stylesheet paints them white
+   with a #0096ff ring: a bright patch on the dark map and a focus ring unlike
+   every other control. Loaded after maplibre-gl.css by ./maplibre.ts, and
+   prefixed with .maplibregl-map so it wins whatever order the build emits them in. */
+.maplibregl-map .maplibregl-ctrl-group {
+	background: var(--surface);
+	border: 1px solid var(--border-strong);
+	box-shadow: var(--shadow);
+}
+.maplibregl-map .maplibregl-ctrl-group:not(:empty) {
+	box-shadow: var(--shadow);
+}
+.maplibregl-map .maplibregl-ctrl-group button {
+	width: var(--control-h);
+	height: var(--control-h);
+	min-height: 0;
+	padding: 0;
+	border-radius: 0;
+	background-color: transparent;
+}
+/* The zoom icons are data: SVGs, which the CSP's `img-src 'self'` refuses, and dark, so unreadable
+   on the dark surface. Text instead: it needs no exception and takes the token. */
+.maplibregl-map .maplibregl-ctrl button.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
+.maplibregl-map .maplibregl-ctrl button.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
+	display: grid;
+	place-items: center;
+	background-image: none;
+	color: var(--text);
+	font-size: 1.25rem;
+	font-weight: 600;
+	line-height: 1;
+}
+.maplibregl-map .maplibregl-ctrl button.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon::before {
+	content: '+';
+}
+.maplibregl-map .maplibregl-ctrl button.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon::before {
+	content: '−';
+}
+.maplibregl-map .maplibregl-ctrl-group button + button {
+	border-top-color: var(--border);
+}
+.maplibregl-map .maplibregl-ctrl button:not(:disabled):hover {
+	background-color: var(--surface-2);
+}
+/* The app's ring, inside the button so it never covers its neighbour. */
+.maplibregl-map .maplibregl-ctrl-group button:focus,
+.maplibregl-map .maplibregl-ctrl-group button:focus:focus-visible,
+.maplibregl-map .maplibregl-ctrl-attrib-button:focus {
+	box-shadow: none;
+}
+.maplibregl-map .maplibregl-ctrl-group button:focus-visible,
+.maplibregl-map .maplibregl-ctrl-attrib-button:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: -2px;
+}
+.maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-attrib {
+	background-color: color-mix(in srgb, var(--surface) 85%, transparent);
+	color: var(--text-muted);
+}
+.maplibregl-map .maplibregl-ctrl-attrib.maplibregl-compact {
+	background-color: var(--surface);
+	color: var(--text-muted);
+}
+.maplibregl-map .maplibregl-ctrl-attrib a {
+	color: var(--accent);
+}

@@ -30,16 +30,17 @@ pitman/
 ├── frontend/
 │   ├── package.json
 │   ├── vite.config.ts
-│   ├── .env.development      PUBLIC_API_URL, PUBLIC_SITE_URL (committed defaults)
+│   ├── .env.development      PUBLIC_API_URL, PUBLIC_SITE_URL, the map's PUBLIC_TILES_* (committed defaults)
 │   └── src/
 │       ├── app.css           Base styles
-│       ├── env.ts            PUBLIC_API_URL, declared for SvelteKit 3 (read from $app/env/public)
+│       ├── env.ts            The PUBLIC_* variables, declared for SvelteKit 3 (read from $app/env/public)
 │       ├── app.html
 │       ├── lib/network/      Load, validate, store, run (worker), save (§ App flow)
 │       ├── lib/extend/       Extend a .RAN with CHIRPS (method A): area upload, the CHIRPS client, the fit screen, apply (§ App flow, step 5)
+│       ├── lib/map/          The map: Map.svelte (takes contract.ts MapProps), MapPanel.svelte (the step), the style and tokens (mapStyle, palette), the client (api), module placing (modules), drawing (draw/); MapLibre loads lazily (maplibre.ts)
 │       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
 │       ├── lib/shell/        The frame around the steps: app bar, landing page, step rail (steps.ts holds its wording), the design-token guards; rules in docs/design/ui-playbook.md
-│       └── routes/           +page.svelte: the app shell
+│       └── routes/           +page.svelte: the app shell; map-preview/: the map alone, for e2e/map.spec.ts, until it is on the page
 ├── backend/
 │   ├── package.json          Build script runs esbuild → dist/lambda.mjs
 │   ├── tsconfig.json
@@ -173,8 +174,8 @@ add `dotenv` imports to any module reachable from `lambda.ts`.
 
 ### Data API
 
-Stateless: it receives only an area (GeoJSON) and answers numbers, never
-network files. CloudFront strips `/api` before the Lambda (R4-I4), so the
+Stateless: it receives only an area (GeoJSON) or a box and answers numbers,
+never network files. CloudFront strips `/api` before the Lambda (R4-I4), so the
 routes are mounted unprefixed (`/chirps/monthly` here is `/api/chirps/monthly`
 in the browser).
 
@@ -183,9 +184,8 @@ in the browser).
 | `GET /health` | `{ ok: true }` | `app.ts` |
 | `POST /chirps/monthly` | `ChirpsMonthlyRequest` → `ChirpsMonthly` (`packages/wrsm/src/extend/contract.ts`) | `src/chirps/` |
 | `POST /map-grid/mean` | `{ area }` → `MapGridSample` + provenance | `src/mapgrid/` |
-
-No quaternary routes: there are no licensed boundaries yet (D-1), so the app
-takes an uploaded boundary.
+| `POST /map-grid/cells` | `{ bbox }` (≤ 2° a side, ≤ 250 000 cells) → `MapGridCells` (`packages/wrsm/src/subdivide/contract.ts`) | `src/mapgrid/cells.ts` |
+| `GET /quaternaries` | → `QuaternaryCollection`; 503 when not configured, which production is until D-1 | `src/quaternaries/` |
 
 Layout, by topic:
 
@@ -199,7 +199,9 @@ Layout, by topic:
 - `src/mapgrid/`: `rainMap.ts` (the grid's JSON form, an in-memory index),
   `mean.ts` (area-weighted mean, D6 finest grid first), `source.ts`
   (`MAP_GRID_SOURCE=local|s3://bucket/key`; a new grid is one more
-  `MapGridSource`).
+  `MapGridSource`), `cells.ts` (a box's block, for the map).
+- `src/quaternaries/`: `source.ts` (`QUATERNARIES_SOURCE=local`; unset is 503,
+  and the file is read once and trimmed to the wire type), `routes.ts`.
 - `src/http/`: the `{ area }` body check, the result cache, the rate limit,
   error responses.
 
@@ -209,17 +211,19 @@ body limit → per-client rate limit → geometry check (≤ 50 000 positions,
 hash, copy, manifest revision) for CHIRPS and (geometry hash, grids) for the
 MAP grid → the read. Refusals are `{ error }` JSON: 400 bad body or
 geometry, 404, 413, 422 an area the data can't answer (outside the copy,
-over 2 000 cells, no data, grid coverage under 90 %), 429, 503 the data
+over 2 000 cells, no data, grid coverage under 90 %, a box too wide, too dense
+or with no grid, these last with a `code`), 429, 503 the data
 isn't configured or isn't answering, 504 the CHIRPS read passed its 25 s
 deadline.
 
-**Per instance, on purpose.** The rate limit (30 CHIRPS / 120 MAP requests
-per client per 10 minutes) and the caches (200 CHIRPS series, 500 MAP means,
+**Per instance, on purpose.** The rate limit (30 CHIRPS / 120 MAP / 120
+quaternary requests per client per 10 minutes) and the caches (200 CHIRPS series, 500 MAP means,
 LRU) live in one Lambda instance's memory. They bound what one client can
 make one instance do; the global per-IP limit is the WAF rule on CloudFront,
 and reserved concurrency bounds the rest. The opened CHIRPS copy (array +
 manifest) is kept 5 minutes, so a new manifest `revision` is seen within that
-time; a MAP grid is read once per instance.
+time; a MAP grid and the quaternary file are read once per instance. The
+cells route isn't cached: it is a slice of memory.
 
 ## Deployment targets
 

@@ -113,6 +113,18 @@ Round 3 reference checks (local, `WRSM_REFERENCE_DIR`): 34 of 35 `.NET` files va
 | R4-U5 | Re-extending (R4-E2): the first fit reuses the recorded `MAP_c`; narrowing the window afterwards refits with a fresh `MAP_c` | Provisional |
 | R4-U6 | No "undo extension": extending again replaces the appended years; the original is the user's saved zip | Provisional |
 
+## Round 5 (2026-10-30)
+
+| ID | Decision | Status |
+|---|---|---|
+| R5-M1 | `GET /quaternaries` answers the whole configured file, trimmed to the wire type; `QUATERNARIES_SOURCE=local` in dev only; unset is 503 "not configured", never silently synthetic. This changes `data.md`'s "no route until D-1": the route exists and production leaves it unconfigured, so the map can be built and tested. A file past 5 MiB is refused in words. A bucket source and `?bbox` wait for D-1 (`data.md` § Quaternaries) | Decided |
+| R5-M2 | `POST /map-grid/cells` replaces the planned `GET /map-grid/points`: the contract's block, at most 2° a side and 250 000 cells (IC-WBT's 5 000 points would refuse a quaternary on the ~100 m grid), one grid never a mix (D6), values to 0.1 mm, not cached. Refusals carry `code` (`too_wide`, `too_dense`, `no_coverage`) so the panel can say what to do | Default; reviewed in Round 8.5 |
+| R5-M3 | The map's tiles are `PUBLIC_*` variables, empty by default. No tiles, or tiles that can't be read, is a plain background and a small note, never an error state. Production leaves them unset until `/tiles/*` exists | Decided |
+| R5-M4 | The MAP grid is drawn as translucent cells on one ramp, not IC-WBT's points: the block is regular and a surface reads as one. Past 20 000 cells it draws every n-th cell, n cells wide, and the panel says so; the values sent are not thinned. The selected quaternary is outlined, never tinted, so the ramp's colours stay true under it | Default |
+| R5-M5 | Modules are placed by a quaternary code in their name (WRSM2000 stores no coordinates): the first code the boundaries know, on a ring inside the quaternary. The rest are counted and listed, never guessed | Default |
+| R5-M6 | The zoom buttons are text, not MapLibre's `data:` SVGs; the CSP stays `img-src 'self'`. No `blob:`, `data:` or new origin: the worker is a page-build chunk and tiles are same-origin (`docs/security.md`) | Decided |
+| R5-M7 | The map takes `cooperativeGestures`: on the one long page a wheel or a finger scrolls the page, and ctrl + wheel or two fingers move the map | Default |
+
 ## Round 6 (2026-10-29)
 
 | ID | Decision | Status |

@@ -160,9 +160,14 @@ uses) into a `Float32Array` with NaN for no value, and answers:
   with each grid's reason). Built in Round 4.2 (`backend/src/mapgrid/`).
   `cellSizeM` is the square root of the mean area of the cells used;
   `meanMapMm` is whole mm, as IC-WBT rounds a unit's;
-- `GET /map-grid/points?bbox=` for the map layer, IC-WBT's limits (bbox at
-  most 2° a side, at most 5 000 points, else `tooDense`). **Not built yet**
-  (Round 5.1 needs it).
+- `POST /map-grid/cells` (`{ bbox }` → `MapGridCells`,
+  `packages/wrsm/src/subdivide/contract.ts`) for the map layer and the
+  MAP-zone threshold (`backend/src/mapgrid/cells.ts`, R5-M2): the finest grid
+  with a value in the box, as one block, north to south, each value to 0.1 mm.
+  At most 2° a side (IC-WBT's limit) and 250 000 cells, else 422 with `code`
+  `too_wide` or `too_dense`; no value in the box is 422 `no_coverage`. It
+  replaces the `GET /map-grid/points` this file planned, whose 5 000 points
+  would refuse a quaternary on the ~100 m grid (about 62 500 cells).
 
 **Plugging in the real grids.** Neither real grid is in reach yet (WAAS
 pending D-4; CHELSA v2.1, D-5, not yet converted). Each grid is one
@@ -227,13 +232,23 @@ target.
 Quaternary **codes** are public and may appear anywhere; outlines and
 WR2012 values are never committed.
 
-**Until D-1 is settled, Pitman's API serves no `GET /quaternaries*`.** The
-app takes an **uploaded boundary** (GeoJSON Polygon/MultiPolygon in WGS84)
-for the area it extends, and the API takes any checked area. Faking the
-routes on synthetic outlines would only hide the gap. IC-WBT's synthetic
-quaternaries (option 3) are committed at
-`backend/fixtures/geo/quaternaries.synthetic.geojson` for tests and as a dev
-upload; they sit inside the synthetic CHIRPS and MAP copies.
+**What is built (R5-M1).** `GET /quaternaries` answers the whole configured
+file as `QuaternaryCollection` (`backend/src/quaternaries/`): code, area and
+MAP only, anything else in the file stays on the server, credited with
+`QUATERNARIES_CREDIT`. Locally the source is the synthetic fixture (option 3,
+`backend/fixtures/geo/quaternaries.synthetic.geojson`, which also sits inside
+the synthetic CHIRPS and MAP copies). **Unset, it answers 503 "not configured",
+and production stays unset until D-1 is settled**: the map panel then says so
+and how to go on, and the app still takes an **uploaded boundary** (GeoJSON
+Polygon/MultiPolygon in WGS84) for the area it extends. Unset is never silently
+synthetic.
+
+**When D-1 lands** the route needs two things it doesn't have: reading from a
+bucket (`QUATERNARIES_SOURCE` takes only `local` today, and the Lambda bundle
+carries no fixture), and a box. A national file of nearly 2 000 outlines is
+likely past the 5 MiB this route will answer (it refuses that in words rather
+than failing), so it needs `?bbox` with the limits above (≤ 5° a side, ≤ 100
+outlines) and `MapPanel` asking by the map's `onview`.
 
 ## DEM: relief and delineation
 
@@ -281,6 +296,16 @@ at commit `028c18f7`).
 for any other path. Pitman needs **its own** distribution's `/tiles/*`
 behaviour pointing at IC-WBT's tiles bucket (§ Cross-account access), so the
 plan's CSP `connect-src 'self'` holds.
+
+**Read by** `frontend/src/lib/map/` when the build sets `PUBLIC_TILES_URL`,
+`PUBLIC_TILES_GLYPHS_URL` and `PUBLIC_TERRAIN_URL` (`frontend/src/env.ts`). All
+three are empty by default: with no tiles the map draws on a plain background
+with everything else working, fetches nothing, and says so in a small note; a
+configured file that can't be read gets the same note (R5-M3). **Production
+leaves them unset until the `/tiles/*` behaviour exists** (§ Infra); then set
+`/tiles/south-africa.pmtiles`, `/tiles/fonts/{fontstack}/{range}.pbf` and
+`/tiles/terrain.pmtiles` as repo variables and pass them in
+`deploy-frontend.yml`.
 
 **Licences.** Basemap: ODbL 1.0 for the OSM data; "© Protomaps ©
 OpenStreetMap contributors" always visible on the map. Fonts: SIL OFL 1.1,
@@ -493,6 +518,9 @@ limits). Routes are unprefixed (CloudFront strips `/api`, R4-I4).
 | `MAP_GRID_LOCAL_FILE` | `.local/map-grid/synthetic.json` | the local grid |
 | `MAP_GRID_DATASET` | `synthetic` | the grid's name in answers and the sidecar (default: the file name) |
 | `DATA_REGION` | `af-south-1` | the S3 client's region for IC-WBT's buckets (not `AWS_REGION`, which Lambda reserves) |
+| `QUATERNARIES_SOURCE` | `local` | `local`; unset or empty = not configured, `GET /quaternaries` 503 (production until D-1) |
+| `QUATERNARIES_LOCAL_FILE` | `fixtures/geo/quaternaries.synthetic.geojson` | the local boundary file |
+| `QUATERNARIES_CREDIT` | "Synthetic test boundaries…" | how the screen credits them (default: the file name) |
 
 The S3 client is imported lazily, with 3 s connection / 10 s request
 timeouts (a MAP grid file 60 s), three attempts, and treats only
@@ -590,6 +618,14 @@ emitted as a page-build entry by a Vite plugin in IC-WBT's
 written for Vite 8 / SvelteKit 3, which Pitman also runs (since 2026-10-28),
 so the plugin ports as is. Without it, MapLibre needs a `blob:` worker, which the
 CSP refuses. About 2 500 lines after stripping.
+
+Built in Round 5.1 (`frontend/src/lib/map/`, each ported file naming its origin).
+What differs from the table: `Map.svelte` takes the contract's `MapProps`; the
+colours are tokens read by `palette.ts`, not `mapStyle.ts`'s constants;
+`appTheme.ts` is two lines of `matchMedia` in `Map.svelte`, since Pitman has no
+`data-theme`; the layer classes (`*Layer.svelte.ts`) became `MapPanel.svelte`'s
+loading; the MAP grid is drawn as cells, not points; IC-WBT's confirm dialog is a
+second press of Escape.
 
 ### Infra
 

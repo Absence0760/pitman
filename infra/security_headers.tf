@@ -56,14 +56,19 @@
 #     `<div style="display: contents">`, allowed by its hash under
 #     'unsafe-hashes' (which permits hashed style ATTRIBUTES; without it a hash
 #     only covers <style> elements).
+#   - SvelteKit's route announcer (kit/src/runtime/components/root.svelte) adds
+#     one more when the app mounts, so its hash is in csp.json too. It is not in
+#     the built HTML, so check-csp.mjs can't see it; frontend/e2e/map.spec.ts
+#     runs under this policy and fails if a Kit upgrade changes that style.
 #   check-csp.mjs fails the deploy if the build gains a style attribute or a
 #   <style> element whose hash isn't in csp.json, naming the hash to add.
 #
 # No data:, blob: or third-party origin: the build loads nothing but its own
 # files, the run worker is a same-origin module (_app/immutable/workers/),
 # and downloads use an <a download> on a blob: URL, which CSP doesn't block.
-# Round 5's map (MapLibre, pmtiles) will need its own review (worker,
-# /tiles/* same-origin; docs/data.md § Code to copy).
+# Round 5's map holds to this: MapLibre's worker is a page-build chunk
+# (frontend/vite.config.ts), tiles are same-origin under /tiles/*, and its data:
+# zoom icons are replaced by text (lib/map/maplibre-theme.css, R5-M6).
 # ----------------------------------------------------------------------------
 
 locals {

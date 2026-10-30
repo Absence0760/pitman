@@ -64,6 +64,35 @@
 	--series-12: #00796b;
 	--series-neutral: #6f7a7e;
 	--series-observed: #14232b;
+
+	/* The map (lib/map/palette.ts reads them for MapLibre, which can't take var()): ground, marks, tints, the MAP ramp. */
+	--map-bg: #eef0ea;
+	--map-earth: #e4e7df;
+	--map-water: #a9cfe0;
+	--map-green: #d3e3c6;
+	--map-road: #ffffff;
+	--map-road-case: #c9cdc4;
+	--map-border: #9a9f97;
+	--map-casing: #ffffff;
+	--map-label: #1f2320;
+	--map-label-water: #073a57;
+	--map-halo: #ffffff;
+	--map-quaternary: #8f10e0;
+	--map-selected: #b0006e;
+	--map-proposal: #006d77;
+	--map-channel: #c8102e;
+	--map-module: #0047b3;
+	--map-piece-1: #d55e00;
+	--map-piece-2: #cc79a7;
+	--map-piece-3: #e6f04a;
+	--map-piece-4: #9e9e9e;
+	--map-piece-5: #b39ddb;
+	--map-piece-6: #8d6e63;
+	--map-ramp-1: #c6dbef;
+	--map-ramp-2: #6baed6;
+	--map-ramp-3: #2171b5;
+	--map-ramp-4: #08519c;
+	--map-ramp-5: #08306b;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -106,6 +135,23 @@
 		--series-12: #4fd1bd;
 		--series-neutral: #9aa7ab;
 		--series-observed: #f0f5f6;
+
+		--map-bg: #161917;
+		--map-earth: #1d211e;
+		--map-water: #20394a;
+		--map-green: #22301f;
+		--map-road: #3a3f3b;
+		--map-road-case: #2a2e2b;
+		--map-border: #5d625e;
+		--map-casing: #000000;
+		--map-label: #eef0ec;
+		--map-label-water: #b9dcf5;
+		--map-halo: #0b0d0c;
+		--map-quaternary: #cf6bff;
+		--map-selected: #ff8fd0;
+		--map-proposal: #3fe0d0;
+		--map-channel: #ff6b57;
+		--map-module: #5fa8ff;
 	}
 }
 
