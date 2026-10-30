@@ -144,6 +144,13 @@ describe('WQT types 2 and 3 on the land', () => {
 		expect(residual(s).every((r) => Math.abs(r) < 1e-10)).toBe(true);
 	});
 
+	it('sends out the store\'s depth with land that leaves the block', () => {
+		const module = wqtBlock({ areaKm2: [{ year: 2000, value: 20 }, { year: 2001, value: 10 }] });
+		const demand = irrigationDemand(module, rainfallOf([[2000, 5], [2001, 5]]), HISTORICAL, 2000, 2001);
+		const s = settleIrrigation(module, demand, demand.gross.values);
+		expect(s.landTransfer.values[12]).toBeCloseTo((-s.soilMoistureMm.values[11]! * 10) / 1000, 12);
+	});
+
 	it('adds the canal seepage back into the return (eqs. 4.55, 4.56)', () => {
 		const without = full(wqtBlock({ canalFlowLoss: 0.2, canalSeepageToReturn: 0 })).settled;
 		const withIt = full(wqtBlock({ canalFlowLoss: 0.2, canalSeepageToReturn: 0.5 })).settled;
@@ -243,6 +250,40 @@ describe('the WQT type 4 tank, TT 690 §6.6.7', () => {
 		expect(s.evapotranspiration.values.every((v) => v >= 0)).toBe(true);
 		expect(s.returnFlow.values.every((v) => v >= 0)).toBe(true);
 		expect(residual(s).every((r) => Math.abs(r) < 1e-10)).toBe(true);
+	});
+
+	it('at RRHMIN evaporation gives way and the return stays as eq. 6.37 has it (eq. 6.43a, pp.53–54)', () => {
+		// F = 0.02 × 0.9 + 120 / 50 = 2.418: S2 comes out below RRHMIN.
+		const module = tank({ minUpperZoneStorageMm: 50, maxUpperZoneStorageMm: 100, soilMoistureInitialMm: 100, panFactors: twelve(1), panMm: twelve(120) });
+		const demand = irrigationDemand(module, flatRain(0), HISTORICAL, 2000, 2000);
+		const s = settleIrrigation(module, demand, new Array<number>(12).fill(0));
+		expect(s.soilMoistureMm.values[0]).toBe(50);
+		expect(s.returnFlow.values[0]).toBeCloseTo((25 * 0.02 * 0.9 * 10) / 1000, 12); // 0.0045
+		expect(s.evapotranspiration.values[0]).toBeCloseTo(0.5 - 0.0045, 12); // the 50 mm the tank lost, less the return
+	});
+
+	it('keeps eqs. 6.37 and 6.41 exact between the limits: nothing is left for QE to hide', () => {
+		const module = tank();
+		const demand = irrigationDemand(module, flatRain(), HISTORICAL, 2000, 2000);
+		const s = settleIrrigation(module, demand, new Array<number>(12).fill(0.5)); // 50 + 30 mm a month: settles near 500 mm
+		let s1 = 250;
+		for (let t = 0; t < 12; t++) {
+			const s2 = s.soilMoistureMm.values[t]!;
+			expect(s2).toBeGreaterThan(0);
+			expect(s2).toBeLessThan(700);
+			const bar = 0.5 * (s1 + s2);
+			expect(s.evapotranspiration.values[t]).toBeCloseTo(((bar * 100) / 700 / 1000) * 10, 10);
+			expect(s.returnFlow.values[t]).toBeCloseTo(((bar * 0.02 * 0.9) / 1000) * 10, 10);
+			s1 = s2;
+		}
+	});
+
+	it('moves depth × the change in area with the land', () => {
+		const module = tank({ areaKm2: [{ year: 2000, value: 10 }, { year: 2001, value: 20 }] });
+		const demand = irrigationDemand(module, rainfallOf([[2000, 5], [2001, 5]]), HISTORICAL, 2000, 2001);
+		const s = settleIrrigation(module, demand, demand.gross.values);
+		expect(s.landTransfer.values[12]).toBeCloseTo((s.soilMoistureMm.values[11]! * 10) / 1000, 12);
+		expect(s.landTransfer.values.filter((v) => v !== 0)).toHaveLength(1);
 	});
 
 	it('refuses a tank with no range, and clamps a start outside it', () => {

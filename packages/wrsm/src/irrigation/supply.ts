@@ -331,18 +331,19 @@ function settleWqt4(
 		let s2 = (s1 * (1 - 0.5 * f) + hmin * f + rain + applied) / (1 + 0.5 * f); // eq. 6.42
 		s2 = Math.min(hmax, Math.max(hmin, s2)); // eqs. 6.43b, 6.44b
 
-		// Eqs. 6.37–6.41 on the final S2, as p.54 says. QE closes the tank above RRHMAX; below RRHMIN the outflows give way (R7-I11).
+		// Eqs. 6.37–6.41 on the final S2, as p.54 says. QE closes the tank above RRHMAX; at RRHMIN evaporation
+		// gives way (eq. 6.43a, p.53), and the return only if it alone is more than the tank holds (R7-I11).
 		const excess = Math.max(0, 0.5 * (s1 + s2) - hmin);
 		let qiout = excess * rrlf; // eq. 6.37, mm
 		let e = (excess * pe) / (hmax - hmin); // eq. 6.41
 		const available = Math.max(0, s1 + rain + applied - s2);
-		const out = qiout * proportions + e;
+		const seepage = qiout * proportions;
 		let qe = 0;
-		if (out > available) {
-			const k = out > 0 ? available / out : 0;
-			qiout *= k;
-			e *= k;
-		} else qe = available - out; // eq. 6.44a
+		if (seepage > available) {
+			qiout *= available / seepage;
+			e = 0;
+		} else if (seepage + e > available) e = available - seepage;
+		else qe = available - seepage - e; // eq. 6.44a
 
 		const qup = (qiout * module.returnFlowUpperZone) / toDepth; // eq. 6.38
 		const qlow = (qiout * module.returnFlowLowerZone) / toDepth; // eq. 6.39

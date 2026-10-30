@@ -139,6 +139,20 @@ describe('WQT type 2, TT 690 ch.4', () => {
 		expect(irrigationDemand(block, year(), HISTORICAL, 2000, 2000, { zeroAllocation: 'noWater' }).gross.values[0]).toBe(0);
 	});
 
+	it('keeps a growth of 0 as no water: R7-I4 is about RRMA alone (TT 689 p.98)', () => {
+		const block = wqtBlock({ maxAllocationMm3PerYear: 1, allocation: { interpolation: 1, values: [{ year: 2000, value: 0 }] } });
+		expect(irrigationDemand(block, year(), HISTORICAL, 2000, 2000).gross.values[0]).toBe(0);
+		const small = wqtBlock({ maxAllocationMm3PerYear: 1, allocation: { interpolation: 1, values: [{ year: 2000, value: 0.01 }] } });
+		expect(irrigationDemand(small, year(), HISTORICAL, 2000, 2000).gross.values.reduce((s, v) => s + v, 0)).toBeCloseTo(0.01, 10);
+	});
+
+	it('warns when the efficiency cap fires, as TT 691 p.160\'s own values would (R7-I6)', () => {
+		const block = wqtBlock({ efficiencyFactor: 96, efficiency: { interpolation: 1, values: [{ year: 2000, value: 60 }] } });
+		const d = irrigationDemand(block, year(), HISTORICAL, 2000, 2000);
+		expect(d.efficiency[0]).toBe(1);
+		expect(d.messages).toContainEqual(expect.objectContaining({ level: 'warning', text: expect.stringContaining('above 1; 1 is used') }));
+	});
+
 	it('grows the allocation, efficiency and return factor by year for types 2–3 (TT 689 pp.98, 102, 106)', () => {
 		const block = wqtBlock({
 			efficiencyFactor: 0.8,
@@ -271,6 +285,11 @@ describe('WQT type 4, TT 690 §6.6', () => {
 	it('warns when a minimum rainfall factor is above its maximum, as TT 691 pp.172–174 has it (R7-I14)', () => {
 		const block = wqt4Block({ rainfallFactors: twelve(1), maxRainfallFactors: twelve(0.6) });
 		expect(irrigationDemand(block, year(), HISTORICAL, 2000, 2000).messages).toContainEqual(expect.objectContaining({ level: 'warning', text: expect.stringContaining('L.032') }));
+	});
+
+	it('warns that a type 4 block asking for total return flows runs as net (R7-I13)', () => {
+		const d = irrigationDemand(wqt4Block({ ...flat, netReturnFlows: false }), year(), HISTORICAL, 2000, 2000);
+		expect(d.messages).toContainEqual(expect.objectContaining({ level: 'warning', text: expect.stringContaining('runs as net') }));
 	});
 
 	it('refuses type 4 in a v32 layout (R7-I1)', () => {

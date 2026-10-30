@@ -271,10 +271,45 @@ describe('the runoff module a WQT block lies in', () => {
 		expect(b.routeFlows[8]!.values).toEqual(a.routeFlows[8]!.values);
 	});
 
-	it('warns when the module is missing, or comes later in the list, and carries on without QC (R7-I12)', () => {
+	it('warns when the module is missing, and carries on without QC (R7-I12)', () => {
 		const missing = run(withBlock(bundle, {}, block({ runoffModule: 77 })), HISTORICAL);
 		expect(missing.messages).toContainEqual(expect.objectContaining({ level: 'warning', text: expect.stringContaining('RU 77 (L.013) is not in the network') }));
 		expect(sum(missing.routeFlows[7]!)).toBeGreaterThan(0);
+	});
+
+	/** RU 20 listed after everything else, on its own route to the zero sink. */
+	const lastRunoff = (b: NetworkBundle): NetworkBundle => ({
+		...b,
+		network: {
+			...b.network,
+			modules: [...b.network.modules, { number: 20, type: 'RU', solve: true }],
+			routes: [...b.network.routes, { number: 20, upstreamPosition: b.network.modules.length + 1, downstreamPosition: 0, cost: 0 }]
+		},
+		modules: [...b.modules, { ...runoff(b, 3), number: 20, inflowRoute: 0, outflows: [{ route: 20, percent: 100 }] }]
+	});
+
+	it('reads QC from a runoff module listed after the supplier, with no warning (R7-I12)', () => {
+		const later = lastRunoff(withBlock(bundle, {}, block({ runoffModule: 20 })));
+		const result = run(later, HISTORICAL);
+		expect(result.messages.filter((m) => /L\.013/.test(m.text))).toEqual([]);
+		const none = run(lastRunoff(withBlock(bundle, {}, block({ runoffModule: 0 }))), HISTORICAL);
+		expect(result.irrigation![6]!.soilMoistureMm.values).not.toEqual(none.irrigation![6]!.soilMoistureMm.values);
+		expect(result.runoff![20]).toEqual(none.runoff![20]); // solved once, the same however it was reached
+	});
+
+	it('total return loses no water, wherever the runoff module sits in the list', () => {
+		const net = run(lastRunoff(withBlock(bundle, {}, block({ runoffModule: 20 }))), HISTORICAL);
+		const total = run(lastRunoff(withBlock(bundle, {}, block({ runoffModule: 20, netReturnFlows: false }))), HISTORICAL);
+		const left = sum(net.routeFlows[20]!) - sum(total.routeFlows[20]!);
+		expect(left).toBeGreaterThan(0);
+		expect(sum(total.routeFlows[8]!) - sum(net.routeFlows[8]!)).toBeCloseTo(left, 8);
+	});
+
+	it('an unsolved block takes no area from its runoff module (R7-I13)', () => {
+		const b = withBlock(bundle, {}, block({ netReturnFlows: false }));
+		const off: NetworkBundle = { ...b, network: { ...b.network, modules: b.network.modules.map((e) => (e.type === 'RR' || e.type === 'CR' ? { ...e, solve: false } : e)) } };
+		const result = run(off, HISTORICAL);
+		expect(result.routeFlows[3]!.values).toEqual(run(bundle, HISTORICAL).routeFlows[3]!.values);
 	});
 });
 

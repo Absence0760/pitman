@@ -95,8 +95,8 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 	const irrigation: Record<number, IrrigationDiagnostics> = {};
 	const pending: PendingIrrigation[] = [];
 	const demandStream = new Map<number, MonthlySeries>(); // the routes' demand stream (TT 689 p.84)
-	const generated = new Map<number, MonthlySeries>(); // each solved runoff module's own runoff
-	const totalReturn = totalReturnBlocks(bundle); // RU number → the blocks whose 'total' return flow takes its area (R7-I13)
+	const solvedRunoff = new Map<number, { outflow: MonthlySeries; diagnostics: RunoffDiagnostics }>();
+	const totalReturn = totalReturnBlocks(placed); // RU number → the blocks whose 'total' return flow takes its area (R7-I13)
 	const virginMarMm3: Record<number, number> = {};
 	const parents = sfrParents(bundle);
 	const groups = new Map<number, PlacedGroup>();
@@ -137,17 +137,40 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 		for (const m of result.messages) messages.push({ ...m, route: m.route ?? route.number });
 	}
 
+	/**
+	 * A runoff module's own runoff, the first time anything needs it: its place in the list, or a block
+	 * lying in it (R7-I12). Generated runoff reads no route, so a block can ask at any point in the order.
+	 */
+	const solveRunoff = (p: PlacedModule, module: RunoffModule): { outflow: MonthlySeries; diagnostics: RunoffDiagnostics } => {
+		const known = solvedRunoff.get(module.number);
+		if (known) return known;
+		// An SFR parent or child runs with its group (R6-F…, docs/theory/afforestation.md); a free module on its own, with the reductions.
+		const parent = (module.sfrChildren?.length ?? 0) > 0 ? module : parents.get(module.number);
+		let result: { outflow: MonthlySeries; diagnostics: RunoffDiagnostics };
+		if (parent) {
+			result = groupOf(p, parent).members.get(module.number)!;
+		} else {
+			const free = runRunoff(p, module, bundle, mode, options);
+			messages.push(...free.messages);
+			if (free.virginMarMm3 !== undefined) virginMarMm3[module.number] = free.virginMarMm3;
+			result = free;
+		}
+		runoff[module.number] = result.diagnostics;
+		solvedRunoff.set(module.number, result);
+		return result;
+	};
 	/** QC (TT 690 eq. 4.18) for a WQT block: the runoff per unit pervious area of the module it lies in (R7-I12). */
 	const unitRunoff = (rr: PendingIrrigation): readonly number[] | undefined => {
 		const { module, p } = rr;
 		if (module.layout === 'pitman' || rr.demand.modelType === 1 || rr.demand.modelType === 4 || !module.runoffModule) return undefined;
-		const ru = bundle.modules.find((m): m is RunoffModule => m.kind === 'RU' && m.number === module.runoffModule);
-		const own = generated.get(module.runoffModule);
-		if (!ru || !own) {
-			const why = ru ? 'has not been solved yet; list it above the supplier' : 'is not in the network';
+		const q = placed.find((x) => x.entry.type === 'RU' && x.entry.number === module.runoffModule);
+		const ru = q?.module;
+		if (!q || ru?.kind !== 'RU' || !q.entry.solve) {
+			const why = q ? 'is not solved' : 'is not in the network';
 			messages.push({ level: 'warning', module: p.ref, text: `${placedLabel(p)}: runoff module RU ${module.runoffModule} (L.013) ${why}, so no catchment runoff passes through the block (R7-I12)` });
 			return undefined;
 		}
+		const own = solveRunoff(q, ru).outflow;
 		const paved = pavedFractionByMonth(ru, mode, startYear, endYear).fraction;
 		const pavedFlow = runoff[ru.number]?.pavedFlow?.values;
 		return own.values.map((v, t) => {
@@ -200,19 +223,7 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 		}
 		switch (module.kind) {
 			case 'RU': {
-				// An SFR parent or child runs with its group (R6-F…, docs/theory/afforestation.md); a free module on its own, with the reductions.
-				const parent = (module.sfrChildren?.length ?? 0) > 0 ? module : parents.get(module.number);
-				let result: { outflow: MonthlySeries; diagnostics: RunoffDiagnostics };
-				if (parent) {
-					result = groupOf(p, parent).members.get(module.number)!;
-				} else {
-					const free = runRunoff(p, module, bundle, mode, options);
-					messages.push(...free.messages);
-					if (free.virginMarMm3 !== undefined) virginMarMm3[module.number] = free.virginMarMm3;
-					result = free;
-				}
-				runoff[module.number] = result.diagnostics;
-				generated.set(module.number, result.outflow);
+				const result = solveRunoff(p, module);
 				const inflow = module.inflowRoute ? flows.get(module.inflowRoute)!.values : undefined;
 				// R7-I13: a block with 'total' return flows takes its area out of the module (TT 689 p.106).
 				const taken = mode.kind === 'natural' ? [] : (totalReturn.get(module.number) ?? []);
@@ -319,11 +330,11 @@ function solveOrder(placed: readonly PlacedModule[], dependencies: readonly Depe
 	return order;
 }
 
-/** Blocks with 'total' return flows (L.014 v2 = 0) by the runoff module they lie in. Types 2 and 3 only: type 4 is always net (R7-I13). */
-function totalReturnBlocks(bundle: NetworkBundle): ReadonlyMap<number, readonly IrrigationModule[]> {
+/** Solved blocks with 'total' return flows (L.014 v2 = 0) by the runoff module they lie in. Types 2 and 3 only: type 4 is always net (R7-I13). */
+function totalReturnBlocks(placed: readonly PlacedModule[]): ReadonlyMap<number, readonly IrrigationModule[]> {
 	const out = new Map<number, IrrigationModule[]>();
-	for (const m of bundle.modules) {
-		if (m.kind !== 'RR' || m.layout === 'pitman' || m.netReturnFlows || !m.runoffModule) continue;
+	for (const { entry, module: m } of placed) {
+		if (!entry.solve || m?.kind !== 'RR' || m.layout === 'pitman' || m.netReturnFlows || !m.runoffModule) continue;
 		if (m.modelType !== 2 && m.modelType !== 3) continue;
 		out.set(m.runoffModule, [...(out.get(m.runoffModule) ?? []), m]);
 	}

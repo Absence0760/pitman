@@ -37,7 +37,7 @@ import type {
 /** The provisional choices worth switching, each an R7-I… in docs/decisions.md. */
 export interface IrrigationOptions {
 	/**
-	 * R7-I4: a WQT allocation (RRMA, or a year-table value) of 0 or less.
+	 * R7-I4: a WQT RRMA (L.013) of 0 or less.
 	 * `noLimit` (default): no allocation is set. `noWater`: eq. 4.8 as printed,
 	 * so the block demands nothing.
 	 */
@@ -275,7 +275,7 @@ export function irrigationDemand(
 	}
 
 	if (method !== 1 && module.layout !== 'pitman') {
-		if (!natural) wqtDataNotes(module, method, note, label);
+		if (!natural) wqtDataNotes(module, method, startYear, endYear, yearFor, note, label);
 		const cut = s.area.reduce((n, a, t) => (a > 0 && (s.target[t] ?? a) < a - 1e-12 ? n + 1 : n), 0);
 		if (cut > 0) note('info', `${label}: the allocation limits irrigation in ${Math.ceil(cut / 12)} year(s) (TT 690 eq. 4.8)`);
 	}
@@ -297,7 +297,23 @@ export function irrigationDemand(
 	};
 }
 
-function wqtDataNotes(module: IrrigationWqtLayout | IrrigationWqt4Layout, method: IrrigationModelType, note: (level: RunMessage['level'], text: string) => void, label: string): void {
+function wqtDataNotes(
+	module: IrrigationWqtLayout | IrrigationWqt4Layout,
+	method: IrrigationModelType,
+	startYear: HydroYear,
+	endYear: HydroYear,
+	yearFor: (y: HydroYear) => HydroYear,
+	note: (level: RunMessage['level'], text: string) => void,
+	label: string
+): void {
+	for (let y = startYear; y <= endYear; y++) {
+		const efficiency = rawEfficiency(module, method === 4, yearFor(y));
+		if (efficiency > 1) {
+			note('warning', `${label}: efficiency ${efficiency.toFixed(2)} in ${y} (L.015 with L.030) is above 1; 1 is used, so the demand may be understated (R7-I6)`);
+			break;
+		}
+	}
+	if (method === 4 && !module.netReturnFlows) note('warning', `${label}: L.014 asks for total return flows; type 4 runs as net (TT 689 p.106, R7-I13)`);
 	if (module.efficiencyFactor > 1) note('info', `${label}: efficiency ${module.efficiencyFactor} (L.015) read as a percentage (R7-I6)`);
 	if (module.returnFlowFactor > 1) note('info', `${label}: return-flow factor ${module.returnFlowFactor} (L.015) read as a percentage (R7-I6)`);
 	if (method === 4 && module.layout === 'wqt4' && module.rainfallFactors.some((v, m) => v > module.maxRainfallFactors[m]!)) {
@@ -339,22 +355,34 @@ function pitmanYear(module: IrrigationModule, { rain, area }: YearInput): YearRe
 	return { rainMm: [...rain], unit: net, df: twelve(1), crop, pel: twelve(0), area: twelve(area), target: twelve(area), efficiency: twelve(1), returnFactor: twelve(0), gross };
 }
 
-/** The year-varying WQT factors: base × growth for types 2–3; the table's values for type 4 (TT 689 p.98, p.102). */
-function wqtFactors(module: IrrigationWqtLayout | IrrigationWqt4Layout, type4: boolean, year: HydroYear, fail: (t: string) => never): { efficiency: number; returnFactor: number } {
-	const at = (t: InterpolatedYearTable, fallback: number) => (t.values.length === 0 ? fallback : interpolateYearTable(t.values, year, t.interpolation));
+const tableAt = (t: InterpolatedYearTable, year: HydroYear, fallback: number): number => (t.values.length === 0 ? fallback : interpolateYearTable(t.values, year, t.interpolation));
+
+/** Efficiency before the cap at 1: base × growth for types 2–3, the table's value for type 4 (TT 689 p.102). */
+function rawEfficiency(module: IrrigationWqtLayout | IrrigationWqt4Layout, type4: boolean, year: HydroYear): number {
 	const base = proportion(module.efficiencyFactor);
-	const efficiency = type4 ? (module.efficiency.values.length > 0 ? proportion(at(module.efficiency, base)) : base) : base * at(module.efficiency, 1);
-	if (!(efficiency > 0)) return fail(`irrigation efficiency ${efficiency} must be positive (L.015, L.030): a block can't apply water at no efficiency`);
-	return { efficiency: Math.min(1, efficiency), returnFactor: proportion(module.returnFlowFactor) * at(module.returnFlowGrowth, 1) };
+	return type4 ? (module.efficiency.values.length > 0 ? proportion(tableAt(module.efficiency, year, base)) : base) : base * tableAt(module.efficiency, year, 1);
 }
 
-/** The annual allocation in force, or `null` when none limits the block (R7-I4). */
+/** The year-varying WQT factors. */
+function wqtFactors(module: IrrigationWqtLayout | IrrigationWqt4Layout, type4: boolean, year: HydroYear, fail: (t: string) => never): { efficiency: number; returnFactor: number } {
+	const efficiency = rawEfficiency(module, type4, year);
+	if (!(efficiency > 0)) return fail(`irrigation efficiency ${efficiency} must be positive (L.015, L.030): a block can't apply water at no efficiency`);
+	return { efficiency: Math.min(1, efficiency), returnFactor: proportion(module.returnFlowFactor) * tableAt(module.returnFlowGrowth, year, 1) };
+}
+
+/**
+ * The annual allocation in force, or `null` when none limits the block. R7-I4
+ * covers RRMA alone: a year-table value of 0 is a real allocation of nothing
+ * (TT 689 p.98: values below 1 reduce it).
+ */
 function allocationIn(module: IrrigationWqtLayout | IrrigationWqt4Layout, type4: boolean, year: HydroYear, opts: IrrigationOptions): number | null {
 	const t = module.allocation;
 	const has = t.values.length > 0;
 	const value = interpolateYearTable(t.values, year, t.interpolation);
-	const all = type4 && has ? value : module.maxAllocationMm3PerYear * (has ? value : 1);
-	return all > 0 ? all : opts.zeroAllocation === 'noWater' ? 0 : null;
+	if (type4 && has) return Math.max(0, value);
+	const rrma = module.maxAllocationMm3PerYear;
+	if (!(rrma > 0)) return opts.zeroAllocation === 'noWater' ? 0 : null;
+	return Math.max(0, rrma * (has ? value : 1));
 }
 
 /** TT 690 ch.4 (type 2) and ch.5 (type 3), eqs. 4.1–4.8, 5.1–5.9. */
