@@ -198,10 +198,11 @@ loaded: an unchanged file byte for byte, a changed one in WRSM2000's standard la
 and anything Pitman didn't read (such as `Out/`). `pitman.json` goes beside the `.NET`.
 Open it in WRSM2000 to check it.
 
-## Sub-division and the map (just landing)
+## Sub-division and the map
 
-This is arriving with the map and may not be in your version yet. The method is
-settled (`docs/theory/subdivide.md`):
+The map shows the quaternaries from the first screen. On a local copy it draws invented
+boundaries and terrain; real ones need a licence decision. The method is in
+`docs/theory/subdivide.md`:
 
 - Pick a quaternary on the map and split it by a **tributary**, from a point on the
   river, or by a **MAP zone**, drawn by hand or proposed from a MAP-grid threshold.

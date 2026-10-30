@@ -116,8 +116,8 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
 			},
 			{
 				name: 'Sub-dividing a quaternary (method B)',
-				status: 'Not yet',
-				detail: 'Tributary and MAP-zone splits on a map, with each piece’s MAP scaled to the natural MAR (decision D2). Specified; arriving with the map.'
+				status: 'Partly',
+				detail: 'Tributary and MAP-zone splits on a map, with each piece’s MAP scaled to the natural MAR (decision D2). Works here on invented boundaries and terrain only: real quaternary boundaries await a licence decision. No split network has yet been opened in WRSM2000, and a split Sami module may differ there (departure DP-5).'
 			},
 			{
 				name: 'Land use and demands to 2025',
