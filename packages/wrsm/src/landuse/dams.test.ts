@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { exampleBundle } from '../subdivide/fixtures.js';
+import { readReservoir, writeReservoir } from '../io/reservoir.js';
 import type { DamRecord, ModuleRef, NetworkBundle, ReservoirModule } from '../types.js';
 import { DAM_DEPTH_M, DEFAULT_MATCH_RADIUS_M, MIN_DAM_AREA_KM2, applyDams, damAreaKm2, damsRow, matchDams, overrideDam } from './dams.js';
 import type { DamCandidate } from './round7-contract.js';
@@ -44,7 +45,13 @@ describe('matchDams (D4)', () => {
 		const [out] = matchDams([dam('s', 'surfaceWater', -33.6, { areaKm2: MIN_DAM_AREA_KM2 / 2 })], options);
 		expect(out).toMatchObject({ capacityMm3: 0, source: { kind: 'surfaceWater' } });
 		expect(out!.source.note).toMatch(/no capacity/);
-		expect(out!.areaKm2).toBeCloseTo(MIN_DAM_AREA_KM2 / 2, 12);
+		expect(out!.areaKm2).toBeUndefined();
+	});
+
+	it('doesn’t take a noise-floor area as a dam’s measured area, so the row uses capacity ÷ 3 m (R7-C6)', () => {
+		const [out] = matchDams([dam('r', 'register', -33.6, { capacityMm3: 0.6 }), dam('s', 'surfaceWater', -33.6, { areaKm2: MIN_DAM_AREA_KM2 / 2 })], options);
+		expect(out!.areaKm2).toBeUndefined();
+		expect(damsRow([out!])).toEqual({ fullSupplyVolumeMm3: 0.6, fullSupplyAreaKm2: 0.2 });
 	});
 
 	it('keeps dams apart beyond the radius, and a source’s own dams apart within it', () => {
@@ -112,16 +119,29 @@ describe('applyDams', () => {
 		expect(rv(applyDams(b, RV, first!.year + 1, dams)).capacity[1]!.year).toBe(first!.year + 1);
 	});
 
-	it('keeps each dam and its source in the sidecar, under the runoff module that feeds the reservoir', () => {
+	it('keeps each dam and its source in the sidecar, under its row and the runoff module that feeds the reservoir', () => {
 		const next = applyDams(exampleBundle(), RV, 2025, dams);
 		expect(next.sidecar?.dams?.map((d) => [d.id, d.module])).toEqual([['a', { type: 'RU', number: 3 }], ['b', { type: 'RU', number: 3 }]]);
 		expect(next.sidecar?.dams?.[0]?.source).toEqual(dams[0]!.source);
+		expect(next.sidecar?.dams?.[0]?.row).toEqual({ reservoir: RV, year: 2025 });
 	});
 
-	it('replaces the module’s dams on a second apply, and leaves another module’s alone', () => {
+	it('replaces one row’s dams on a second apply, so the list backs the row, and leaves other rows’ alone', () => {
 		const once = applyDams(exampleBundle(), { type: 'RV', number: 8 }, 2025, [record('other', 1)]);
 		const twice = applyDams(applyDams(once, RV, 2025, dams), RV, 2025, [record('a', 0.2)]);
 		expect(twice.sidecar?.dams?.map((d) => d.id)).toEqual(['other', 'a']);
+		const years = applyDams(applyDams(exampleBundle(), RV, 2010, [record('a', 0.1), record('b', 0.1)]), RV, 2025, [record('a', 0.2)]);
+		expect(years.sidecar?.dams?.map((d) => [d.id, d.row?.year])).toEqual([['a', 2010], ['b', 2010], ['a', 2025]]);
+	});
+
+	it('replaces a record from before rows were kept by its id', () => {
+		const b = { ...exampleBundle(), sidecar: { schema: 'pitman-sidecar' as const, schemaVersion: 1 as const, dams: [record('a', 9), record('old', 9)] } };
+		expect(applyDams(b, RV, 2025, [record('a', 0.2)]).sidecar?.dams?.map((d) => [d.id, d.capacityMm3])).toEqual([['old', 9], ['a', 0.2]]);
+	});
+
+	it('survives a write and a read: the file holds what the row says', () => {
+		const next = rv(applyDams(exampleBundle(), RV, 2025, dams));
+		expect(readReservoir(writeReservoir(next), 'Z1RV2.DAT').capacity).toEqual(next.capacity);
 	});
 
 	it('refuses what it can’t write', () => {
@@ -131,5 +151,7 @@ describe('applyDams', () => {
 		expect(() => applyDams(b, RV, 2025, [])).toThrow(/no dams/);
 		expect(() => applyDams(b, RV, 25.5, dams)).toThrow(/year/);
 		expect(() => applyDams(b, RV, 2025, [record('a', Number.NaN)])).toThrow(/capacity/);
+		expect(() => applyDams(b, RV, 2025, [record('a', 1, Number.NaN)])).toThrow(/area/);
+		expect(() => applyDams(b, RV, 2025, [record('a', 0), record('b', 0.001)])).toThrow(/no capacity/);
 	});
 });

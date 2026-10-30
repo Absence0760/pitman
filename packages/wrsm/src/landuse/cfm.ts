@@ -117,8 +117,10 @@ export function applyIrrigatedAreas<B extends NetworkBundle>(bundle: B, module: 
 		const crops = withCropShares(found, areas);
 		next = { ...found, areaKm2, crops };
 		if (crops.some((c, i) => c.percent !== found.crops[i]!.percent)) {
-			const before = found.crops.map((c) => `${c.description} ${c.percent} %`).join(', ');
-			entries.push({ target: { module, field: 'crops.percent' }, source: { ...source, note: `${source.note ?? 'census'}; was ${before}` } });
+			// "was" stays the file's own mix, however many times the row is applied.
+			const earlier = bundle.sidecar?.values?.find((v) => sameTarget(v.target, { module, field: 'crops.percent' }))?.source.note?.match(/; was .*$/)?.[0];
+			const before = earlier ?? `; was ${found.crops.map((c) => `${c.description} ${c.percent} %`).join(', ')}`;
+			entries.push({ target: { module, field: 'crops.percent' }, source: { ...source, note: `${source.note ?? 'census'}${before}` } });
 		}
 	}
 	const base: Sidecar = bundle.sidecar ?? { schema: 'pitman-sidecar', schemaVersion: 1 };

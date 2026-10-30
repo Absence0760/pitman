@@ -48,7 +48,8 @@ function record(members: readonly DamCandidate[], date: IsoDate): DamRecord {
 	const values = members.flatMap((m) => valueOf(m, date) ?? []);
 	const ordered = [...values.filter((v) => v.stated), ...values.filter((v) => !v.stated)];
 	const used = ordered[0];
-	const areaKm2 = members.find((m) => m.areaKm2 !== undefined && m.areaKm2 > 0)?.areaKm2;
+	// An area under the noise floor measures nothing, so the dam counts as having none (R7-C6).
+	const areaKm2 = members.find((m) => m.areaKm2 !== undefined && m.areaKm2 >= MIN_DAM_AREA_KM2)?.areaKm2;
 	const fallback: ValueSource = { kind: VALUE_KIND[anchor.source], note: `${anchor.name ?? anchor.id}: no capacity, and no area to measure one from`, date };
 	return {
 		id: anchor.id,
@@ -133,21 +134,28 @@ function feedingRunoff(bundle: NetworkBundle, reservoir: ReservoirModule): Modul
 /**
  * The bundle with the reservoir's row for `year` set to the dams' sum (added
  * in year order, or replacing that year's row) and the sidecar's `dams`
- * holding each one. A dam takes the runoff module feeding the reservoir; a
- * new list replaces the dams already held for that module, and any with the
- * same id, so a dam dropped from the list leaves the sidecar too.
+ * holding each one under that row, so the list always backs the row: a new
+ * list replaces that row's dams and no other's (R7-C6). A dam takes the runoff
+ * module feeding the reservoir when there is one. A list summing to nothing is
+ * refused: a capacity of 0 takes the reservoir out of that year.
  */
 export function applyDams<B extends NetworkBundle>(bundle: B, reservoir: ModuleRef, year: HydroYear, dams: readonly DamRecord[]): B {
 	const found = reservoir.type === 'RV' ? bundle.modules.find((m): m is ReservoirModule => m.kind === 'RV' && m.number === reservoir.number) : undefined;
 	if (!found) throw new RangeError(`${reservoir.type} ${reservoir.number} is not a reservoir in this network`);
 	if (!Number.isInteger(year) || year < 1000 || year > 9999) throw new RangeError(`${year} is not a year the file can hold`);
 	if (dams.length === 0) throw new RangeError('there are no dams to sum');
-	for (const d of dams) if (!Number.isFinite(d.capacityMm3) || d.capacityMm3 < 0) throw new RangeError(`dam ${d.id} has a capacity of ${d.capacityMm3} million m³`);
-	const capacity = [...found.capacity.filter((r) => r.year !== year), { year, ...damsRow(dams) }].sort((a, b) => a.year - b.year);
+	for (const d of dams) {
+		if (!Number.isFinite(d.capacityMm3) || d.capacityMm3 < 0) throw new RangeError(`dam ${d.id} has a capacity of ${d.capacityMm3} million m³`);
+		if (d.areaKm2 !== undefined && (!Number.isFinite(d.areaKm2) || d.areaKm2 < 0)) throw new RangeError(`dam ${d.id} has an area of ${d.areaKm2} km²`);
+	}
+	const row = damsRow(dams);
+	if (row.fullSupplyVolumeMm3 === 0) throw new RangeError('the dams add up to no capacity the file can hold');
+	const capacity = [...found.capacity.filter((r) => r.year !== year), { year, ...row }].sort((a, b) => a.year - b.year);
 	const runoff = feedingRunoff(bundle, found);
 	const ids = new Set(dams.map((d) => d.id));
-	const kept = (bundle.sidecar?.dams ?? []).filter((d) => !ids.has(d.id) && !(runoff && d.module?.type === runoff.type && d.module.number === runoff.number));
-	const held = dams.map((d) => (runoff && !d.module ? { ...d, module: runoff } : d));
+	// A record from before rows were kept is replaced by its id.
+	const kept = (bundle.sidecar?.dams ?? []).filter((d) => (d.row ? !(d.row.reservoir.number === reservoir.number && d.row.reservoir.type === reservoir.type && d.row.year === year) : !ids.has(d.id)));
+	const held = dams.map((d) => ({ ...d, ...(runoff && !d.module ? { module: runoff } : {}), row: { reservoir, year } }));
 	const base: Sidecar = bundle.sidecar ?? { schema: 'pitman-sidecar', schemaVersion: 1 };
 	return { ...bundle, modules: bundle.modules.map((m) => (m === found ? { ...found, capacity } : m)), sidecar: { ...base, dams: [...kept, ...held] } };
 }

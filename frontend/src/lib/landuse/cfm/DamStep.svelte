@@ -69,7 +69,7 @@
 	const unmeasured = $derived(used.filter((d) => d.areaKm2 === undefined).length);
 	const noFigure = $derived(used.filter((d) => d.capacityMm3 === 0));
 	const before = $derived(year === null ? undefined : reservoir?.rows.find((r) => r.year === year));
-	const canApply = $derived(reservoir !== undefined && year !== null && used.length > 0 && blocked.length === 0 && !busy);
+	const canApply = $derived(reservoir !== undefined && year !== null && row.fullSupplyVolumeMm3 > 0 && blocked.length === 0 && !busy);
 
 	function apply() {
 		if (!canApply || !reservoir || year === null) return;
@@ -176,6 +176,9 @@
 			<div><dt>{before ? 'Replaces' : 'New row'}</dt><dd>{before ? `${formatNumber(before.fullSupplyVolumeMm3, 2)} million m³, ${formatNumber(before.fullSupplyAreaKm2, 2)} km²` : 'none for this year'}</dd></div>
 			<div><dt>Dams</dt><dd>{used.length}{unmeasured > 0 ? `, ${unmeasured} with no surface area, taken as capacity ÷ 3 m` : ''}</dd></div>
 		</dl>
+		{#if row.fullSupplyVolumeMm3 === 0}
+			<p class="warn"><strong>No capacity to write.</strong> These dams add up to less than the file’s 0.01 million m³, and a capacity of 0 would take the reservoir out of this year. Type a figure, or keep the row the network has.</p>
+		{/if}
 		{#if row.fullSupplyVolumeMm3 > 0 && row.fullSupplyAreaKm2 === 0}
 			<p class="warn"><strong>Check:</strong> the surface area rounds to 0.00 km² in the file, so the row would have no evaporation.</p>
 		{/if}

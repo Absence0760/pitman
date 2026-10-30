@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { exampleBundle } from '../subdivide/fixtures.js';
+import { readIrrigation, writeIrrigation } from '../io/irrigation.js';
 import type { IrrigationModule, IrrigationWqtLayout, Module, ModuleRef, NetworkBundle, ValueSource } from '../types.js';
 import { COMPOSITE_CROP, applyIrrigatedAreas, fieldIrrigated, irrigatedRowKm2, irrigationCropTypes, sumIrrigatedAreas } from './cfm.js';
 import type { CropField } from './round7-contract.js';
@@ -88,6 +89,19 @@ describe('applyIrrigatedAreas', () => {
 		expect(crops.map((c) => c.percent)).toEqual([66.67, 33.33]);
 		const note = next.sidecar?.values?.find((v) => v.target.field === 'crops.percent');
 		expect(note?.source.note).toBe('Invented census; was Vines 60 %, Orchards 40 %');
+	});
+
+	it('keeps the file’s own mix as “was”, however often the row is applied', () => {
+		const once = applyIrrigatedAreas(twoCrops(), RR, 2025, [{ crop: 'Orchards', areaKm2: 1 }, { crop: 'Vines', areaKm2: 2 }], source, mapping);
+		const twice = applyIrrigatedAreas(once, RR, 2025, [{ crop: 'Orchards', areaKm2: 1 }, { crop: 'Vines', areaKm2: 1 }], source, mapping);
+		expect(twice.sidecar?.values?.find((v) => v.target.field === 'crops.percent')?.source.note).toBe('Invented census; was Vines 60 %, Orchards 40 %');
+	});
+
+	it('survives a write and a read: the file holds what the row says', () => {
+		const next = rr(applyIrrigatedAreas(twoCrops(), RR, 2025, [{ crop: 'Orchards', areaKm2: 1.111 }, { crop: 'Vines', areaKm2: 2 }], source, mapping)) as IrrigationWqtLayout;
+		const back = readIrrigation(writeIrrigation(next), 'Z1RR7.DAT') as IrrigationWqtLayout;
+		expect(back.areaKm2).toEqual(next.areaKm2);
+		expect(back.crops.map((c) => [c.description, c.percent])).toEqual(next.crops.map((c) => [c.description, c.percent]));
 	});
 
 	it('keeps the crop table when nothing is irrigated, and notes no change on a composite module', () => {
