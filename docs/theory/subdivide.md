@@ -96,6 +96,11 @@ A split acts on one piece; the result can be split again (a tributary inside
 a MAP zone, two zones). At most **8 pieces** per quaternary. Each split is
 recorded in the sidecar in order, so the pieces can be rebuilt.
 
+A plan may hold all its pieces at once (2 to 8), or split a piece of a
+quaternary already sub-divided: then every piece is calibrated again, since
+one factor scales them all (R5-E7). `calibrateMap`'s MAPs are the plan's pieces
+in order, then the quaternary's other pieces in sidecar order.
+
 ## Areas
 
 The runoff module's area in the network (`.DAT`) is what WRSM2000 was run
@@ -104,8 +109,9 @@ with, and need not match the DWS polygon's geodesic area exactly. The pieces
 
     A_i = A_module · area_i / Σ_j area_j
 
-and are rounded to the file's precision with the largest-remainder rule so
-they sum to `A_module` exactly. The screen shows each piece's polygon area,
+and are rounded to the file's precision (0.1 km², `F7.1`) with the
+largest-remainder rule so they sum to `A_module` exactly. Every share below is
+worked out in whole file units the same way (R5-E3). The screen shows each piece's polygon area,
 the scale `A_module / Σ area_j`, and warns when it is outside `[0.95, 1.05]`
 ("the network's area for this module differs from its boundary by 7 %:
 check you picked the right quaternary").
@@ -179,6 +185,8 @@ Guards:
 - **MAP limits.** Every `MAP_i(s)` must be within the engine's MAP range
   (1–12 000 mm); a step that leaves it is clamped as above.
 - **Cap.** At most **12** evaluations of `MAR` (the starting one included).
+  The one run that rechecks the rounded MAPs (§ Rounding) comes after the
+  search and is not one of them (R5-E6).
 
 **Failure.** If the cap is reached or the bounds end it, `calibrateMap`
 returns `status: "not_converged"` with every iteration and the best one (the
@@ -193,8 +201,9 @@ and the final one goes into the sidecar with the target and its source.
 
 **Rounding.** The final `MAP_i` are rounded to the file's precision
 (`docs/formats.md`); the reported MAR is recomputed with the rounded MAPs,
-and must still be within 2 % (if rounding pushes it out, which needs a tiny
-MAR, the result is reported as such, not hidden).
+and must still be within 2 %. If rounding pushes it out, which needs a tiny
+MAR, the status is `not_converged` with the reason, so `converged` always
+means within 2 % as saved. MAPs are whole mm (RU L.002 is `I5`).
 
 Runoff is convex in MAP, so the ratio step overshoots when the start is far
 off (see the worked example: +25 % at `s = 1`, then −41 % after the ratio
@@ -243,15 +252,34 @@ the network's own pattern (e.g. `<prefix>RU<n>.DAT`).
 | Kind | Fields | Rule |
 |---|---|---|
 | **Set** | area, MAP | from § Areas and § MAP |
-| **Copied** (intensive) | every Pitman parameter (POW, SL, ST, FT, GW, AI, ZMIN, ZMAX, PI, TL, GL, R, …), the rainfall file and its zone, evaporation (zone and monthly values), the groundwater method and every Sami/Hughes **rate or ratio** parameter, file version, flags | copied unchanged to every piece |
-| **Split** (extensive) | afforestation area by year (per species/group), alien vegetation areas by year and density class, paved area by year, groundwater abstraction volumes, any other direct abstraction volume | each piece gets `share_i ×` the original, per year, rounded with largest remainder so every year's total is preserved |
+| **Copied** (intensive) | every Pitman parameter (POW, SL, ST, FT, GW, AI, ZMIN, ZMAX, PI, TL, GL, R, …), the rainfall file and its zone, evaporation (zone and monthly values), the paved **fraction** by year, the groundwater method and every Sami/Hughes **rate or ratio** parameter, file version, flags | copied unchanged to every piece |
+| **Split** (extensive) | afforestation area by year (per species/group), alien vegetation areas by year and density class, Sami and Hughes groundwater abstraction volumes, the Sami groundwater evaporation area | each piece gets `share_i ×` the original, per year, rounded with largest remainder so every year's total is preserved |
+| **Scaled** | Sami maximum hydraulic gradient (L.033 v1) | `HGRAD_i = HGRAD · √(A_i / A_module)`, see below |
 
 `share_i` is the **location share** where the user has a polygon for that
 land use (e.g. plantations drawn or imported: the area of it inside each
 piece), else the **area share** `A_i / A_module`. The screen says which
-was used, per table. `docs/theory/sami.md` (agent 1.3) must confirm which
-Sami parameters are extensive; until it does, only the abstraction volumes
-are treated as extensive.
+was used, per table. A plan gives its location shares per piece
+(`PiecePlan.locationShares`, R5-E8).
+
+**Paved area** is a fraction of the catchment in the file (L.018), so a piece
+that keeps the fraction keeps its share of the area: `Σ A_i · f = A · f` every
+year, with no rounding (R5-E2).
+
+**Which Sami parameters are extensive (B7, R5-E1).** `docs/theory/sami.md` §2.1
+gives every parameter a unit. Two are extensive: the abstraction volumes (L.037,
+Mm³/a) and the groundwater evaporation area (L.033 v4, km²; the model uses
+EVAREA/AREA, TT 691 p.49). A third term depends on the area itself: the regional
+outflow's depth, `OUT = T · HG · Δt · W / AREA` with `W = 4·√AREA` (TT 690 p.87
+eq. 8.7; W reconstructed, OQ-S11), goes as `HGRAD / √AREA`. A piece copying
+HGRAD would lose water faster the smaller it is and break invariant 6, so its
+HGRAD is scaled by `√(A_i / A)`, which keeps the depth and so the volume. The
+file holds HGRAD to 8 decimals (`F10.8`), the one rounding left in invariant 6
+for a Sami module. If WRSM2000's real W isn't ∝ √AREA, WRSM2000's run of a saved
+split differs from Pitman's: DP-5. Everything else in the block is a depth, rate
+or ratio. A Hughes module's abstractions (L.027, L.029) are split; its reach
+count stays copied, and the engine can't run Hughes yet, so `calibrateMap`
+refuses one (R5-E14).
 
 ### SFR parent and children
 
@@ -301,6 +329,15 @@ that receives only `M`'s outflow) and splits it with the module.
 - If `M`'s outflow does not match the farm-dam pattern, `T` gets one route
   to the module `M`'s largest-% outflow route ends at, and the wizard lists
   the rewiring for the user to confirm.
+- If that module can't take another route (an RU whose one inflow route is
+  `M`'s, an irrigation block, a module the engine can't read), `T` joins through
+  `R`'s own inflow route (B1, R3-N8): `R` adds it to its runoff before its
+  percentages, so the water still goes where `M`'s went. Several such pieces
+  chain, each into the next. A module whose inflow route is taken already is
+  refused (R5-E5).
+
+`M` sending 100 % to `V` with no bypass is the pattern too: `T` then sends
+100 % to `V_T` (R5-E15).
 
 **MAP-zone split (side by side).** Every piece gets outflow routes patterned
 on `M`'s, to the **same** destinations with the same `%` splits; the outlet
@@ -319,21 +356,29 @@ default is the original `p`; when dam catchments are known (a later
 refinement: delineating each dam on the DEM), `p_i` = the share of the
 piece's area upstream of its dams. The sidecar records which.
 
-**Inflow routes into `M`** (if any end at an RU module; `docs/formats.md`
-says whether WRSM2000 allows it) go to the outlet piece.
+**Inflow routes into `M`** go to the outlet piece (R3-N8: a route can end at a
+runoff module).
+
+**Gauges** stay on their routes. A gauge on a route leaving `M` then sees only
+the outlet piece's runoff, so the preview warns (R5-E11).
 
 **Irrigation modules** drawing from `V` are split by the irrigated area in
 each piece (Cape Farm Mapper fields located in it, Round 7; else by area
 share): each piece with irrigation gets an RR copy drawing from its own
-`V_i` (or the same route as the original), with its area-by-crop table; its
-return flow goes where the original's did. A piece with no irrigation gets
-no RR module. **Main-stem reservoirs, channel reaches, demand files and
+`V_i` (or, with no dams of its own, a new route from `V`: an RR has one inflow,
+so two can't share a route, R5-E10), with its area-by-crop table; its
+allocation (RRMA, L.013, and L.022–L.024) splits with the area, and its return
+flow goes where the original's did. A piece with no irrigation gets no RR
+module; if that is the outlet, the original RR goes with its routes. **Main-stem reservoirs, channel reaches, demand files and
 gauges are never split**: they stay on their routes.
 
 **Farm dams** are assigned to the piece that contains the dam's point (or
 its polygon's centroid). Where only a total is known (no locations), the
 capacity and surface area are split by area share. The two are never mixed
 within one quaternary: either every dam is located or the total is shared.
+A reservoir's initial storage (L.015), a volume too, splits with its capacity.
+If all the dams lie in other pieces `V` stays, at no capacity, and the preview
+says so (R5-E4).
 
 ## Invariants (the engine's tests)
 
@@ -343,14 +388,16 @@ within one quaternary: either every dam is located or the total is shared.
    to 1e-12).
 3. Every split table's total is preserved per year (afforestation, alien
    vegetation, paved, abstraction volumes, irrigated area per crop, farm-dam
-   capacity and surface area).
+   capacity and surface area, plus the Sami evaporation area and a
+   reservoir's initial storage).
 4. Every piece references the original `.RAN` and zone.
 5. The network stays acyclic, every route's ends exist, every runoff
    module's outflow `%` sum to 100, and module and route numbers are unique.
 6. **Equivalence:** with every `MAP_i = MAP_M` and nothing extensive in play,
    the pieces' summed natural runoff equals the unsplit module's, month by
    month, to floating point (Pitman's runoff depth does not depend on area,
-   so `Σ A_i q = A q`). A split that breaks this is a bug.
+   so `Σ A_i q = A q`). A split that breaks this is a bug. Sami's regional
+   outflow does depend on area, which is why HGRAD is scaled (R5-E1).
 7. `calibrateMap` terminates within 12 evaluations, and returns `converged`
    only with `|e| / T ≤ 0.02`.
 8. Splitting and then merging the pieces (the inverse) gives back the
@@ -380,11 +427,20 @@ within one quaternary: either every dam is located or the total is shared.
         "period": [1920, 2009], "status": "converged", "factor": 0.9325,
         "iterations": [ /* the log */ ]
       },
-      "shares": { "afforestation": "location", "alien": "area", "dams": "location" }
+      "shares": { "afforestation": "location", "alien": "area", "dams": "location" },
+      "farmDamPercent": "original"
     }
   }
 }
 ```
+
+`subdivisions` is keyed by quaternary code. Beside the fields above: a piece
+also has `mapSource`; `module.maxHydraulicGradient` holds the original HGRAD of
+a module with a Sami block; `children` lists each SFR child split
+(`{ number, areaKm2, mapMm, pieces }`); `shares.irrigation` appears when
+irrigation was split; `farmDamPercent` says where each new `p` came from (B6);
+`calibration.acceptedNotConverged` marks "Use the best factor". Those are what
+`mergePieces`, the inverse of invariant 8, needs (R5-E9).
 
 ## Worked example
 
@@ -425,10 +481,11 @@ location shares, so RU 16 gets 3.0 km² and RU 3 9.0 km² in every year.
 
 ## Open questions (with proposed defaults)
 
-- **B1** Does WRSM2000 allow a route to end at an RU module? If it does, the
-  operator's literal "tributary drains into the remainder" could route `T`
-  into `R`; default **no**: join at `R`'s outlet as above (which also keeps
-  `T`'s water out of `R`'s lumped farm dams). `docs/formats.md` to confirm.
+- **B1** Does WRSM2000 allow a route to end at an RU module? **Yes** (R3-N8),
+  so the operator's literal "tributary drains into the remainder" could route
+  `T` into `R`; the default stands: join at `R`'s outlet as above (which also
+  keeps `T`'s water out of `R`'s lumped farm dams). The inflow route is used
+  only where the outlet can't be reached otherwise (R5-E5).
 - **B2** Keep the module's area total (scale the polygon areas), or use the
   polygon areas as they are? Default **keep the total**, warn outside ±5 %.
 - **B3** D2a, the target: default the hand-entered WR2012 value, else the
@@ -438,8 +495,7 @@ location shares, so RU 16 gets 3.0 km² and RU 3 9.0 km² in every year.
 - **B5** SFR children with unknown locations: default split by area share;
   the wizard offers whole-assignment.
 - **B6** `p` for a new piece's farm-dam route: default the original `p`.
-- **B7** Which Sami parameters are extensive: `docs/theory/sami.md` decides;
-  until then only abstraction volumes.
+- **B7** Which Sami parameters are extensive: **decided, R5-E1** (§ Fields).
 - **B8** Maximum pieces per quaternary: default 8.
 - **B9** The 20 % "delineation mostly outside the quaternary" warning
   threshold: default as stated.

@@ -106,6 +106,20 @@ export interface PiecePlan {
 	/** `MAP⁰_i`, the chosen grid's mean over the piece, mm; typed by the user when the grid doesn't cover it. */
 	readonly gridMapMm: number;
 	readonly mapSource: 'grid' | 'typed';
+	/**
+	 * What of the land use lies in this piece, each a share (0–1) of the split
+	 * module's total, adding to 1 over the pieces. Needed for a table whose
+	 * `SplitPlan.shares` basis is `location`; `irrigation` is used when every
+	 * piece gives it, else irrigated area goes by area share (subdivide.md
+	 * §§ Fields, Routes). `damArea` defaults to `damCapacity`.
+	 */
+	readonly locationShares?: {
+		readonly afforestation?: number;
+		readonly alien?: number;
+		readonly damCapacity?: number;
+		readonly damArea?: number;
+		readonly irrigation?: number;
+	};
 }
 
 export type SplitRecord =
