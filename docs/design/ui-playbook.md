@@ -129,6 +129,17 @@ with them.
   target keeps the iteration log to compare against, says it is out of date
   and removes Apply.
 
+- **A row's extras take the line under it.** In a table of editable values the
+  source note, a refusal and any hint span the full width below the row, so the
+  four short columns still fit a phone and nothing wide needs a sideways scroll
+  (`landuse/editor/YearTable.svelte`).
+- **A refusal is said again at Apply.** A long table scrolls in its box, so the row
+  that disables Apply can be out of sight; the list above the button names it.
+- **Edited points differ in shape.** A hollow diamond on a dashed line against a
+  dot on a solid one, drawn on the canvas, since uPlot's points have one shape.
+- **Say what an edit does beyond its own cell.** A new last year turns a flat tail
+  into a line, so it changes every year back to the row before it; the row says so.
+
 ## Before calling a screen done
 
 Screenshot it at 1440×960, 1280×800 and 390×844, light and dark: a throwaway

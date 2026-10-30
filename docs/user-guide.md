@@ -77,6 +77,62 @@ set to the gauge's record, and shows observed flow beside the simulated.
 
 Flows are in million m³ per month, or per year where a chart says so.
 
+## Land-use tables
+
+**Land-use tables** brings a runoff module's afforestation, alien vegetation and
+paved area up to date, usually to 2025. The line above the picker says how many
+modules have tables and how many stop before 2025, and each module in the list
+says how far its tables reach. **Nothing changes until you apply it.**
+
+1. **Choose a runoff module.** A sub-divided network's pieces are modules like any
+   other, and each piece's table says how it was shared out.
+   - An **SFR child** is edited here, though Calibrate sends you to its parent. Its
+     parameters are the parent's, but its land-use table is its own: a run reads it
+     as the child's active area and takes that off the parent year by year.
+   - An **SFR parent** holds no afforestation or alien vegetation of its own, so the
+     screen links to its children. It can hold paved area; a child can't. A child
+     holds one kind of land use (TT 689 p.140).
+2. **Edit the table.** Each row has its year, its value and what the network file
+   holds. **Add a year** offers 2025 first. **Reset** goes back to the file's value
+   and **Remove** takes a year out; a year you removed stays in view with **Put
+   back**. A table with species or composition lines (afforestation, alien
+   vegetation) keeps its last year, because the file holds those lines only while
+   the table has a row: set it to 0 if the area has gone.
+3. **Say where each value came from.** A changed value needs a source note. When one
+   survey answers several values, **Same source for all of them** fills the empty
+   notes. Going back to the file's value needs none.
+4. **Read the chart.** It draws the series as a run reads it: **a straight line
+   between the listed years, flat before the first and after the last**, one value
+   for the whole hydrological year (2025 is October 2025 to September 2026). So a
+   new last year changes every year back to the row before it, not just its own,
+   and the screen says so. Edited years are hollow diamonds on a dashed line, and
+   the data table below the chart gives every year in words.
+5. **Fix what's marked.** The file keeps 1 decimal place for an area (L.008, L.013)
+   and 3 for the paved fraction (L.018), so a value it can't hold exactly is refused
+   with the two nearest offered. A paved fraction runs from 0 to 1. Alien vegetation
+   can't exceed the module's area, and afforestation, alien vegetation, paved area
+   and SFR children together can't exceed it in any year (TT 689 pp.127–128). A
+   child's own limit is its parent's area; past its own L.002 area you get a warning
+   (p.139). An area the file already had over the limit is said, not blamed on you.
+6. **Apply to the working copy.** Pitman changes the module and clears the old
+   results; run the network again to see them. A module you leave with edits not
+   applied keeps them, listed under the picker.
+
+Two things to check: a run takes no flow reduction from afforestation in a **free
+module** yet, and an alien vegetation algorithm of **None** means a run ignores the
+table. The screen says so on the table. The species split and the composition are
+shown but edited in WRSM2000, so a first year in an empty table saves them as zeros.
+
+Each apply adds one entry per changed value to `values` in `pitman.json`, with the
+module, the field, the year, the date and a note holding the change and your source:
+
+```json
+{ "target": { "module": { "type": "RU", "number": 7 }, "field": "afforestation.areaKm2", "year": 2025 },
+  "source": { "kind": "manual", "note": "Land use: none → 14.5; Aerial photos 2025", "date": "2026-10-30T08:00:00.000Z" } }
+```
+
+The list is a log, so the file's value stays known after a save and reload.
+
 ## Calibrate
 
 **Calibrate** changes one runoff module's parameters and shows the effect as you

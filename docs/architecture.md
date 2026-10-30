@@ -40,6 +40,7 @@ pitman/
 │       ├── lib/map/          The map: Map.svelte (takes contract.ts MapProps), MapPanel.svelte (the step), the style and tokens (mapStyle, palette), the client (api), module placing (modules), drawing (draw/); MapLibre loads lazily (maplibre.ts)
 │       ├── lib/map/tributary/ The tributary tool: api.ts (the /delineate and /channels client), present.ts (its wording), TributaryTool.svelte (embedded by the wizard; never touches MapLibre)
 │       ├── lib/calibrate/    Edit a runoff module's parameters, preview a historical rerun at a gauge, apply (docs/user-guide.md)
+│       ├── lib/landuse/editor/ Edit a runoff module's land-use year tables: LandUseEditor.svelte (the card), offers.ts (which tables a module offers, the SFR rules), review.ts (drafts, checks, what apply writes), chart.ts and plot.ts (the series as a run reads it); the engine side is packages/wrsm/src/landuse/tables.ts (docs/user-guide.md § Land-use tables)
 │       ├── lib/subdivide/    Sub-divide a quaternary (method B): the wizard, its logic in .ts modules, the engine adapter `engine.ts` and the backend client `data.ts` (§ App flow, step 6)
 │       ├── lib/map/mapzone/  The MAP-zone tool: threshold, drawn or pasted zone (§ App flow, step 6)
 │       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
