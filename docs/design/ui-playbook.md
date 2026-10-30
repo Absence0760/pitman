@@ -82,6 +82,13 @@ with them.
   where the results were, and the rail and the bar say to run again.
 - **Ask before losing the only copy, and only then.** A confirmation moves the
   focus to its safe button and hands it back to the button that opened it.
+- **A removal with effects elsewhere says them before it acts.** Demands confirm
+  every removal, even of a generated file, because that is where the routes' fates
+  are said; the plan on screen is what gets carried out, and Undo follows.
+- **Undo only what can still be undone.** Undo hands back the whole earlier bundle,
+  so it goes as soon as anything else changes the network, and the notice says so.
+- **Check the notice against the path taken.** "It is out of the working copy" was
+  false for a shared file taken off one route, and only a screenshot showed it.
 - **Don't identify "another network" by object identity.** `applyDemand` returns a
   new `bundle.files`, which two cards took for a new network and dropped what was
   typed in them. Loading goes through an empty page, so the cards remount anyway.
@@ -168,6 +175,11 @@ with them.
   that disables Apply can be out of sight; the list above the button names it.
 - **Edited points differ in shape.** A hollow diamond on a dashed line against a
   dot on a solid one, drawn on the canvas, since uPlot's points have one shape.
+- **A value the screen can't change safely stays in view,** without a box, marked
+  read-only in its row with the reason above the table. A `.warn` is for a risk: a
+  value that's merely unused gets a plain note, or it warns on every module.
+- **Label the method that ran, not the one the file names.** A CSIR child's targets
+  come from Smoothed Gush here, so the line says "standing in for CSIR".
 - **Say what an edit does beyond its own cell.** A new last year turns a flat tail
   into a line, so it changes every year back to the row before it; the row says so.
 

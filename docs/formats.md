@@ -692,6 +692,7 @@ Generating a domestic demand for Round 7, with annual volume *A*_*Y* in million 
 - The file covers **every** year of the `.NET` period (§11.1), and carries on to the last anchor year so a present-day run at that year finds its row.
 - It's named after the route, e.g. `SYRQ11.abs` (`-2`, `-3`, … if that name is taken, even by a file nothing reads), referenced on the RV L.013 or CR L.010 line, and recorded in the sidecar with its inputs: `demands` holds the spec, keyed by the upper-cased name, and `values` holds each input's source under `{ file, field, year? }`, with `field` one of `annualVolumeMm3`, `monthlyDistributionPercent`, `growth` (rule 8).
 - `DemandSpec.growth` holds every anchor; its first row is the base year. An empty table means `annualVolumeMm3` in every year.
+- Removing a file blanks the route's defined-flow name (`' '`), or takes the route out of the `.NET` when it starts at the zero source, and the file isn't written (R7-X8 … R7-X12). A network's own file leaves `{ file, field: 'demandRemoved' }` in the sidecar's `values`, its note starting `Demand removed: `.
 
 The 0.0005 Mm³/month write resolution (500 m³) still leaves a very small demand in steps. The demand editor reports written against asked for every year and warns past 0.5 % of *A*_*Y*. `F7.3` fits to 999.999 in the same columns (each value at 10–16, the flag column blank); the limit of 100 is caution, not a read limit. That WRSM2000 reads the third decimal is U-24.
 
