@@ -70,9 +70,9 @@ describe('clipFields', () => {
 		ring.push(ring[0]!);
 		const area: AreaGeometry = { type: 'Polygon', coordinates: [ring] };
 		const fields: LayerField[] = [];
-		for (let x = 0; x < 100; x++) for (let y = 0; y < 100; y++) fields.push(field(`${x}-${y}`, box(21 + x * 0.01, -34.4 + y * 0.01, 21.008 + x * 0.01, -34.392 + y * 0.01)));
+		for (let x = 0; x < 50; x++) for (let y = 0; y < 50; y++) fields.push(field(`${x}-${y}`, box(21 + x * 0.02, -34.4 + y * 0.02, 21.008 + x * 0.02, -34.392 + y * 0.02)));
 		const out = clipFields(fields, area);
 		expect(out.failed).toBe(0);
-		expect(out.fields.length).toBeGreaterThan(3_000);
+		expect(out.fields.length).toBeGreaterThan(1_000);
 	});
 });

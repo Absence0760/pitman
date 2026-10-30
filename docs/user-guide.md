@@ -160,5 +160,9 @@ settled (`docs/theory/subdivide.md`):
 - A tributary drains into the remainder, in series. MAP-zone pieces drain side by side
   to the same outlet. The final factor and its source go into `pitman.json`.
 
-Land use and demands to 2025 (Cape Farm Mapper, farm dams, the year tables, demand
-files) are specified but not built.
+The Land use screen fetches a (sub-)catchment's crop fields and dams, lets you confirm
+how crops map to the irrigation module's crop types, and writes the irrigation and
+farm-dam rows, 2025 by default. It needs the operator's Cape Farm Mapper token, so a
+deployed site says the data isn't available until then. Run locally it shows invented
+data and says so. The remaining year tables and demand files are specified but not
+built.
