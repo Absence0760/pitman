@@ -8,7 +8,8 @@ export function quaternaryRoutes(opts: { store: QuaternaryStore }) {
 	const app = new Hono();
 	app.get('/', (c) => {
 		try {
-			return c.body(opts.store.body(), 200, { 'content-type': 'application/json' });
+			// Up to 5 MiB, and three parts of the page ask for it: the browser keeps one copy.
+			return c.body(opts.store.body(), 200, { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' });
 		} catch (err) {
 			return errorResponse(c, err);
 		}

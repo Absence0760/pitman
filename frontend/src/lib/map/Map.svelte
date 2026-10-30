@@ -103,7 +103,9 @@
 	/** MapLibre posts source data to its worker, which can't clone a proxy; a parent may have held these in deep `$state`. */
 	const plain = <T,>(v: T): T => $state.snapshot(v) as T;
 	const draftView = () => (draft.active ? { coords: draft.coords, phase: draft.phase, whole: draft.whole, cursor: draft.cursor, corner: draft.corner, snap: draft.snapHint?.at ?? null } : null);
-	const quaternariesNow = () => quaternaryData(plain(quaternaries?.features), selected);
+	const featuresNow = $derived(quaternaries?.features);
+	const selectedNow = $derived(selected);
+	const quaternariesNow = () => quaternaryData(plain(featuresNow), selectedNow);
 
 	function styleNow(c: Palette) {
 		return mapStyle(
@@ -325,33 +327,41 @@
 		};
 	});
 
-	// One effect per source: a new selection must not re-send every piece and grid cell to the worker.
+	// One effect per source: a new selection must not re-send every piece and grid cell to the worker. The
+	// page spreads one object into these props, so an effect reading a prop directly would follow every field
+	// of it; a derived signals only when its own value changes.
+	const channelsNow = $derived(channels);
+	const piecesNow = $derived(pieces);
+	const proposalNow = $derived(proposal);
+	const modulesNow = $derived(modules);
+	const gridNow = $derived(mapGrid);
+
 	$effect(() => {
 		const data = quaternariesNow();
 		setSource('quaternaries', () => data);
 		if (status === 'ready') untrack(syncLabels);
 	});
 	$effect(() => {
-		const data = channelData(plain(channels));
+		const data = channelData(plain(channelsNow));
 		setSource('channels', () => data);
 	});
 	$effect(() => {
-		const data = pieceData(plain(pieces));
+		const data = pieceData(plain(piecesNow));
 		setSource('pieces', () => data);
 		if (status === 'ready') untrack(syncBadges);
 	});
 	$effect(() => {
-		const data = proposalData(plain(proposal));
+		const data = proposalData(plain(proposalNow));
 		setSource('proposal', () => data);
 	});
 	$effect(() => {
-		const data = moduleData(modules);
+		const data = moduleData(modulesNow);
 		setSource('modules', () => data);
 	});
 	$effect(() => {
-		const data = mapGridData(mapGrid);
+		const data = mapGridData(gridNow);
 		setSource('mapgrid', () => data);
-		if (status === 'ready' && map?.getLayer(MAP_GRID_LABEL_LAYER)) map.setLayerZoomRange(MAP_GRID_LABEL_LAYER, mapGridLabelMinZoom(mapGrid?.cellDeg), 24);
+		if (status === 'ready' && map?.getLayer(MAP_GRID_LABEL_LAYER)) map.setLayerZoomRange(MAP_GRID_LABEL_LAYER, mapGridLabelMinZoom(gridNow?.cellDeg), 24);
 	});
 	$effect(() => {
 		const data = draftData(draftView());

@@ -1,6 +1,6 @@
 import type { AreaGeometry } from '@pitman/wrsm';
 import { describe, expect, it } from 'vitest';
-import { bboxOf, CHANNEL_BOX_DEG, channelBoxes, fetchChannels, fetchChannelsOver, fetchDelineation, readChannels, readDelineateAnswer, TributaryRequestError } from './api.js';
+import { bboxOf, CHANNEL_BOX_DEG, channelBoxes, fetchChannels, fetchChannelsOver, fetchDelineation, MAX_CHANNEL_BOXES, readChannels, readDelineateAnswer, TributaryRequestError } from './api.js';
 
 const within: AreaGeometry = {
 	type: 'Polygon',
@@ -157,5 +157,36 @@ describe('fetchChannels', () => {
 		const all = await fetchChannelsOver(within, { baseUrl: '', fetch: answering(200, collection) }, (part) => seen.push(part.features.length));
 		expect(seen).toEqual([1, 2, 3, 4]);
 		expect(all.features).toHaveLength(4);
+	});
+});
+
+describe('fetchChannelsOver: its limits', () => {
+	const wide = { type: 'Polygon', coordinates: [[[20, -34], [24, -34], [24, -30], [20, -30], [20, -34]]] } as const;
+	const small = { type: 'Polygon', coordinates: [[[21.1, -33.9], [21.2, -33.9], [21.2, -33.8], [21.1, -33.8], [21.1, -33.9]]] } as const;
+	const empty = { type: 'FeatureCollection', features: [] };
+
+	it('refuses an area past the box limit before asking for anything', async () => {
+		let asked = 0;
+		const fetch = (async () => {
+			asked++;
+			return new Response(JSON.stringify(empty));
+		}) as typeof globalThis.fetch;
+		await expect(fetchChannelsOver(wide, { baseUrl: '', fetch }, () => {})).rejects.toThrow('too large');
+		expect(asked).toBe(0);
+		expect(MAX_CHANNEL_BOXES).toBeGreaterThanOrEqual(4);
+	});
+
+	it('asks once for a box already in the cache', async () => {
+		let asked = 0;
+		const fetch = (async () => {
+			asked++;
+			return new Response(JSON.stringify(empty));
+		}) as typeof globalThis.fetch;
+		const cache = new Map();
+		await fetchChannelsOver(small, { baseUrl: '', fetch }, () => {}, cache);
+		const first = asked;
+		await fetchChannelsOver(small, { baseUrl: '', fetch }, () => {}, cache);
+		expect(first).toBeGreaterThan(0);
+		expect(asked).toBe(first);
 	});
 });

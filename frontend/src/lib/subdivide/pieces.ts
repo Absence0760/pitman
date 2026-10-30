@@ -60,6 +60,14 @@ export function startPieces(geometry: AreaGeometry, polygonKm2: number): PieceSe
 }
 
 /** `set` with piece `index` split: the remainder keeps its number, the new piece takes the next one. */
+/**
+ * Back to an earlier set. Its pieces return, but `nextId` doesn't rewind: a later split must never reuse an id,
+ * or it would pick up the grid means and typed MAPs kept for the undone split's pieces.
+ */
+export function undoTo(previous: PieceSet, current: PieceSet): PieceSet {
+	return { ...previous, nextId: current.nextId };
+}
+
 export function splitPiece(set: PieceSet, index: number, split: SplitResult): PieceSet {
 	const target = set.pieces[index];
 	if (target === undefined) throw new RangeError(`No piece ${index + 1}.`);

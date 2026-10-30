@@ -14,6 +14,9 @@
 	import { bboxOf } from '#lib/subdivide/geometry.js';
 	import { formatCellDeg } from '#lib/subdivide/pieces.js';
 	import { parseZone } from './paste.js';
+
+	/** The largest box `POST /map-grid/cells` answers, a side (backend/src/mapgrid/cells.ts). */
+	const MAP_GRID_BOX_DEG = 2;
 	import { THRESHOLD_STEP_MM, noZoneMessage, sideSummary, thresholdProblem, thresholdRange, valuesInside, type ZoneSide } from './threshold.js';
 
 	type Zone = ReturnType<SubdivideEngine['splitByZone']>;
@@ -84,6 +87,13 @@
 	async function loadCells(signal: AbortSignal) {
 		loading = true;
 		cellsError = undefined;
+		const [west, south, east, north] = bboxOf(within);
+		if (east - west > MAP_GRID_BOX_DEG || north - south > MAP_GRID_BOX_DEG) {
+			// "Zoom in", the service's answer, means nothing here: this box is the piece's own.
+			cellsError = `This piece is wider than the ${MAP_GRID_BOX_DEG}° the MAP grid answers for at once. Draw or paste the zone instead.`;
+			loading = false;
+			return;
+		}
 		try {
 			const answer = await data.mapGridCells(bboxOf(within), signal);
 			if (signal.aborted) return;

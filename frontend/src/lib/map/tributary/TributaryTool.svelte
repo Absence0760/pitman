@@ -5,6 +5,13 @@
 	`tool="point"`. Accept hands the answer over (`onresult`). The wording is in present.ts, the requests in
 	api.ts (tested there); this component holds the state.
 -->
+<script lang="ts" module>
+	import type { ChannelBoxCache } from './api.js';
+
+	/** Boxes already fetched: reopening the tool on a piece asks for nothing again. */
+	const fetchedBoxes: ChannelBoxCache = new Map();
+</script>
+
 <script lang="ts">
 	import { tick, untrack } from 'svelte';
 	import type { AreaGeometry, ChannelCollection, DelineateResponse } from '@pitman/wrsm';
@@ -64,8 +71,13 @@
 		void delineate(lngLat, keepPoint);
 	}
 
+	// Through a derived for the reason `piece` below is: read directly, this would also follow the map's view,
+	// and panning would run a finished delineation again and drop what the user was inspecting.
+	const clicked = $derived(mapClick);
+
 	$effect(() => {
-		if (mapClick) untrack(() => point(mapClick));
+		const at = clicked;
+		if (at) untrack(() => point(at));
 	});
 
 	async function delineate(lngLat: Click, keepPoint: boolean) {
@@ -95,9 +107,9 @@
 		clear();
 	}
 
-	// Through a derived, which signals only when the geometry itself changes: the parent builds these props as
-	// one object, so reading `within` directly would also subscribe to its click and view, and every click
-	// would restart the tool and abort the delineation it had just started.
+	// A derived signals only when the value itself changes. The parent builds these props as one object, so
+	// reading `within` directly would also follow its click and view: every click would restart the tool and
+	// abort the delineation it had just started.
 	const piece = $derived(within);
 
 	$effect(() => {
@@ -120,7 +132,7 @@
 		try {
 			const all = await fetchChannelsOver(piece, { baseUrl, signal }, (soFar) => {
 				if (!signal.aborted) onchannels?.(soFar);
-			});
+			}, fetchedBoxes);
 			if (!signal.aborted) channelState = all.features.length > 0 ? 'loaded' : 'none';
 		} catch (error) {
 			if (signal.aborted || (error as Error).name === 'AbortError') return;

@@ -42,6 +42,7 @@
 		splitPiece,
 		startPieces,
 		tributarySplit,
+		undoTo,
 		zoneSplit,
 		type Piece,
 		type PieceSet,
@@ -248,10 +249,13 @@
 	// The page's map answers the same question first: start from what was picked there, never over a choice made here.
 	$effect(() => {
 		const picked = pickedOnMap;
-		if (picked && untrack(() => code === '' && loaded.state === 'ok' && featureOf(loaded.collection, picked) !== undefined)) untrack(() => chooseQuaternary(picked));
+		const collection = loaded.state === 'ok' ? loaded.collection : undefined;
+		if (picked && collection && featureOf(collection, picked) !== undefined && untrack(() => code === '')) untrack(() => chooseQuaternary(picked));
 	});
 
 	function chooseQuaternary(next: string) {
+		// A quaternary picked from the list or the map replaces an uploaded boundary, which would otherwise win.
+		if (upload && upload.code !== next) upload = undefined;
 		code = next;
 		const { named } = choicesFor(choices, next);
 		if (named.length === 1) moduleNumber = named[0]?.ref.number;
@@ -296,6 +300,8 @@
 		controller.abort();
 		controller = new AbortController();
 		if (loaded.state === 'loading') void loadQuaternaries();
+		// The pick step remounts with its file and code empty, so nothing may still rest on them.
+		upload = undefined;
 		set = undefined;
 		past = [];
 		splitting = false;
@@ -373,8 +379,8 @@
 
 	function undo() {
 		const previous = past[past.length - 1];
-		if (!previous) return;
-		set = previous;
+		if (!previous || !set) return;
+		set = undoTo(previous, set);
 		past = past.slice(0, -1);
 		showBlockers = false;
 		invalidate();

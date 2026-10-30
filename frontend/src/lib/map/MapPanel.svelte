@@ -10,6 +10,7 @@
 	§ Quaternaries) it says so plainly and how to go on; the map itself still works.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { onMount } from 'svelte';
 	import type { MapGridCells, NetworkBundle, QuaternaryCollection } from '@pitman/wrsm';
 	import { API_BASE_URL } from '#lib/extend/api-base.js';
@@ -21,14 +22,17 @@
 	import type { Box } from './pieces.js';
 	import { boxHolds, MAP_GRID_BBOX_MAX_DEG, mapGridViewBbox } from './view.js';
 
-	let { bundle = null, onselect }: { bundle?: NetworkBundle | null; onselect?: (code: string) => void } = $props();
+	let { bundle = null, picked: pickedBefore = null, onselect }: { bundle?: NetworkBundle | null; picked?: string | null; onselect?: (code: string) => void } = $props();
 
 	const uid = $props.id();
+	const GRID_RETRY_MS = 60_000;
+	let gridPausedUntil = 0;
 
 	let quaternaries = $state.raw<QuaternaryCollection | null>(null);
 	let loadState = $state<'loading' | 'ready' | 'failed'>('loading');
 	let loadError = $state.raw<MapRequestError | null>(null);
-	let selected = $state<string | null>(null);
+	// Kept across the landing page and a loaded network, which each have their own panel.
+	let selected = $state<string | null>(untrack(() => pickedBefore));
 
 	let showGrid = $state(false);
 	let cells = $state.raw<MapGridCells | null>(null);
@@ -87,6 +91,8 @@
 				gridStatus = 'Zoom in to see the MAP grid here: this view holds more cells than one answer carries.';
 			} else {
 				gridStatus = refused.message;
+				// Busy or failing: panning must not keep spending the shared request limit.
+				gridPausedUntil = Date.now() + GRID_RETRY_MS;
 			}
 		}
 	}
@@ -102,7 +108,7 @@
 		}
 		if (!view) return;
 		const box = mapGridViewBbox(view);
-		if (box && !boxHolds(loadedBox, view)) void loadCells(box);
+		if (box && !boxHolds(loadedBox, view) && Date.now() >= gridPausedUntil) void loadCells(box);
 	});
 
 	const km2 = (v: number | undefined) => (v === undefined ? 'not given' : `${formatNumber(v, 1)} km²`);

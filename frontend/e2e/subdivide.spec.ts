@@ -123,12 +123,14 @@ test('a click on the map delineates: it is not lost to the tool restarting', asy
 	await calibrateAndApply(page, panel);
 });
 
-test('moving the map keeps a proposal', async ({ page }) => {
-	await page.route('**/delineate', (route) =>
-		route.fulfill({
+test('moving the map keeps a proposal and asks for nothing again', async ({ page }) => {
+	let asked = 0;
+	await page.route('**/delineate', (route) => {
+		asked++;
+		return route.fulfill({
 			json: { tributary: box(west, south, middle, north), remainder: box(middle, south, east, north), tributaryKm2: 300, remainderKm2: 343, outsideKm2: 0, outsidePct: 0, warning: null, snapM: 40, pansKm2: 0, dem: { label: 'Invented DEM', fingerprint: 'abc', zoom: 11, attribution: 'Invented' } }
-		})
-	);
+		});
+	});
 	const panel = await startWizard(page);
 	await page.locator('#subdivide-kind-tributary').check();
 	const map = await readyMap(panel);
@@ -139,6 +141,7 @@ test('moving the map keeps a proposal', async ({ page }) => {
 	await panel.getByRole('button', { name: /zoom in/i }).click();
 	await expect(map).not.toHaveAttribute('data-view', view!);
 	await expect(panel.getByRole('button', { name: 'Accept this tributary' })).toBeVisible();
+	expect(asked).toBe(1);
 });
 
 test('a zone drawn on the map becomes a proposal', async ({ page }) => {
@@ -174,4 +177,15 @@ test('a pasted shape needs no pointer', async ({ page }) => {
 	await field.fill(`POLYGON((${west + 0.02} ${south + 0.02}, ${middle} ${south + 0.02}, ${middle} ${north - 0.02}, ${west + 0.02} ${south + 0.02}))`);
 	await panel.getByRole('button', { name: 'Use this polygon' }).click();
 	await expect(panel.locator('[data-zone-proposal="ready"]')).toBeVisible();
+});
+
+test('a quaternary picked on the landing map carries into the loaded page and the wizard', async ({ page }) => {
+	await stubApi(page);
+	await page.goto('/');
+	const map = page.locator('section[aria-labelledby="map-h"]');
+	await map.getByLabel('Quaternary', { exact: true }).selectOption('Z01B');
+	await page.getByLabel('Network zip', { exact: true }).setInputFiles({ name: 'SY.zip', mimeType: 'application/zip', buffer: Buffer.from(syntheticNetworkZip()) });
+	await expect(page.getByRole('heading', { name: 'Network SY' })).toBeVisible();
+	await expect(map.getByLabel('Quaternary', { exact: true })).toHaveValue('Z01B');
+	await expect(page.getByRole('region', { name: 'Sub-divide a quaternary' }).getByLabel('Quaternary', { exact: true })).toHaveValue('Z01B');
 });

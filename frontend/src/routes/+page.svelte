@@ -91,7 +91,6 @@
 		runError = undefined;
 		saveError = undefined;
 		modeError = undefined;
-		quaternary = undefined;
 	}
 
 	async function loadSources(sources: SourceFile[]) {
@@ -171,6 +170,7 @@
 		try {
 			if (factory) await forgetWorkingCopy(factory);
 			reset();
+			quaternary = undefined;
 			status = 'The working copy was forgotten. Nothing of the network is left in this browser.';
 		} catch {
 			status = 'The working copy could not be deleted. Clear this site’s data in the browser settings to remove it.';
@@ -274,7 +274,7 @@
 		<div class="sections">
 			{#if !bundle}
 				<!-- Before a network is loaded the map shows the quaternaries on its own: what the app works on, in view from the start. -->
-				<MapPanel onselect={(code) => (quaternary = code)} />
+				<MapPanel picked={quaternary} onselect={(code) => (quaternary = code)} />
 			{/if}
 			<p class="status" role="status" aria-live="polite">{status}</p>
 
@@ -344,7 +344,7 @@
 					<IssueList issues={warnings} id="warnings-h" title={`Check ${plural(warnings.length, 'warning')}`} />
 				{/if}
 
-				<MapPanel {bundle} onselect={(code) => (quaternary = code)} />
+				<MapPanel {bundle} picked={quaternary} onselect={(code) => (quaternary = code)} />
 
 			<ExtendPanel {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
 

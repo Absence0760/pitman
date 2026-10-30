@@ -201,10 +201,23 @@ export async function fetchChannels(bbox: readonly [number, number, number, numb
 }
 
 /** The channels over a geometry, box by box in order; `onpart` gets all that has arrived so far after each box. */
-export async function fetchChannelsOver(within: AreaGeometry, options: TributaryClientOptions, onpart: (so_far: ChannelCollection) => void): Promise<ChannelCollection> {
+/** A box already fetched, for a tool that opens again on the same piece. */
+export type ChannelBoxCache = Map<string, ChannelCollection>;
+
+/** The most boxes one area may ask for: a quaternary needs four at most, and each box routes up to nine tiles. */
+export const MAX_CHANNEL_BOXES = 9;
+
+export async function fetchChannelsOver(within: AreaGeometry, options: TributaryClientOptions, onpart: (so_far: ChannelCollection) => void, cache?: ChannelBoxCache): Promise<ChannelCollection> {
+	const boxes = channelBoxes(bboxOf(within));
+	if (boxes.length > MAX_CHANNEL_BOXES) {
+		throw new TributaryRequestError('refused', 'This area is too large to draw its terrain channels. Sub-divide a single quaternary, or split by a MAP zone.', 422);
+	}
 	const features: ChannelCollection['features'][number][] = [];
-	for (const box of channelBoxes(bboxOf(within))) {
-		features.push(...(await fetchChannels(box, options)).features);
+	for (const box of boxes) {
+		const key = box.join(',');
+		const part = cache?.get(key) ?? (await fetchChannels(box, options));
+		cache?.set(key, part);
+		features.push(...part.features);
 		onpart({ type: 'FeatureCollection', features: [...features] });
 	}
 	return { type: 'FeatureCollection', features };

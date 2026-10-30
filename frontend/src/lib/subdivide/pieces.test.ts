@@ -20,6 +20,7 @@ import {
 	shareLines,
 	splitLabel,
 	splitPiece,
+	undoTo,
 	startPieces,
 	tributarySplit,
 	zoneSplit,
@@ -257,5 +258,16 @@ describe('the plan', () => {
 		expect(plan?.grid.dataset).toBe('Synthetic MAP grid');
 		expect(plan?.quaternary).toBe('Z01A');
 		expect(plan?.splits).toBe(set.splits);
+	});
+});
+
+describe('undoing a split', () => {
+	it('never lets a later split reuse an id, so it can’t pick up the undone pieces’ MAPs', () => {
+		const first = split();
+		const undone = undoTo(whole(), first);
+		const again = splitPiece(undone, 0, tributarySplit(DELINEATED, [20.55, -33.6]));
+		const before = new Set(first.pieces.map((p) => p.id));
+		expect(again.pieces.some((p) => before.has(p.id))).toBe(false);
+		expect(undone.pieces).toEqual(whole().pieces);
 	});
 });

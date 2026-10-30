@@ -141,6 +141,11 @@ describe('POST /map-grid/cells', () => {
 describe('GET /quaternaries', () => {
 	const quaternaries = new QuaternaryStore({ file: join(FIXTURE_GEO_DIR, 'quaternaries.synthetic.geojson'), credit: 'Invented boundaries' });
 
+	it('lets the browser keep them: the page asks from three places', async () => {
+		const res = await app({ quaternaries }).request('/quaternaries');
+		expect(res.headers.get('cache-control')).toBe('public, max-age=3600');
+	});
+
 	it('answers the collection, credited, carrying only the wire fields', async () => {
 		const res = await app({ quaternaries }).request('/quaternaries');
 		expect(res.status).toBe(200);
