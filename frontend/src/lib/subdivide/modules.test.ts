@@ -6,18 +6,28 @@ import { choicesFor, doneRows, featureOf, quaternaryGroups, quaternaryInName, ru
 const feature = (code: string) => ({ type: 'Feature' as const, properties: { code }, geometry: QUATERNARY });
 const COLLECTION: QuaternaryCollection = { type: 'FeatureCollection', source: 'Synthetic', features: [feature('Z03C'), feature('Z01A'), feature('Z02B'), feature('Z01A')] };
 
+const piece = (number: number, role: 'tributary' | 'outlet', areaKm2: number, gridMapMm: number, mapMm: number) => ({ role, number, polygonKm2: areaKm2, areaKm2, gridMapMm, mapMm, mapSource: 'grid' as const });
+
 const SUBDIVISION: Subdivision = {
-	quaternary: 'Z01A',
-	method: 'hydrological',
-	original: { type: 'RU', number: 3 },
-	pieces: [
-		{ module: { type: 'RU', number: 16 }, areaKm2: 120, mapMm: 765, gridMap: { grid: 'g', cellSizeM: 100, cellCount: 1, meanMapMm: 820, fetchedOn: '2026-10-30' } },
-		{ module: { type: 'RU', number: 3 }, areaKm2: 280, mapMm: 569, gridMap: { grid: 'g', cellSizeM: 100, cellCount: 1, meanMapMm: 610, fetchedOn: '2026-10-30' } }
-	],
-	calibration: { targetNaturalMarMm3: 24, targetSource: 'hand-entered: WR2012, table 2', period: { startYear: 1920, endYear: 2009 }, tolerancePercent: 2, iterations: [], finalFactor: 0.9325, converged: true }
+	method: 'subdivide-1',
+	module: { type: 'RU', number: 3, areaKm2: 400, mapMm: 640 },
+	splits: [{ kind: 'zone-drawn' }],
+	pieces: [piece(16, 'tributary', 120, 820, 765), piece(3, 'outlet', 280, 610, 569)],
+	grid: { dataset: 'g', cellDeg: 0.001, source: 's' },
+	calibration: {
+		target: { marMm3: 24, source: 'hand-entered: WR2012, table 2' },
+		crossCheck: { marMm3: 23.7, source: 'unsplit module' },
+		period: [1920, 2009],
+		status: 'converged',
+		factor: 0.9325,
+		finalMarMm3: 24.098,
+		iterations: []
+	},
+	shares: { afforestation: 'area', alien: 'area', dams: 'area' },
+	farmDamPercent: 'original'
 };
 
-const sidecar = (subdivisions: readonly Subdivision[]): Sidecar => ({ schema: 'pitman-sidecar', schemaVersion: 1, subdivisions });
+const sidecar = (subdivisions: Record<string, Subdivision>): Sidecar => ({ schema: 'pitman-sidecar', schemaVersion: 1, subdivisions });
 
 describe('quaternaryInName', () => {
 	it('finds a code anywhere in a module’s name, whatever its case', () => {
@@ -60,7 +70,7 @@ describe('quaternaryGroups', () => {
 });
 
 describe('a sub-division already applied', () => {
-	const bundle = workedBundle({ sidecar: sidecar([SUBDIVISION]) });
+	const bundle = workedBundle({ sidecar: sidecar({ Z01A: SUBDIVISION }) });
 
 	it('finds it from the original module or from a piece', () => {
 		expect(subdivisionOf(bundle, { type: 'RU', number: 3 })?.quaternary).toBe('Z01A');
@@ -81,10 +91,8 @@ describe('a sub-division already applied', () => {
 		expect(row?.status).toBe('Converged, factor 0.9325');
 	});
 
-	it('says when the best factor was used, and when nothing was calibrated', () => {
-		const best = { ...SUBDIVISION, calibration: { ...(SUBDIVISION.calibration as NonNullable<Subdivision['calibration']>), converged: false } };
-		expect(doneRows(workedBundle({ sidecar: sidecar([best]) }))[0]?.status).toBe('Not converged: best factor used, factor 0.9325');
-		const { calibration: _, ...bare } = SUBDIVISION;
-		expect(doneRows(workedBundle({ sidecar: sidecar([bare]) }))[0]?.status).toBe('Not calibrated');
+	it('says when the best factor was used', () => {
+		const best: Subdivision = { ...SUBDIVISION, calibration: { ...SUBDIVISION.calibration, status: 'not_converged', acceptedNotConverged: true } };
+		expect(doneRows(workedBundle({ sidecar: sidecar({ Z01A: best }) }))[0]?.status).toBe('Not converged: best factor used, factor 0.9325');
 	});
 });

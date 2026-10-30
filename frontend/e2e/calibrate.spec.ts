@@ -8,7 +8,7 @@ async function open(page: Page) {
 	await page.goto('/');
 	await page.getByLabel('Network zip', { exact: true }).setInputFiles({ name: 'SY.zip', mimeType: 'application/zip', buffer: Buffer.from(syntheticNetworkZip({ startYear: 1980, years: 30 })) });
 	await expect(page.getByRole('heading', { name: 'Network SY' })).toBeVisible();
-	await page.getByLabel('Runoff module').selectOption('1');
+	await page.getByLabel('Runoff module', { exact: true }).selectOption('1');
 	await expect(page.getByRole('table', { name: /WR2012 flow statistics/ })).toBeVisible();
 }
 
@@ -42,7 +42,7 @@ test('apply writes the value and the sidecar, clears results, and survives a sav
 	await expect(page.locator('#calibrate-applied')).toContainText('pitman.json');
 	await page.reload();
 	await expect(page.getByRole('heading', { name: 'Network SY' })).toBeVisible();
-	await page.getByLabel('Runoff module').selectOption('1');
+	await page.getByLabel('Runoff module', { exact: true }).selectOption('1');
 	await expect(page.getByLabel(/^ST /)).toHaveValue('420');
 	await expect(page.getByRole('button', { name: /Reset ST to/ })).toBeEnabled();
 });

@@ -24,8 +24,11 @@
 	import { rainfallFiles } from '#lib/extend/files.js';
 	import Results from '#lib/results/Results.svelte';
 	import { hydroYearLabel } from '#lib/results/format.js';
+	import Map from '#lib/map/Map.svelte';
 	import MapPanel from '#lib/map/MapPanel.svelte';
+	import TributaryTool from '#lib/map/tributary/TributaryTool.svelte';
 	import AppBar from '#lib/shell/AppBar.svelte';
+	import SubdividePanel from '#lib/subdivide/SubdividePanel.svelte';
 	import Landing from '#lib/shell/Landing.svelte';
 	import StepRail from '#lib/shell/StepRail.svelte';
 	import { runStatus, workflowSteps } from '#lib/shell/steps.js';
@@ -65,6 +68,7 @@
 		workflowSteps({
 			years: years ?? '',
 			quaternary,
+			subdivided: Object.keys(bundle?.sidecar?.subdivisions ?? {}).length,
 			rainfallFiles: rainfall.length,
 			extendedFiles: rainfall.filter((f) => f.extension).length,
 			run: runState,
@@ -268,6 +272,10 @@
 			<StepRail {steps} />
 		{/if}
 		<div class="sections">
+			{#if !bundle}
+				<!-- Before a network is loaded the map shows the quaternaries on its own: what the app works on, in view from the start. -->
+				<MapPanel onselect={(code) => (quaternary = code)} />
+			{/if}
 			<p class="status" role="status" aria-live="polite">{status}</p>
 
 			{#if phase === 'choose'}
@@ -340,6 +348,13 @@
 
 			<ExtendPanel {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
 
+			<SubdividePanel {bundle} {runs} {quaternary} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'}>
+				{#snippet map(props)}<Map {...props} />{/snippet}
+				{#snippet tributary(slot)}
+					<TributaryTool within={slot.within} click={slot.click} onresult={slot.onaccept} onchannels={slot.onchannels} onproposal={slot.onproposal} />
+				{/snippet}
+			</SubdividePanel>
+
 			<CalibratePanel {bundle} onupdate={updateBundle} busy={runState === 'running'} />
 
 				<section class="card" aria-labelledby="run-h">
@@ -404,7 +419,7 @@
 	}
 	.workspace:not(.loaded) {
 		max-width: 78rem;
-		padding-top: 0;
+		padding-top: 1.25rem;
 	}
 	@media (min-width: 64rem) {
 		.workspace.loaded {

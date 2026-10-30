@@ -2,11 +2,11 @@
 // synthetic quaternaries, so each click below has a known result.
 import { readFileSync } from 'node:fs';
 import type { AreaGeometry } from '@pitman/wrsm';
+import { differenceGeometry } from '@pitman/wrsm';
 import { describe, expect, it } from 'vitest';
 import { geometryAreaM2 } from '../geo/area.js';
 import { parseArea } from '../http/area.js';
 import { DelineationRefused } from './delineate.js';
-import { differenceGeometry } from './difference.js';
 import { syntheticDem } from './syntheticDem.js';
 import { delineateTributary, largestPiece, MAX_TRIBUTARY_SHARE, OUTSIDE_WARNING, pointInArea, SLIVER_KM2, WHOLE_QUATERNARY_TEXT } from './tributary.js';
 

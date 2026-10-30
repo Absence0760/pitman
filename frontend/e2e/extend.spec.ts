@@ -40,7 +40,7 @@ async function loadNetwork(page: Page) {
 }
 
 async function uploadArea(page: Page, file: string, text: string) {
-	await page.getByLabel('Boundary file (GeoJSON)').setInputFiles({ name: file, mimeType: 'application/geo+json', buffer: Buffer.from(text) });
+	await page.locator('[id^="extend-"][type=file]').setInputFiles({ name: file, mimeType: 'application/geo+json', buffer: Buffer.from(text) });
 }
 
 /** Extend one file with the computed factors. */
@@ -87,7 +87,7 @@ test('upload an area, fetch CHIRPS, check the fit, edit a factor, apply, extend 
 	// A boundary that isn't one: refused, focus on the input.
 	await uploadArea(page, 'point.geojson', JSON.stringify({ type: 'Point', coordinates: [22, -33] }));
 	await expect(file.getByRole('alert')).toContainText('the area must be a Polygon or MultiPolygon');
-	await expect(page.getByLabel('Boundary file (GeoJSON)')).toBeFocused();
+	await expect(page.locator('[id^="extend-"][type=file]')).toBeFocused();
 
 	await uploadArea(page, 'area.geojson', AREA);
 	await expect(file.locator('[data-value="area-km2"]')).toContainText('km²');

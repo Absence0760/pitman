@@ -11,11 +11,11 @@
 //     `R = Q − T_poly` without them, then `T = Q − R`, so the two meet along `R`'s edge and `T`'s outer edge is
 //     `Q`'s own. `A_T` is then `area(T)` and `A_R = area(Q) − A_T` as the spec says.
 import type { AreaGeometry } from '@pitman/wrsm';
+import { differenceGeometry } from '@pitman/wrsm';
 import { geometryAreaM2, polygonAreaM2 } from '../geo/area.js';
 import { checkGeometry, pointInRing, type Geometry, type Position } from '../geo/geojson.js';
 import { delineate, DelineationRefused, toLonLat, toPx, type CatchmentMask, type Delineation } from './delineate.js';
 import type { Dem } from './dem.js';
-import { differenceGeometry } from './difference.js';
 import { simplifyRing, traceRings, type Pt } from './outline.js';
 import { rasterize } from './rasterize.js';
 

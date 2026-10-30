@@ -24,6 +24,8 @@
  * - Everything is readonly. The engine never mutates its inputs.
  */
 
+import type { CalibrationIteration, CalibrationTarget, PieceRole, ShareBasis, SplitPlan, SplitRecord } from './subdivide/contract.js';
+
 // ---------------------------------------------------------------------------
 // Primitives
 // ---------------------------------------------------------------------------
@@ -1226,41 +1228,77 @@ export interface RainfallExtension {
 	readonly createdAt?: IsoDate;
 }
 
-/** One iteration of the MAP calibration loop (decision D2). */
-export interface MapCalibrationStep {
-	readonly iteration: number;
-	/** Common factor applied to every piece's gridded MAP. */
-	readonly factor: number;
-	/** Natural MAR at the quaternary outlet with that factor, million m³/year. */
-	readonly naturalMarMm3: number;
-	/** (simulated − target) / target × 100, %. */
-	readonly errorPercent: number;
+/** One piece of a quaternary as the sidecar records it (subdivide.md § Provenance). */
+export interface SubdivisionPiece {
+	/** How the piece came about; `outlet` is the piece that keeps the original module number. */
+	readonly role: PieceRole | 'outlet';
+	/** Its runoff module's number. */
+	readonly number: number;
+	/** Geodesic polygon area, km². */
+	readonly polygonKm2: number;
+	/** The module's area, km² (scaled to the original module's). */
+	readonly areaKm2: number;
+	/** `MAP⁰_i`, mm. */
+	readonly gridMapMm: number;
+	/** The MAP written to the module, mm. */
+	readonly mapMm: number;
+	readonly mapSource: 'grid' | 'typed';
 }
 
-/** A quaternary sub-division (method B) and its MAP calibration. */
+/** An SFR child split with its parent: what merging the pieces needs (invariant 8). */
+export interface SubdivisionChild {
+	/** The child's number before the split. */
+	readonly number: number;
+	readonly areaKm2: number;
+	readonly mapMm: number;
+	/** The child modules it became. */
+	readonly pieces: readonly number[];
+}
+
+/**
+ * A quaternary sub-division (method B) and its MAP calibration, the
+ * `pitman.json` entry of docs/theory/subdivide.md § Provenance. Round 5
+ * replaced the Round 1 placeholder (a list of `Subdivision`s, decision R5-E9).
+ */
 export interface Subdivision {
-	readonly quaternary: string;
-	readonly method: 'hydrological' | 'mapZone';
-	/** The runoff module that was split, before the split. */
-	readonly original: ModuleRef;
-	readonly pieces: readonly {
-		readonly module: ModuleRef;
+	/** Method version: the algorithm of subdivide.md as of Round 5. */
+	readonly method: 'subdivide-1';
+	/** The runoff module as it was before the first split. */
+	readonly module: {
+		readonly type: 'RU';
+		readonly number: number;
 		readonly areaKm2: number;
-		readonly gridMap: MapGridSample;
-		/** Final MAP after calibration, mm. */
 		readonly mapMm: number;
-	}[];
-	readonly calibration?: {
-		/** WR2012 naturalised MAR for the quaternary, million m³/year (D2a). */
-		readonly targetNaturalMarMm3: number;
-		readonly targetSource: string;
-		/** Years compared: the .RAN period before CHIRPS extension. */
-		readonly period: { readonly startYear: HydroYear; readonly endYear: HydroYear };
-		readonly tolerancePercent: number;
-		readonly iterations: readonly MapCalibrationStep[];
-		readonly finalFactor: number;
-		readonly converged: boolean;
+		/** L.033 v1 before the split, when the module has a Sami block (R5-E1). */
+		readonly maxHydraulicGradient?: number;
 	};
+	/** Each split in order, so the pieces can be rebuilt. */
+	readonly splits: readonly SplitRecord[];
+	readonly pieces: readonly SubdivisionPiece[];
+	/** SFR children split with the module; absent when it has none. */
+	readonly children?: readonly SubdivisionChild[];
+	readonly grid: SplitPlan['grid'];
+	readonly calibration: {
+		readonly target: CalibrationTarget;
+		readonly crossCheck: CalibrationTarget;
+		/** First and last hydrological year compared: the `.RAN` before extension. */
+		readonly period: readonly [HydroYear, HydroYear];
+		readonly status: 'converged' | 'not_converged';
+		/** True when the user took the best factor of a calibration that didn't converge. */
+		readonly acceptedNotConverged?: true;
+		readonly factor: number;
+		/** The natural MAR of the MAPs as saved, whole mm (subdivide.md § Rounding). */
+		readonly finalMarMm3: number;
+		readonly iterations: readonly CalibrationIteration[];
+	};
+	/** Which share each table used in the first split; `irrigation` only when irrigation was split. */
+	readonly shares: SplitPlan['shares'] & { readonly irrigation?: ShareBasis };
+	/** The same for each later split, in order; absent after one. */
+	readonly laterShares?: readonly (SplitPlan['shares'] & { readonly irrigation?: ShareBasis })[];
+	/** Each irrigation module a split made, with the piece it belongs to: a later split takes only its own piece's blocks (R5-E10). */
+	readonly irrigation?: readonly { readonly number: number; readonly piece: number }[];
+	/** Where each new farm-dam route's `p` came from (B6): the original `p` until dam catchments are delineated. */
+	readonly farmDamPercent: 'original';
 }
 
 /** One farm dam's 2025 capacity, as gathered for decision D4. */
@@ -1292,7 +1330,8 @@ export interface Sidecar {
 	readonly savedAt?: IsoDate;
 	/** CHIRPS extensions, by upper-cased .RAN name. */
 	readonly rainfallExtensions?: Readonly<Record<string, RainfallExtension>>;
-	readonly subdivisions?: readonly Subdivision[];
+	/** Sub-divisions, by quaternary code. */
+	readonly subdivisions?: Readonly<Record<string, Subdivision>>;
 	/** Cape Farm Mapper fetch used for irrigation areas and dams (D3). */
 	readonly capeFarmMapper?: {
 		readonly fetchedOn: IsoDate;

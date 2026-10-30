@@ -11,7 +11,7 @@
 	its results then, so the panel keeps the runs from before for the compare.
 -->
 <script lang="ts">
-	import { onMount, tick, type Snippet } from 'svelte';
+	import { onMount, tick, untrack, type Snippet } from 'svelte';
 	import type { AreaGeometry, ChannelCollection, MapGridCells, RunResult, SplitPreview, SplitRecord } from '@pitman/wrsm';
 	import { API_BASE_URL } from '#lib/extend/api-base.js';
 	import type { MapProps, MapTool } from '#lib/map/contract.js';
@@ -60,6 +60,7 @@
 		onrerun,
 		busy = false,
 		runs = [],
+		quaternary: pickedOnMap,
 		engine = subdivideEngine,
 		data = createSubdivideData({ baseUrl: API_BASE_URL }),
 		map,
@@ -74,6 +75,8 @@
 		busy?: boolean;
 		/** The page's current results: what the before/after compares. */
 		runs?: readonly RunResult[];
+		/** The quaternary chosen on the page's map: the starting choice here. */
+		quaternary?: string | undefined;
 		engine?: SubdivideEngine;
 		data?: SubdivideData;
 		/** The page's map, given the props to draw with. */
@@ -240,6 +243,12 @@
 	onMount(() => {
 		void loadQuaternaries();
 		return () => controller.abort();
+	});
+
+	// The page's map answers the same question first: start from what was picked there, never over a choice made here.
+	$effect(() => {
+		const picked = pickedOnMap;
+		if (picked && untrack(() => code === '' && loaded.state === 'ok' && featureOf(loaded.collection, picked) !== undefined)) untrack(() => chooseQuaternary(picked));
 	});
 
 	function chooseQuaternary(next: string) {
@@ -705,7 +714,7 @@
 				</ul>
 				<h4>Changes to the network</h4>
 				{#if preview?.ok}
-					{#each preview.value.messages as message (message)}
+					{#each preview.value.messages.filter((m) => !(areas?.ok && m === areas.value.warning)) as message (message)}
 						<p class="warn"><strong>Check:</strong> {message}</p>
 					{/each}
 					<ul class="changes" aria-label="Changes to the network" data-list="changes">

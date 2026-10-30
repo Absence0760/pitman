@@ -5,6 +5,9 @@
 	that carry text and marks). Canvas charts read the --series-* tokens
 	through getComputedStyle (results/plot.ts, extend/plot.ts).
 */
+/* Here, not imported from a module: under `vite dev` server rendering would hand a .css to Node and answer 500. */
+@import '@fontsource-variable/inter/wght.css';
+
 :root {
 	/* Inter, self-hosted (OFL 1.1, @fontsource-variable/inter): the same screens on every machine, nothing fetched from a third party. */
 	--font-ui: 'Inter Variable', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;

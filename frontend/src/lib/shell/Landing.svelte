@@ -41,13 +41,11 @@
 </div>
 
 <style>
-	/* Fills the window down to the footer, so the first screen has no empty foot. */
 	.band {
 		position: relative;
 		overflow: hidden;
 		display: grid;
 		align-items: center;
-		min-height: calc(100vh - var(--bar-h) - 5rem);
 		background: linear-gradient(170deg, var(--bar-bg) 40%, var(--bar-bg-2));
 		color: var(--bar-text);
 	}

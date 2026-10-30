@@ -77,11 +77,10 @@ export function featureOf(collection: QuaternaryCollection, code: string): Quate
 	return collection.features.find((f) => f.properties.code === code);
 }
 
-const sameRef = (a: ModuleRef, b: ModuleRef) => a.type === b.type && a.number === b.number;
-
 /** The recorded sub-division a module belongs to, as the original or as a piece. */
-export function subdivisionOf(bundle: NetworkBundle, ref: ModuleRef): Subdivision | undefined {
-	return bundle.sidecar?.subdivisions?.find((s) => sameRef(s.original, ref) || s.pieces.some((p) => sameRef(p.module, ref)));
+export function subdivisionOf(bundle: NetworkBundle, ref: ModuleRef): { readonly quaternary: string; readonly subdivision: Subdivision } | undefined {
+	const found = Object.entries(bundle.sidecar?.subdivisions ?? {}).find(([, s]) => ref.type === 'RU' && (s.module.number === ref.number || s.pieces.some((p) => p.number === ref.number)));
+	return found && { quaternary: found[0], subdivision: found[1] };
 }
 
 /** Why a module can't be split now, in words, or `null`. */
@@ -101,14 +100,14 @@ export interface DoneRow {
 }
 
 export function doneRows(bundle: NetworkBundle): DoneRow[] {
-	return (bundle.sidecar?.subdivisions ?? []).map((s) => {
+	return Object.entries(bundle.sidecar?.subdivisions ?? {}).map(([quaternary, s]) => {
 		const c = s.calibration;
 		return {
-			quaternary: s.quaternary,
-			original: `${s.original.type} ${s.original.number}`,
-			pieces: s.pieces.map((p) => `${p.module.type} ${p.module.number}: ${p.areaKm2.toFixed(1)} km², MAP ${Math.round(p.mapMm)} mm`).join('; '),
-			target: c ? `${c.targetNaturalMarMm3.toFixed(3)} million m³/year (${c.targetSource}), ${hydroYearLabel(c.period.startYear)} to ${hydroYearLabel(c.period.endYear)}` : 'not calibrated',
-			status: c ? `${c.converged ? 'Converged' : 'Not converged: best factor used'}, factor ${c.finalFactor.toFixed(4)}` : 'Not calibrated'
+			quaternary,
+			original: `RU ${s.module.number}`,
+			pieces: s.pieces.map((p) => `RU ${p.number}: ${p.areaKm2.toFixed(1)} km², MAP ${Math.round(p.mapMm)} mm`).join('; '),
+			target: `${c.target.marMm3.toFixed(3)} million m³/year (${c.target.source}), ${hydroYearLabel(c.period[0])} to ${hydroYearLabel(c.period[1])}`,
+			status: `${c.status === 'converged' ? 'Converged' : 'Not converged: best factor used'}, factor ${c.factor.toFixed(4)}`
 		};
 	});
 }

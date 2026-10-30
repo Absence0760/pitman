@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 
-	import '@fontsource-variable/inter/wght.css';
 	import '../app.css';
 
 	// Svelte 5 renders child routes through a `children` snippet rather

@@ -11,7 +11,7 @@ function step(input: Partial<StepInput>, id: string) {
 
 describe('workflowSteps', () => {
 	it('goes network, extend, run, results and links to each section', () => {
-		expect(workflowSteps(base).map((s) => s.id)).toEqual(['network-h', 'map-h', 'extend-h', 'calibrate-h', 'run-h', 'results-output']);
+		expect(workflowSteps(base).map((s) => s.id)).toEqual(['network-h', 'map-h', 'extend-h', 'subdivide-h', 'calibrate-h', 'run-h', 'results-output']);
 	});
 
 	it('a loaded network is done and shows its record', () => {
@@ -21,6 +21,11 @@ describe('workflowSteps', () => {
 	it('the map asks for a quaternary, then shows it', () => {
 		expect(step({}, 'map-h')).toMatchObject({ state: 'todo', detail: 'Pick a quaternary' });
 		expect(step({ quaternary: 'Z01A' }, 'map-h')).toMatchObject({ state: 'done', detail: 'Z01A' });
+	});
+
+	it('counts the quaternaries split', () => {
+		expect(step({}, 'subdivide-h')).toMatchObject({ state: 'todo', detail: 'Optional' });
+		expect(step({ subdivided: 1 }, 'subdivide-h')).toMatchObject({ state: 'done', detail: '1 quaternary split' });
 	});
 
 	it('says the extension is optional until a file is extended', () => {

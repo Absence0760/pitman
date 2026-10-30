@@ -95,12 +95,17 @@
 		clear();
 	}
 
+	// Through a derived, which signals only when the geometry itself changes: the parent builds these props as
+	// one object, so reading `within` directly would also subscribe to its click and view, and every click
+	// would restart the tool and abort the delineation it had just started.
+	const piece = $derived(within);
+
 	$effect(() => {
-		const piece = within;
+		const current = piece;
 		const run = new AbortController();
 		untrack(() => {
 			clear();
-			void loadChannels(piece, run.signal);
+			void loadChannels(current, run.signal);
 		});
 		return () => {
 			run.abort();

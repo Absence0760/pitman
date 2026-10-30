@@ -19,6 +19,8 @@ export interface StepInput {
 	readonly years: string;
 	/** The quaternary chosen on the map, if any. */
 	readonly quaternary?: string | undefined;
+	/** Quaternaries with an applied sub-division. */
+	readonly subdivided?: number | undefined;
 	readonly rainfallFiles: number;
 	readonly extendedFiles: number;
 	readonly run: 'idle' | 'running' | 'done' | 'failed';
@@ -51,6 +53,7 @@ export function workflowSteps(input: StepInput): readonly Step[] {
 		{ id: 'network-h', label: 'Network', detail: input.years, state: 'done' },
 		{ id: 'map-h', label: 'Map', detail: input.quaternary ?? 'Pick a quaternary', state: input.quaternary ? 'done' : 'todo' },
 		{ id: 'extend-h', label: 'Extend rainfall', ...extendStep(input) },
+		{ id: 'subdivide-h', label: 'Sub-divide', detail: input.subdivided ? `${input.subdivided} ${input.subdivided === 1 ? 'quaternary' : 'quaternaries'} split` : 'Optional', state: input.subdivided ? 'done' : 'todo' },
 		{ id: 'calibrate-h', label: 'Calibrate', detail: 'Optional', state: 'todo' },
 		{ id: 'run-h', label: 'Run', ...runStep(input) },
 		{ id: 'results-output', label: 'Results', ...resultsStep(input) }

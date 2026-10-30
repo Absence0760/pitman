@@ -240,7 +240,7 @@ Layout, by topic:
   `outline.ts`, `pans.ts`, `channels.ts`, `rasterize.ts`, the dependency-free DEM
   readers `dem.ts`, `pmtiles.ts`, `png.ts`, `webp.ts`), Pitman's own
   `tributary.ts` (clip to the piece, outline, remainder, areas, the refusals),
-  `difference.ts` (the one call to the polygon boolean), `source.ts`
+  `source.ts`
   (`DEM_SOURCE=local|s3://…|https://…`), `routes.ts`, and `syntheticDem.ts` (the
   dev DEM's generator; never imported by the API). `fixture.ts`,
   `valleyFixture.ts` and `backend/fixtures/dem/` serve the tests only.
@@ -262,7 +262,7 @@ deadline, or a channel box its 20 s one (asking again finishes it; the tiles
 done are kept).
 
 **Per instance, on purpose.** The rate limit (30 CHIRPS / 120 MAP / 120
-quaternary / 12 delineate / 30 channel requests per client per 10 minutes) and
+quaternary / 30 delineate / 60 channel requests per client per 10 minutes) and
 the caches (200 CHIRPS series, 500 MAP means, 50 delineations, 128 channel
 tiles, LRU) live in one Lambda instance's memory. They bound what one client can
 make one instance do; the global per-IP limit is the WAF rule on CloudFront,

@@ -18,8 +18,9 @@ export const RATE_LIMITS = {
 	chirps: { limit: 30, windowMs: 10 * 60_000 },
 	mapGrid: { limit: 120, windowMs: 10 * 60_000 },
 	// The costliest calls the API has: up to ~460 MB and 20 s a delineation, 3 × 3 routed windows a channel box.
-	delineate: { limit: 12, windowMs: 10 * 60_000 },
-	channels: { limit: 30, windowMs: 10 * 60_000 },
+	// Exploring a river takes many clicks, and one tool session up to four boxes; the 20 s budget and the caches bound each call.
+	delineate: { limit: 30, windowMs: 10 * 60_000 },
+	channels: { limit: 60, windowMs: 10 * 60_000 },
 	quaternaries: { limit: 120, windowMs: 10 * 60_000 }
 } as const;
 

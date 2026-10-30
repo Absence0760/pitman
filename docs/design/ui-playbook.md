@@ -68,6 +68,9 @@ with them.
 
 ## The map
 
+- **The map is on the first screen.** It shows the quaternaries before anything
+  is loaded, because it is what the app works on; hiding it behind a load read
+  as no map at all.
 - **The map is never the only way.** A quaternary can be chosen by code, a shape
   pasted as GeoJSON or WKT; without WebGL the map says so and the rest works.
 - **No tiles is not an error.** A laptop with no cloud gets a plain background

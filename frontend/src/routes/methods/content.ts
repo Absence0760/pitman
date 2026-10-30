@@ -183,6 +183,11 @@ export const DEPARTURES: readonly Departure[] = [
 		summary: 'The CSIR curves aren’t printed in the manuals, so the child is calibrated to Smoothed Gush targets, with a warning. The size of the difference can’t be measured: no reference child uses CSIR afforestation.'
 	},
 	{
+		id: 'DP-5',
+		module: 'A Sami module split into pieces',
+		summary: 'Pitman scales each piece’s hydraulic gradient so its regional groundwater outflow keeps its depth, which assumes a width the manuals don’t give. WRSM2000 may differ when it runs a saved split network; no such run exists to measure it. Within Pitman the split changes nothing.'
+	},
+	{
 		id: 'DP-4',
 		module: 'Free module with CSIR, Van der Zel or LUT Gush afforestation',
 		summary: 'Those curves aren’t printed in the manuals, so Pitman applies no reduction, with a warning. The size of the difference can’t be measured: no reference module uses them.'
