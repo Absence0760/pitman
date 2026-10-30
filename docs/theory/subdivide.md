@@ -420,6 +420,8 @@ to no surface area (R5-E4).
    only with `|e| / T ≤ 0.02`.
 8. Splitting and then merging the pieces (the inverse) gives back the
    original module's fields.
+9. Every `sidecar.values` entry names a module in the network or is retired
+   and names none, and that survives saving and reloading (R7-C14).
 
 ## Provenance (sidecar)
 
@@ -463,6 +465,41 @@ each RR a split made and its piece; `laterShares` holds each later split's
 shares, `shares` being the first's. `mergePieces`, the inverse of invariant 8,
 needs these (R5-E9). `applySplit` also moves a located dam in the sidecar's
 `dams` to the piece it lies in.
+
+**Source notes follow their values (R7-C14).** Every `values` entry on a module
+that was split (the runoff module, an SFR child, an RR block or the farm-dam RV)
+goes to the modules that now hold the value, so it doesn't matter whether land
+use goes on before or after a split. The entry's `source` doesn't change; each
+copy gains a record in `splits`, oldest first, because a piece can be split again:
+
+```jsonc
+{
+  "target": { "module": { "type": "RU", "number": 16 }, "field": "afforestation.areaKm2", "year": 2009 },
+  "source": { "kind": "manual", "note": "Land use: 12 → 16; Survey", "date": "2026-10-30" },
+  "splits": [{
+    "quaternary": "Z01A", "from": { "type": "RU", "number": 3 }, "how": "divided",
+    "pieces": [{ "type": "RU", "number": 16 }, { "type": "RU", "number": 3 }],
+    "whole": 16, "part": 4
+  }]
+}
+```
+
+| `how` | When | Each piece holds |
+|---|---|---|
+| `copied` | a **Copied** field of § Fields, and an RR's or RV's other parameters | the same value |
+| `moved` | the value went wholly to one other module (`pieces` has one) | all of it |
+| `divided` | a **Split** field of § Fields, an SFR child's area and tables, an RR's area and allocations, an RV's capacity and initial storage | `part` of `whole`; a piece that got none gets no copy |
+| `scaled` | HGRAD | `part`, from `whole` |
+
+A value that stays whole on the module it was on keeps its entry as it was. A
+**retired** entry is one whose value no longer exists: the MAP, which the split
+sets (on the quaternary's other pieces too when a repeat split rescales them),
+and the routes. It loses `target.module`, so nothing reads it as a value in use,
+and gains `retired: { quaternary, from, reason }`. So does an entry on a module
+no longer in the network, which only a sidecar saved before this can hold.
+Nothing is deleted. A divided or scaled value's own history starts at the
+piece's share: resetting a piece gives it that share, never the whole, and the
+screen shows the whole's last edit and that it was divided (R7-T3).
 
 ## Worked example
 
