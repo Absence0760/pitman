@@ -40,6 +40,7 @@ pitman/
 │       ├── lib/map/          The map: Map.svelte (takes contract.ts MapProps), MapPanel.svelte (the step), the style and tokens (mapStyle, palette), the client (api), module placing (modules), drawing (draw/); MapLibre loads lazily (maplibre.ts)
 │       ├── lib/map/tributary/ The tributary tool: api.ts (the /delineate and /channels client), present.ts (its wording), TributaryTool.svelte (embedded by the wizard; never touches MapLibre)
 │       ├── lib/calibrate/    Edit a runoff module's parameters, preview a historical rerun at a gauge, apply (docs/user-guide.md)
+│       ├── lib/demand/       Create and edit demand files: the list, the form beside its preview, apply (§ App flow, Demands)
 │       ├── lib/subdivide/    Sub-divide a quaternary (method B): the wizard, its logic in .ts modules, the engine adapter `engine.ts` and the backend client `data.ts` (§ App flow, step 6)
 │       ├── lib/map/mapzone/  The MAP-zone tool: threshold, drawn or pasted zone (§ App flow, step 6)
 │       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
@@ -183,6 +184,21 @@ mounted, so moving between steps loses nothing, and Save stays in the app bar
    (decision R2-4), plus every kept file. The sidecar is stamped with
    `writtenBy` (the frontend package version) and `savedAt` and written as
    `pitman.json` beside the `.NET`. The zip is offered as a download.
+
+**Demands** (`frontend/src/lib/demand/`, `packages/wrsm/src/demand/`,
+`docs/formats.md` §12). A section of the page, like Extend and Calibrate. It
+lists each defined-flow file once (`files.ts`) with the routes that read it,
+its years, and whether it covers the run. A file with a `DemandSpec` in
+`sidecar.demands` opens in the form; one without can be viewed and replaced,
+never edited as a spec, because a spec can't be recovered from monthly rows.
+The form holds text (`draft.ts`); the engine's `planDemand` turns it into a
+plan on every keystroke, and Apply carries out that same plan (`applyDemand`),
+so the rows and file on screen are what gets written. Rows are generated at
+the writer's rounding, so a run of the working copy equals a run of the saved
+zip. Apply names the file after the route, sets the RV L.013 or CR L.010 line,
+adds a `.NET` route to the zero sink when asked, and records the spec in
+`sidecar.demands` and each value's source in `sidecar.values` (target `{ file,
+field, year? }`, rule 8). It hands the page the bundle through `onupdate`.
 
 `synthetic.ts` builds a synthetic network (the engine's `syntheticNetwork()`
 plus its channel reach) as files or a zip, for tests: load it, run every
