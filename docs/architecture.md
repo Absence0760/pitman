@@ -38,9 +38,10 @@ pitman/
 │       ├── lib/network/      Load, validate, store, run (worker), save (§ App flow)
 │       ├── lib/extend/       Extend a .RAN with CHIRPS (method A): area upload, the CHIRPS client, the fit screen, apply (§ App flow, step 5)
 │       ├── lib/map/tributary/ The tributary tool: api.ts (the /delineate and /channels client), present.ts (its wording), TributaryTool.svelte (embedded by the wizard; never touches MapLibre)
+│       ├── lib/calibrate/    Edit a runoff module's parameters, preview a historical rerun at a gauge, apply (docs/user-guide.md)
 │       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
 │       ├── lib/shell/        The frame around the steps: app bar, landing page, step rail (steps.ts holds its wording), the design-token guards; rules in docs/design/ui-playbook.md
-│       └── routes/           +page.svelte: the app shell
+│       └── routes/           +page.svelte: the app shell; methods/: the Methods page (prerendered, mapped by infra/functions/spa_rewrite.js)
 ├── backend/
 │   ├── package.json          Build script runs esbuild → dist/lambda.mjs
 │   ├── tsconfig.json

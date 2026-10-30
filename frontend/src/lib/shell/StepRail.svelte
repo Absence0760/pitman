@@ -34,7 +34,8 @@
 		margin: 0;
 		padding: 0;
 		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
+		grid-auto-flow: column;
+		grid-auto-columns: minmax(0, 1fr);
 		gap: 0.25rem;
 	}
 	li {
@@ -102,7 +103,7 @@
 			top: calc(var(--bar-h) + 1.25rem);
 		}
 		ol {
-			grid-template-columns: minmax(0, 1fr);
+			grid-auto-flow: row;
 			gap: 0.5rem;
 		}
 		li:not(:last-child)::after {

@@ -48,6 +48,7 @@ export function workflowSteps(input: StepInput): readonly Step[] {
 	return [
 		{ id: 'network-h', label: 'Network', detail: input.years, state: 'done' },
 		{ id: 'extend-h', label: 'Extend rainfall', ...extendStep(input) },
+		{ id: 'calibrate-h', label: 'Calibrate', detail: 'Optional', state: 'todo' },
 		{ id: 'run-h', label: 'Run', ...runStep(input) },
 		{ id: 'results-output', label: 'Results', ...resultsStep(input) }
 	];

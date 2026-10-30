@@ -58,6 +58,10 @@ with them.
   rail and the rainfall table added 2 px of sideways scroll at 390 px until
   `.scroll` and the rail's list were `position: relative`.
 
+- **A screen that previews values refuses what the file can't hold.** The
+  writer rounds through float32, so a preview of an unwritable value would
+  show a result the saved network can't reproduce (`calibrate/validate.ts`).
+
 ## Before calling a screen done
 
 Screenshot it at 1440×960, 1280×800 and 390×844, light and dark: a throwaway

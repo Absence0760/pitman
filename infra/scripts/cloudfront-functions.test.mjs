@@ -18,6 +18,9 @@ test('spa_rewrite: client routes get index.html, files pass through', () => {
 	assert.equal(spa('/extend').uri, '/index.html');
 	assert.equal(spa('/a/b/').uri, '/index.html');
 	assert.equal(spa('/index.html').uri, '/index.html');
+	assert.equal(spa('/methods').uri, '/methods.html');
+	assert.equal(spa('/methods/').uri, '/methods.html');
+	assert.equal(spa('/methods.html').uri, '/methods.html');
 	assert.equal(spa('/_app/immutable/entry/start.BYRKrWNM.js').uri, '/_app/immutable/entry/start.BYRKrWNM.js');
 	assert.equal(spa('/_app/version.json').uri, '/_app/version.json');
 	assert.equal(spa('/_app/immutable/missing.js').uri, '/_app/immutable/missing.js');

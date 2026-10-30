@@ -19,6 +19,7 @@
 	import { saveFileName, saveZip } from '#lib/network/save.js';
 	import { readSources, sourceName, type SourceFile } from '#lib/network/sources.js';
 	import { browserIndexedDB, forgetWorkingCopy, loadWorkingCopy, storeWorkingCopy } from '#lib/network/storage.js';
+	import CalibratePanel from '#lib/calibrate/CalibratePanel.svelte';
 	import ExtendPanel from '#lib/extend/ExtendPanel.svelte';
 	import { rainfallFiles } from '#lib/extend/files.js';
 	import Results from '#lib/results/Results.svelte';
@@ -333,6 +334,8 @@
 
 				<ExtendPanel {bundle} onupdate={updateBundle} onrerun={startRun} busy={runState === 'running'} />
 
+			<CalibratePanel {bundle} onupdate={updateBundle} busy={runState === 'running'} />
+
 				<section class="card" aria-labelledby="run-h">
 					<h2 id="run-h">Run</h2>
 					<ModePicker bind:choice error={modeError?.text} errorField={modeError?.field} disabled={runState === 'running'} />
@@ -380,6 +383,7 @@
 <footer class="foot">
 	<span>Your files stay in your browser.</span>
 	<span>Built from the WRC manuals TT 687, 689, 690 and 691.</span>
+	<a href="/methods">Methods</a>
 	<span>Pitman {__PITMAN_VERSION__}</span>
 </footer>
 
