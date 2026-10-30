@@ -37,6 +37,7 @@ pitman/
 │       ├── app.html
 │       ├── lib/network/      Load, validate, store, run (worker), save (§ App flow)
 │       ├── lib/extend/       Extend a .RAN with CHIRPS (method A): area upload, the CHIRPS client, the fit screen, apply (§ App flow, step 5)
+│       ├── lib/map/tributary/ The tributary tool: api.ts (the /delineate and /channels client), present.ts (its wording), TributaryTool.svelte (embedded by the wizard; never touches MapLibre)
 │       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
 │       ├── lib/shell/        The frame around the steps: app bar, landing page, step rail (steps.ts holds its wording), the design-token guards; rules in docs/design/ui-playbook.md
 │       └── routes/           +page.svelte: the app shell
@@ -183,6 +184,8 @@ in the browser).
 | `GET /health` | `{ ok: true }` | `app.ts` |
 | `POST /chirps/monthly` | `ChirpsMonthlyRequest` → `ChirpsMonthly` (`packages/wrsm/src/extend/contract.ts`) | `src/chirps/` |
 | `POST /map-grid/mean` | `{ area }` → `MapGridSample` + provenance | `src/mapgrid/` |
+| `POST /delineate` | `DelineateRequest` → `DelineateResponse` (`packages/wrsm/src/subdivide/contract.ts`, plus R5-D4); a refusal is a 422 with `{ error, reason }` | `src/delineation/` |
+| `GET /channels?bbox=w,s,e,n` | at most 0.4° a side → `ChannelCollection` (`properties.km2`); off the DEM, an empty collection | `src/delineation/` |
 
 No quaternary routes: there are no licensed boundaries yet (D-1), so the app
 takes an uploaded boundary.
@@ -200,6 +203,14 @@ Layout, by topic:
   `mean.ts` (area-weighted mean, D6 finest grid first), `source.ts`
   (`MAP_GRID_SOURCE=local|s3://bucket/key`; a new grid is one more
   `MapGridSource`).
+- `src/delineation/`: copied from IC-WBT (`delineate.ts`, `flow.ts`, `place.ts`,
+  `outline.ts`, `pans.ts`, `channels.ts`, `rasterize.ts`, the dependency-free DEM
+  readers `dem.ts`, `pmtiles.ts`, `png.ts`, `webp.ts`), Pitman's own
+  `tributary.ts` (clip to the piece, outline, remainder, areas, the refusals),
+  `difference.ts` (the one call to the polygon boolean), `source.ts`
+  (`DEM_SOURCE=local|s3://…|https://…`), `routes.ts`, and `syntheticDem.ts` (the
+  dev DEM's generator; never imported by the API). `fixture.ts`,
+  `valleyFixture.ts` and `backend/fixtures/dem/` serve the tests only.
 - `src/http/`: the `{ area }` body check, the result cache, the rate limit,
   error responses.
 
@@ -211,11 +222,12 @@ MAP grid → the read. Refusals are `{ error }` JSON: 400 bad body or
 geometry, 404, 413, 422 an area the data can't answer (outside the copy,
 over 2 000 cells, no data, grid coverage under 90 %), 429, 503 the data
 isn't configured or isn't answering, 504 the CHIRPS read passed its 25 s
-deadline.
+deadline, or a channel box its 20 s one (asking again finishes it; the tiles
+done are kept).
 
-**Per instance, on purpose.** The rate limit (30 CHIRPS / 120 MAP requests
-per client per 10 minutes) and the caches (200 CHIRPS series, 500 MAP means,
-LRU) live in one Lambda instance's memory. They bound what one client can
+**Per instance, on purpose.** The rate limit (30 CHIRPS / 120 MAP / 12
+delineate / 30 channel requests per client per 10 minutes) and the caches (200
+CHIRPS series, 500 MAP means, 50 delineations, 128 channel tiles, LRU) live in one Lambda instance's memory. They bound what one client can
 make one instance do; the global per-IP limit is the WAF rule on CloudFront,
 and reserved concurrency bounds the rest. The opened CHIRPS copy (array +
 manifest) is kept 5 minutes, so a new manifest `revision` is seen within that

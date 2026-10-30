@@ -78,15 +78,16 @@ run modes and run; **Save as WRSM2000 zip** downloads the network with its
 
 ## Backend data (local-first)
 
-The data API (`POST /chirps/monthly`, `POST /map-grid/mean`) reads local
-synthetic copies in dev, set by the committed `backend/.env.development`
-(`CHIRPS_SOURCE=local`, `MAP_GRID_SOURCE=local`). Write them once:
+The data API (`POST /chirps/monthly`, `POST /map-grid/mean`, `POST /delineate`,
+`GET /channels`) reads local synthetic copies in dev, set by the committed
+`backend/.env.development` (`CHIRPS_SOURCE=local`, `MAP_GRID_SOURCE=local`,
+`DEM_SOURCE=local`). Write them once:
 
 ```bash
 pnpm dev:data:synthetic      # = pnpm -C backend exec tsx scripts/gen-synthetic-data.ts
 ```
 
-It writes, under `backend/.local/` (gitignored, ~2.5 MB, a second or so):
+It writes, under `backend/.local/` (gitignored, ~7 MB, about 15 seconds):
 
 - `mirror/`: a CHIRPS copy in the real copy's Zarr layout and manifest,
   1981-01 to the last complete month, over one invented 1° block (21–22° E,
@@ -94,15 +95,31 @@ It writes, under `backend/.local/` (gitignored, ~2.5 MB, a second or so):
   arguments always write the same values (`--through YYYY-MM`, `--seed N`,
   `--out DIR`).
 - `map-grid/synthetic.json`: an invented 0.01° MAP grid over the same block.
+- `dem/synthetic.pmtiles`: an invented DEM over the same block (4.3 MB), in
+  the real one's form (Terrarium tiles, PMTiles, zoom 11, 512 px, ~32 m), so
+  the windows and timings are real. Its valleys are laid out on the synthetic
+  quaternaries: each 0.25° column drains south with its ridges on the column's
+  edges, and low sills at the row boundaries make each quaternary nearly a
+  basin of its own.
 
 Invented values only. Areas elsewhere answer 422 ("no data under the
 area"); IC-WBT's synthetic quaternaries (`backend/fixtures/geo/quaternaries.synthetic.geojson`,
 codes `Z01A`…) sit inside the block and make good test boundaries to upload.
 Without the files the routes answer 503 naming the command. With
-`CHIRPS_SOURCE` or `MAP_GRID_SOURCE` unset the routes answer 503 "not
-configured". The `s3` settings (`CHIRPS_BUCKET`, `CHIRPS_PREFIX`,
-`MAP_GRID_SOURCE=s3://…`, `DATA_REGION`) are for production and need the
+`CHIRPS_SOURCE`, `MAP_GRID_SOURCE` or `DEM_SOURCE` unset the routes answer 503
+"not configured". The `s3` settings (`CHIRPS_BUCKET`, `CHIRPS_PREFIX`,
+`MAP_GRID_SOURCE=s3://…`, `DEM_SOURCE=s3://…`, `DATA_REGION`) are for production and need the
 cross-account grant ([`data.md` § Cross-account access](./data.md#cross-account-access-round-41)).
+
+Clicks to try on the synthetic DEM, with their answers:
+
+| Click (lon, lat) | In | Answer |
+|---|---|---|
+| 21.1110878, −33.6584957 | `Z01A` | a tributary: 29.06 km², remainder 614.17 km² |
+| 21.1162376, −33.6001795 | `Z01A` | the river's upper part: 202.47 km², remainder 440.76 km² |
+| 21.1066246, −33.7359036 | `Z01A` | refused, `whole_quaternary` |
+| 21.115551, −33.8001191 | `Z02A` | 76.54 km², 643 km² (89 %) dropped upstream, the 20 % warning |
+| 21.24, −33.62 | `Z01A` | refused, `off_channel` |
 
 ## The engine CLI (`wrsm`)
 

@@ -255,6 +255,16 @@ ranged reads of a local file, `http(s)://` or `s3://bucket/key`, its own
 PMTiles, PNG and WebP decoders, no native dependency). Delineation works at
 zoom 11 (`TARGET_ZOOM`), windows of 1 024 / 2 048 / 3 072 cells.
 
+**How Pitman reads it.** `DEM_SOURCE=s3://…/tiles/terrain.pmtiles` in
+production (ranged GETs in `DATA_REGION`; row 3 of § Cross-account access),
+`DEM_SOURCE=local` in dev (`DEM_LOCAL_FILE`, default
+`.local/dem/synthetic.pmtiles`, written by `pnpm dev:data:synthetic`:
+`backend/src/delineation/syntheticDem.ts`, invented terrain over the same
+block as the other synthetic data). `DEM_LABEL` overrides the name a
+delineation carries. Unset, the routes answer 503 "not configured"; the local
+file absent, 503 naming the command. The Art. 6(b) notice below travels on
+every delineation as `dem.attribution` (R5-D4).
+
 **Licence.** Copernicus WorldDEM-30 licence: free, worldwide, reproduction,
 distribution and adaptation allowed, no restriction on commercial use
 ([License COPDEM 30](https://documentation.dataspace.copernicus.eu/APIs/SentinelHub/Data/DEM/resources/license/License-COPDEM-30.pdf)).
@@ -547,6 +557,11 @@ it client-side. (`polygon-clipping` 0.15.7 is the older, unmaintained
 alternative.)
 
 ### Backend: delineation (Round 5.2)
+
+Built as this table says, with R5-D1 … D5 (`docs/decisions.md`). `delineate`
+returns the cell mask rather than an outline, because the clip comes first
+(`tributary.ts`). The tests were copied too and adapted; `dem-fixture.ts`
+wasn't, so `backend/fixtures/dem/synthetic-dem.pmtiles` is IC-WBT's bytes.
 
 | From `backend/src/delineation/` | Lines | Keep / strip |
 |---|---|---|
