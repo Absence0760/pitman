@@ -7,7 +7,7 @@
  */
 
 import type uPlot from 'uplot';
-import { axisStyle, LINE_STYLES, onThemeChange, tokenColour } from '#lib/results/plot.js';
+import { axisStyle, axisTitle, crossesNarrow, LINE_STYLES, onThemeChange, tokenColour } from '#lib/results/plot.js';
 import { HYDRO_MONTHS, hydroYearLabel } from '#lib/results/format.js';
 import type { ExtendChartSpec, ExtendSeries } from './charts.js';
 
@@ -54,7 +54,8 @@ function options(U: typeof uPlot, spec: ExtendChartSpec, width: number, node: El
 				const x0 = spec.x.map((k) => k - 0.4 + slot * barWidth);
 				return {
 					...base,
-					fill: `${stroke}66`,
+					dash: [],
+					fill: `${stroke}88`,
 					paths: U.paths.bars?.({ align: 1, disp: { x0: { unit: 1, values: () => x0 }, size: { unit: 1, values: () => spec.x.map(() => barWidth) } } }),
 					points: { show: false }
 				};
@@ -106,7 +107,7 @@ function options(U: typeof uPlot, spec: ExtendChartSpec, width: number, node: El
 			y: { range: (_u, _min, max) => [0, (max || 1) * (spec.xNotes ? 1.15 : 1.05)] }
 		},
 		axes: [
-			{ ...axisStyle(node), label: spec.xLabel, values: (_u, ticks) => ticks.map((t) => tick(spec, t)) },
+			{ ...axisStyle(node), label: axisTitle(spec.xLabel, width), values: (_u, ticks) => ticks.map((t) => tick(spec, t)) },
 			{ ...axisStyle(node), label: spec.yLabel, size: 60 }
 		],
 		legend: { show: true },
@@ -132,10 +133,16 @@ export function extendPlot(node: HTMLElement, initial: ExtendChartSpec) {
 		chart?.destroy();
 		node.dataset['ready'] = 'false';
 		chart = new U(options(U, spec, width(), node), data(spec), node);
+		drawnWidth = width();
 		// A real readiness signal for end-to-end tests: the chart is drawn.
 		node.dataset['ready'] = 'true';
 	};
-	const observer = new ResizeObserver(() => chart?.setSize({ width: width(), height: HEIGHT }));
+	let drawnWidth = 0;
+	const observer = new ResizeObserver(() => {
+		if (crossesNarrow(drawnWidth, width())) draw();
+		else chart?.setSize({ width: width(), height: HEIGHT });
+		drawnWidth = width();
+	});
 	observer.observe(node);
 	const stopTheme = onThemeChange(draw);
 	void import('uplot').then((m) => {

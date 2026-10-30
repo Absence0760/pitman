@@ -147,10 +147,15 @@
 </section>
 
 <style>
-	/* Wide enough to keep a file name whole and Extend in its row; the box scrolls on a phone. */
+	/* Wide enough to keep a file name whole; on a phone the box scrolls, and the action stays in view at its edge. */
 	.files {
 		width: 100%;
 		min-width: 38rem;
+	}
+	.files td:last-child {
+		position: sticky;
+		right: 0;
+		background: var(--surface);
 	}
 	.files tbody th {
 		font-weight: 600;

@@ -50,14 +50,10 @@
 >
 	<p class="hint">Drop the network's zip or folder here, or choose it:</p>
 	<div class="pickers">
-		<div class="picker">
-			<label for="load-zip">Network zip</label>
-			<input id="load-zip" type="file" accept=".zip,application/zip" disabled={busy} onchange={picked} />
-		</div>
-		<div class="picker">
-			<label for="load-folder">Network folder</label>
-			<input id="load-folder" type="file" webkitdirectory multiple disabled={busy} onchange={picked} />
-		</div>
+		<input id="load-zip" class="file-pick" type="file" accept=".zip,application/zip" disabled={busy} onchange={picked} />
+		<label for="load-zip">Network zip</label>
+		<input id="load-folder" class="file-pick" type="file" webkitdirectory multiple disabled={busy} onchange={picked} />
+		<label for="load-folder">Network folder</label>
 	</div>
 </div>
 
@@ -82,17 +78,9 @@
 		color: var(--text-muted);
 	}
 	.pickers {
-		display: grid;
-		gap: 0.75rem;
-	}
-	.picker {
+		position: relative;
 		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		min-width: 0;
-	}
-	label {
-		font-weight: 600;
-		font-size: 0.9rem;
+		flex-wrap: wrap;
+		gap: 0.6rem;
 	}
 </style>

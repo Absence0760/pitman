@@ -30,7 +30,7 @@
 					{#if s.mark === 'points'}
 						<circle cx="16" cy="5" r="4" fill={style.stroke} />
 					{:else if s.mark === 'bars'}
-						<rect x="8" y="0" width="16" height="10" fill={style.stroke} fill-opacity="0.4" stroke={style.stroke} />
+						<rect x="8" y="0" width="16" height="10" fill={style.stroke} fill-opacity="0.53" stroke={style.stroke} />
 					{:else}
 						<line x1="0" y1="5" x2="32" y2="5" stroke={style.stroke} stroke-width="2" stroke-dasharray={style.dash.join(' ')} />
 					{/if}
@@ -121,10 +121,7 @@
 		gap: 0.35rem;
 	}
 	.canvas {
-		width: 100%;
 		min-height: 300px;
-		overflow: hidden;
-		color: var(--text);
 	}
 	.scroll {
 		max-height: 24rem;
@@ -140,8 +137,5 @@
 	thead th {
 		position: sticky;
 		top: 0;
-	}
-	.canvas :global(.u-legend) {
-		font-size: var(--font-xs);
 	}
 </style>

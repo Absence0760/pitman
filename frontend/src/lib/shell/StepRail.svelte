@@ -33,12 +33,11 @@
 		list-style: none;
 		margin: 0;
 		padding: 0;
-		display: flex;
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
 		gap: 0.25rem;
-		overflow-x: auto;
 	}
 	li {
-		flex: 1 0 auto;
 		position: relative;
 	}
 	a {
@@ -103,9 +102,8 @@
 			top: calc(var(--bar-h) + 1.25rem);
 		}
 		ol {
-			flex-direction: column;
+			grid-template-columns: minmax(0, 1fr);
 			gap: 0.5rem;
-			overflow: visible;
 		}
 		li:not(:last-child)::after {
 			content: '';
@@ -117,9 +115,27 @@
 			background: var(--border-strong);
 		}
 	}
-	@media (max-width: 64rem) {
+	/* All four steps fit a phone: the mark over a short name, and the detail for a screen reader only
+	   (the bar's pill says how the run stands). */
+	@media (max-width: 40rem) {
+		a {
+			flex-direction: column;
+			align-items: center;
+			gap: 0.15rem;
+			padding: 0.4rem 0.15rem;
+			text-align: center;
+		}
+		.label {
+			font-size: var(--font-xs);
+			line-height: 1.2;
+			white-space: normal;
+		}
 		.detail {
-			white-space: nowrap;
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			overflow: hidden;
+			clip: rect(0 0 0 0);
 		}
 	}
 </style>

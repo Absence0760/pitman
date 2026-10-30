@@ -283,9 +283,9 @@
 		FeatureCollection of them. Only the shape is sent to Pitman’s rainfall service, never the network’s files.
 	</p>
 	<div class="field">
-		<label for={`${p}-area`}>Boundary file (GeoJSON)</label>
 		<input
 			id={`${p}-area`}
+			class="file-pick"
 			type="file"
 			accept=".geojson,.json,application/geo+json,application/json"
 			aria-invalid={areaError ? 'true' : undefined}
@@ -293,6 +293,7 @@
 			onchange={readArea}
 			disabled={fetchState === 'fetching'}
 		/>
+		<label for={`${p}-area`}>Boundary file (GeoJSON)</label>
 	</div>
 	{#if areaError}
 		<p id={`${p}-area-error`} class="error" role="alert">{areaName ? `${areaName}: ` : ''}{areaError}</p>
@@ -576,8 +577,10 @@
 		border-top: 1px solid var(--border);
 	}
 	.field {
+		position: relative;
 		display: flex;
 		flex-direction: column;
+		align-items: flex-start;
 		gap: 0.25rem;
 		margin: 0.5rem 0;
 	}

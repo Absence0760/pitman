@@ -5,9 +5,11 @@
  * the element goes away. No logic lives here that a test needs: the data and
  * labels come from `charts.ts`.
  *
- * Series are told apart by line style as well as colour (WCAG 1.4.1): every
+ * Line series are told apart by style as well as colour (WCAG 1.4.1): every
  * style slot has its own dash pattern, and observed flows are a heavier line
- * with markers on incomplete months.
+ * with markers on incomplete months. Bars can't take a dash (it reads as
+ * hatching at their width): their place in each group, in the key's order,
+ * is the second cue.
  */
 
 import type uPlot from 'uplot';
@@ -33,6 +35,18 @@ export function tokenColour(node: Element, colour: string): string {
 export function axisStyle(node: Element): Pick<uPlot.Axis, 'stroke' | 'grid' | 'ticks'> {
 	const line = { stroke: tokenColour(node, 'var(--border)'), width: 1 };
 	return { stroke: tokenColour(node, 'var(--text-muted)'), grid: line, ticks: line };
+}
+
+/** Below this width a long axis title runs off the chart; the figure's caption says both axes anyway. */
+const NARROW_CHART = 480;
+
+export function axisTitle(label: string, width: number): string | undefined {
+	return width < NARROW_CHART ? undefined : label;
+}
+
+/** Whether a resize from `from` to `to` crosses into a layout `setSize` can't reach, so the chart must be rebuilt. */
+export function crossesNarrow(from: number, to: number): boolean {
+	return from < NARROW_CHART !== to < NARROW_CHART;
 }
 
 /** Run `redraw` when the theme flips under a drawn chart; returns the way to stop. */
@@ -69,7 +83,8 @@ function options(U: typeof uPlot, spec: ChartSpec, width: number, node: Element)
 				const x0 = spec.x.map((k) => k - 0.4 + i * barWidth);
 				return {
 					...base,
-					fill: `${stroke}55`,
+					dash: [],
+					fill: `${stroke}88`,
 					paths: U.paths.bars?.({
 						align: 1,
 						disp: {
@@ -98,7 +113,7 @@ function options(U: typeof uPlot, spec: ChartSpec, width: number, node: Element)
 		axes: [
 			{
 				...axisStyle(node),
-				label: spec.xLabel,
+				label: axisTitle(spec.xLabel, width),
 				values: (_u, ticks) => ticks.map((t) => (spec.bars && !Number.isInteger(t) ? '' : xLabelOf(spec.xKind === 'month' ? 'hydroYear' : spec.xKind, spec.xKind === 'month' ? Math.floor(t) : t)))
 			},
 			{ ...axisStyle(node), label: spec.yLabel, size: 60 }
@@ -124,10 +139,16 @@ export function plot(node: HTMLElement, initial: ChartSpec) {
 		if (U === null || destroyed) return;
 		chart?.destroy();
 		chart = new U(options(U, spec, width(), node), data(spec), node);
+		drawnWidth = width();
 		// A real readiness signal for end-to-end tests: the chart is drawn.
 		node.dataset['ready'] = 'true';
 	};
-	const observer = new ResizeObserver(() => chart?.setSize({ width: width(), height: HEIGHT }));
+	let drawnWidth = 0;
+	const observer = new ResizeObserver(() => {
+		if (crossesNarrow(drawnWidth, width())) draw();
+		else chart?.setSize({ width: width(), height: HEIGHT });
+		drawnWidth = width();
+	});
 	observer.observe(node);
 	const stopTheme = onThemeChange(draw);
 	void import('uplot').then((m) => {

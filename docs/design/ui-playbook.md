@@ -20,9 +20,17 @@ with them.
   (`results/plot.ts`) resolves `--series-*` on the node, `axisStyle` themes
   the axes (uPlot's defaults are black, unreadable in dark) and
   `onThemeChange` redraws when the theme flips.
-- **Type:** the Segoe stack first, because WRSM2000's users are on Windows;
-  no web font. Tabular numerals wherever numbers line up. Small text uses
-  `--font-sm` and `--font-xs`.
+- **Type:** Inter, self-hosted (`@fontsource-variable/inter`, OFL 1.1), so the
+  screens look the same on every machine and nothing is fetched from a third
+  party; `shell.spec.ts` checks it loads under the CSP. Tabular numerals
+  wherever numbers line up. Small text uses `--font-sm` and `--font-xs`.
+- **File inputs:** `<input class="file-pick">` then its `<label>`, which is the
+  button. The input stays focusable, so the keyboard still opens the chooser.
+- **Chart bars are solid.** A dash reads as hatching at their width; their
+  place in the group, in the key's order, is the cue beside colour.
+- **uPlot's readout floats over the key on hover**, never over the data, and
+  is off on touch, where the data table carries the values. A chart under
+  480 px drops its axis titles, which the caption already gives.
 - **Controls** are 44 px on touch and 36 px with a precise pointer
   (`--control-h`), which is where the dense screens gain their room.
 - **Shared element styles live in `app.css`**: buttons, inputs, tables
@@ -41,7 +49,10 @@ with them.
 - **State is said in words as well as shown** (WCAG 1.4.1): the rail's
   `.sr` state, the bar's pill text. `lib/shell/steps.ts` owns the wording.
 - **Tables scroll in their box.** A wide table goes in `.scroll`, and gets a
-  `min-width` rather than letting file names break letter by letter.
+  `min-width` rather than letting file names break letter by letter. Its
+  action column sticks to the edge, so Extend is never off-screen.
+- **Every step fits a phone:** the rail shows mark and name; the detail stays
+  for screen readers, and the bar's pill says how the run stands.
 - **Position the box that scrolls.** A visually hidden `.sr` is absolutely
   positioned, so inside an unpositioned scroller it widens the page: the
   rail and the rainfall table added 2 px of sideways scroll at 390 px until

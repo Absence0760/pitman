@@ -24,7 +24,11 @@
 			{@const style = styleOf(line)}
 			<li>
 				<svg width="32" height="10" aria-hidden="true">
-					<line x1="0" y1="5" x2="32" y2="5" stroke={style.stroke} stroke-width={line.style === 'observed' ? 2.5 : 2} stroke-dasharray={style.dash.join(' ')} />
+					{#if spec.bars}
+						<rect x="8" y="0" width="16" height="10" fill={style.stroke} fill-opacity="0.53" stroke={style.stroke} />
+					{:else}
+						<line x1="0" y1="5" x2="32" y2="5" stroke={style.stroke} stroke-width={line.style === 'observed' ? 2.5 : 2} stroke-dasharray={style.dash.join(' ')} />
+					{/if}
 				</svg>
 				{line.label}
 			</li>
@@ -93,9 +97,7 @@
 		gap: 0.35rem;
 	}
 	.canvas {
-		width: 100%;
 		min-height: 280px;
-		overflow: hidden;
 	}
 	.axes {
 		display: block;
@@ -117,9 +119,5 @@
 	thead th {
 		position: sticky;
 		top: 0;
-	}
-	/* uPlot's own legend repeats the key above; keep its live values for pointer users. */
-	.canvas :global(.u-legend) {
-		font-size: var(--font-xs);
 	}
 </style>

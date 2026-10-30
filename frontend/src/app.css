@@ -6,8 +6,8 @@
 	through getComputedStyle (results/plot.ts, extend/plot.ts).
 */
 :root {
-	/* Segoe first: WRSM2000's users are on Windows. No web font: a static, self-hosted app with nothing to fetch. */
-	--font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+	/* Inter, self-hosted (OFL 1.1, @fontsource-variable/inter): the same screens on every machine, nothing fetched from a third party. */
+	--font-ui: 'Inter Variable', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
 	--font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, 'Liberation Mono', monospace;
 	--font-sm: 0.8125rem;
 	--font-xs: 0.75rem;
@@ -230,27 +230,44 @@ input[type='radio'] {
 	margin: 0;
 	flex: none;
 }
-input[type='file'] {
-	font: inherit;
-	font-size: 0.9rem;
-	max-width: 100%;
-	color: var(--text-muted);
+/* A file input's own face can't be restyled or reworded, so its label is the button: the input stays
+   in the page, focusable, and comes first (`<input class="file-pick"> <label>`). */
+.file-pick {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
 }
-input[type='file']::file-selector-button {
-	font: inherit;
-	font-weight: 550;
+.file-pick + label {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
 	min-height: var(--control-h);
 	padding: 0 0.9rem;
-	margin-right: 0.75rem;
 	border-radius: var(--radius);
 	border: 1px solid var(--border-strong);
 	background: var(--surface);
 	color: var(--text);
+	font-weight: 550;
 	cursor: pointer;
+	transition:
+		background-color 0.12s,
+		border-color 0.12s;
 }
-input[type='file']:hover:not(:disabled)::file-selector-button {
+.file-pick:not(:disabled) + label:hover {
 	border-color: var(--accent);
 	background: var(--accent-soft);
+}
+.file-pick:focus-visible + label {
+	outline: 3px solid var(--focus);
+	outline-offset: 2px;
+}
+.file-pick:disabled + label {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+.file-pick[aria-invalid='true'] + label {
+	border: 2px solid var(--danger);
 }
 
 fieldset {
@@ -312,6 +329,46 @@ table.data tbody th,
 table.data thead th:first-child {
 	text-align: left;
 	font-weight: 400;
+}
+
+/* Charts. uPlot's own legend repeats the key above the plot, so it stays out of the way until a pointer
+   is over the chart, then floats over the key as the live readout, never over the data. On touch, where
+   a tap would leave it stuck, the data table carries the values. */
+.canvas {
+	position: relative;
+	width: 100%;
+}
+.canvas .u-legend {
+	position: absolute;
+	bottom: 100%;
+	right: 0;
+	z-index: 1;
+	width: auto;
+	max-width: 100%;
+	padding: 0.15rem 0.4rem;
+	font-size: var(--font-xs);
+	text-align: left;
+	color: var(--text);
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow);
+	pointer-events: none;
+	visibility: hidden;
+}
+@media (hover: hover) {
+	.canvas:hover .u-legend {
+		visibility: visible;
+	}
+}
+.canvas .u-legend th,
+.canvas .u-legend td {
+	border: 0;
+	padding: 0 0.25rem;
+	font-weight: 400;
+}
+.canvas .u-legend tr:hover {
+	background: none;
 }
 
 /* Shared pieces */

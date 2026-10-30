@@ -60,6 +60,36 @@ test('no sideways scroll on a phone, before or after loading', async ({ page }) 
 	await expectNoSidewaysScroll(page);
 });
 
+test('the self-hosted font loads under the page\'s content security policy', async ({ page }) => {
+	const blocked: string[] = [];
+	page.on('console', (m) => {
+		if (/content security policy/i.test(m.text())) blocked.push(m.text());
+	});
+	await page.goto('/');
+	await page.evaluate(() => document.fonts.ready);
+	expect(await page.evaluate(() => document.fonts.check('16px "Inter Variable"'))).toBe(true);
+	expect(blocked).toEqual([]);
+});
+
+test('every step is on screen on a phone, with Extend still in reach', async ({ page }) => {
+	await page.setViewportSize({ width: 390, height: 844 });
+	await load(page);
+	const steps = page.getByRole('navigation', { name: 'Steps' }).getByRole('listitem');
+	for (const i of [0, 1, 2, 3]) await expect(steps.nth(i)).toBeInViewport({ ratio: 1 });
+	const extend = page.getByRole('region', { name: 'Extend rainfall with CHIRPS' }).getByRole('button', { name: /^Extend / }).first();
+	await extend.scrollIntoViewIfNeeded();
+	const box = await extend.boundingBox();
+	expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(390);
+});
+
+test('the file pickers answer the keyboard', async ({ page }) => {
+	await page.goto('/');
+	await page.locator('#load-zip').focus();
+	await expect(page.locator('#load-zip')).toBeFocused();
+	const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('Space')]);
+	expect(chooser.isMultiple()).toBe(false);
+});
+
 test('a table head in the dark theme is not white', async ({ page }) => {
 	await page.emulateMedia({ colorScheme: 'dark' });
 	await load(page);
