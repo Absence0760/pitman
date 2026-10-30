@@ -58,6 +58,42 @@ with them.
   rail and the rainfall table added 2 px of sideways scroll at 390 px until
   `.scroll` and the rail's list were `position: relative`.
 
+- **A long flow lists its steps at the top, each state in words.** The
+  sub-division's five steps stay on the page, so a list of links says where
+  it stands (`subdivide/steps.ts`), and focus moves to each new step's heading.
+  Later steps appear when they can be used, never greyed out.
+- **The map sits beside the steps that use it,** sticky, and the steps that
+  don't take the full width: the iteration table for 8 pieces needs it. On a
+  narrow screen the map comes first, above the controls that act on it.
+- **Keep the number the user is after on-screen.** A wide table on a phone
+  scrolls, so its answer sits next to the row's name: the final MAP comes
+  straight after the piece, then what produced it.
+- **A table of tries counts from 1.** "Converged in 4 tries" above a table
+  ending at try 3 reads as a bug, whatever the engine's `n` says.
+
+## Controls that take a value
+
+- **An override sits beside the number it replaces,** with that number's
+  source still in view: a piece's card shows the grid MAP, its cell size and
+  coverage, then "Type a MAP instead"; "MAP used" says which won (rule 8).
+- **A slider has a number box beside it,** for the keyboard and exact values,
+  with `aria-valuetext` carrying the unit.
+- **Never accept what the controls no longer say.** The threshold's zone is
+  traced after a pause, so for that moment the proposal on screen belongs to
+  the old value. Accept is disabled until they match; a quick click after
+  changing high to low once recorded the opposite zone.
+- **Check early.** A wrong quaternary shows as an area mismatch: say so in
+  step 1, not after the user has split and reviewed it.
+- **A dead end names the way out.** A refused module says what to do instead;
+  an optional source that fails (no quaternary service) opens the alternative
+  (upload the boundary) rather than stopping the screen.
+- **A method that can fail offers the choices in its own words,** and the
+  risky one is never the default: an unconverged calibration has no primary
+  button, and only an explicit "Use the best factor" reaches Apply.
+- **A result stays visible when it goes stale, marked in words.** Editing the
+  target keeps the iteration log to compare against, says it is out of date
+  and removes Apply.
+
 ## Before calling a screen done
 
 Screenshot it at 1440×960, 1280×800 and 390×844, light and dark: a throwaway

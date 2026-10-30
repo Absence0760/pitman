@@ -37,6 +37,8 @@ pitman/
 │       ├── app.html
 │       ├── lib/network/      Load, validate, store, run (worker), save (§ App flow)
 │       ├── lib/extend/       Extend a .RAN with CHIRPS (method A): area upload, the CHIRPS client, the fit screen, apply (§ App flow, step 5)
+│       ├── lib/subdivide/    Sub-divide a quaternary (method B): the wizard, its logic in .ts modules, the engine adapter `engine.ts` and the backend client `data.ts` (§ App flow, step 6)
+│       ├── lib/map/mapzone/  The MAP-zone tool: threshold, drawn or pasted zone (§ App flow, step 6)
 │       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
 │       ├── lib/shell/        The frame around the steps: app bar, landing page, step rail (steps.ts holds its wording), the design-token guards; rules in docs/design/ui-playbook.md
 │       └── routes/           +page.svelte: the app shell
@@ -71,7 +73,7 @@ SvelteKit with `adapter-static`. Every route can prerender to static HTML.
 The build emits `.html` files per route, uploaded to S3. CloudFront sits in
 front for caching and TLS termination. No server-side rendering at runtime.
 
-## App flow: load → validate → store → extend → run → save
+## App flow: load → validate → store → extend → sub-divide → run → save
 
 The app is one static page (`frontend/src/routes/+page.svelte`). Everything
 happens in the browser; no network file is ever uploaded (issue #3 rule 7).
@@ -133,7 +135,37 @@ mounted, so moving between steps loses nothing, and Save stays in the app bar
    the old results. When every rainfall file in use now reaches further the
    panel offers to move the `.NET`'s last year (L.012, at most 150 years),
    then to rerun.
-6. **Run** (`modes.ts`, `run-client.ts`, `run.worker.ts`, `run-protocol.ts`).
+6. **Sub-divide a quaternary** (`frontend/src/lib/subdivide/`,
+   `frontend/src/lib/map/mapzone/`, method B, `docs/theory/subdivide.md`). One
+   screen flowing down the page, the steps listed at the top with their state
+   in words, focus moving to each new step. The engine (`engine.ts`, one
+   adapter), the backend (`data.ts`) and the map and tributary tool (snippets,
+   `slots.ts`) are injected, so the panel builds alone.
+   **Quaternary:** from `GET /quaternaries` or the map, or an uploaded
+   boundary while the service has none (D-1); the modules named for the code
+   come first, every other runoff module stays on offer (`modules.ts`), SFR
+   children go with their parent, and a module already in an applied
+   sub-division is refused. The ±5 % area check runs here, before any work.
+   **Split** (`pieces.ts`): a tributary, or a MAP zone from a threshold, drawn
+   or pasted (`mapzone/`), repeated up to 8 pieces with undo. A split keeps
+   the remainder in its piece's place and adds the new piece at the end, so
+   numbers on the map and the cards never move.
+   **Pieces:** polygon and scaled area, grid MAP (`POST /map-grid/mean`) with
+   its cell size, source and coverage, a typed MAP in its place, located dams,
+   how each table is shared, `previewSplit`'s changes. One grid per
+   quaternary: a mix is refused until the odd piece's MAP is typed.
+   **Calibrate** (`target.ts`, `calibration.ts`): the WR2012 natural MAR with
+   its citation, or the unsplit natural run labelled as the fallback, always
+   side by side with the 5 % warning, then every try. A calibration that
+   didn't converge offers Use the best factor, Change the target or Cancel;
+   only the first reaches Apply, and it is recorded as such. Changing the
+   pieces, a MAP, the target or the network invalidates a calibration.
+   **Apply** hands the page the engine's bundle (`onupdate`, as the
+   extension). The panel keeps the page's runs from before, since the page
+   clears them, and after a rerun compares them at the outlet (`outlet.ts`):
+   the first route all the module's water reaches, per mode, over the years
+   both ran, with the mean monthly flows October first.
+7. **Run** (`modes.ts`, `run-client.ts`, `run.worker.ts`, `run-protocol.ts`).
    The mode picker offers present day (year default 2025), natural and
    historical (decision D1); several run in one go so results compare. The
    run happens in a module Web Worker: one request (the bundle without its
@@ -143,7 +175,7 @@ mounted, so moving between steps loses nothing, and Save stays in the app bar
    `data-run-state` (`idle`, `running`, `done`, `failed`) and
    `data-ready="true"` once a run has finished, for end-to-end tests, and
    renders `frontend/src/lib/results/Results.svelte` with the successful runs.
-7. **Save** (`save.ts`). `writeBundle` writes every file back: an unchanged
+8. **Save** (`save.ts`). `writeBundle` writes every file back: an unchanged
    file byte for byte, a changed one in WRSM2000's standard layout
    (decision R2-4), plus every kept file. The sidecar is stamped with
    `writtenBy` (the frontend package version) and `savedAt` and written as
