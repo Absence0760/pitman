@@ -17,6 +17,7 @@ import {
 	COMPOSITION_LINES,
 	COMPOSITION_SHARE_TOLERANCE,
 	compositionHistory,
+	sfrKind,
 	compositionLock,
 	compositionProblem,
 	compositionSumProblem,
@@ -159,6 +160,7 @@ function reductions(table: CompositionTable, module: RunoffModule, role: ModuleR
 	}
 	const alien = module.alienVegetation;
 	if (!alien || alien.algorithm === 0) return null;
+	if (role.kind === 'child' && sfrKind(module) === 'forest') return null; // a run ignores the alien block of a child with afforestation (R6-F11)
 	const { tprm, tprl } = alienReductionTargets(alien);
 	return { mar: tprm, low: tprl, label: 'CSIR alien vegetation' };
 }
@@ -186,7 +188,7 @@ function reviewBlock(bundle: NetworkBundle, module: RunoffModule, table: Composi
 	const shares = rows.filter((r) => r.field.group === 'share');
 	const others = rows.filter((r) => r.field.group === 'other');
 	const sum = shareSum(table, shares);
-	const judged = shares.some((r) => r.changed) && !shares.some((r) => r.error !== null);
+	const judged = shares.some((r) => r.changed) && !shares.some((r) => r.error !== null) && !shares.every((r) => r.target === r.file);
 	const sumProblem = judged && sum.value !== null ? compositionSumProblem(table, sum.value) : null;
 	const next = rows.reduce((m, r) => (r.changed && r.target !== null ? r.field.write(m, r.target) : m), module);
 	// The required reductions are simply not in use: the rows say so, and a warning on every module would be noise.

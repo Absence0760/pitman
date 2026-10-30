@@ -5,7 +5,7 @@
  * without changing the bundle, so the screen shows that plan and applies that
  * same plan.
  *
- * What goes (R7-X8 … R7-X12):
+ * What goes (R7-X9 … R7-X13):
  * - The reference on every route that reads the file, or on the one route asked
  *   for when several share it. The other routes keep the file.
  * - A route from the zero source goes with its reference: a flow from a zero
@@ -26,6 +26,7 @@
 
 import type { BundleFileIndex, LoadedBundle } from '../io/bundle.js';
 import { moduleLabel, placeModules } from '../network/modules.js';
+import { validateNetwork } from '../network/validate.js';
 import type { ChannelModule, DemandSeries, Module, ModuleRef, NetworkBundle, ReservoirModule, Sidecar, ValueSource } from '../types.js';
 import { demandAttachments, demandFileKeys, demandSpecOf, DemandError, type DemandAttachment } from './attach.js';
 
@@ -79,10 +80,12 @@ function fileIndex(bundle: NetworkBundle): BundleFileIndex | undefined {
 /** What a route is to its module, when it is more than an abstraction. */
 function routeRole(module: RoutedModule, route: number, direction: 'in' | 'out'): string | null {
 	if (module.kind === 'RV') return direction === 'out' && route === module.spillRoute ? 'the spill route' : null;
-	if (direction === 'in') return route === module.localWetlandInflowRoute ? 'the wetland inflow route' : null;
+	// The wetland and diversion routes are ordinary routes unless their feature is active (OQ-CR15).
+	const wetland = module.wetlandType === 2;
+	if (direction === 'in') return wetland && route === module.localWetlandInflowRoute ? 'the wetland inflow route' : null;
 	if (route === module.principalOutflowRoute) return 'the principal outflow route';
-	if (route === module.localWetlandOutflowRoute) return 'the wetland outflow route';
-	return route === module.diversionRoute ? 'the diversion route' : null;
+	if (wetland && route === module.localWetlandOutflowRoute) return 'the wetland outflow route';
+	return module.wetlandType === 3 && route === module.diversionRoute ? 'the diversion route' : null;
 }
 
 function routeRemoval(bundle: NetworkBundle, attachment: DemandAttachment): { removal: DemandRouteRemoval; refused: string | null } {
@@ -136,7 +139,7 @@ export function planDemandRemoval(bundle: NetworkBundle, key: string, only?: Dem
 	const worked = taken.map((a) => routeRemoval(bundle, a));
 	const fileGoes = stays.length === 0;
 	const hasSpec = demandSpecOf(bundle, key) !== undefined;
-	return {
+	const plan: DemandRemovalPlan = {
 		key,
 		fileName: series.fileName.trim(),
 		routes: worked.map((w) => w.removal),
@@ -147,6 +150,15 @@ export function planDemandRemoval(bundle: NetworkBundle, key: string, only?: Dem
 		needsReason: !hasSpec,
 		refused: worked.find((w) => w.refused !== null)?.refused ?? null
 	};
+	return plan.refused !== null ? plan : { ...plan, refused: unrunnable(bundle, plan) };
+}
+
+/** R7-X14: a defined route adds no solve-order dependency, so taking its file off can leave a network that can't run. */
+function unrunnable(bundle: NetworkBundle, plan: DemandRemovalPlan): string | null {
+	const errors = (b: NetworkBundle) => validateNetwork(b).filter((m) => m.level === 'error').map((m) => m.text);
+	const before = new Set(errors(bundle));
+	const added = errors(applyDemandRemoval(bundle, { ...plan, needsReason: false })).find((text) => !before.has(text));
+	return added === undefined ? null : `The network couldn’t run without this file: ${added}. Keep the file, or change the module list in WRSM2000 first.`;
 }
 
 function removalNote(plan: DemandRemovalPlan, series: DemandSeries, reason: string): string {

@@ -48,6 +48,39 @@ const inZip = (b: NetworkBundle, name: RegExp) => Object.keys(writeBundle(b)).so
 const flow = (b: NetworkBundle, route: number) => run(b, { kind: 'historical' }).routeFlows[route]!.values;
 
 describe('planDemandRemoval', () => {
+	it('refuses a removal that would leave the network unable to run (R7-X14)', () => {
+		const bundle = syntheticBundle({ startYear: 1985, years: 10 });
+		const at = (type: string) => bundle.network.modules.findIndex((e) => e.type === type) + 1;
+		const ordered = at('RV') < at('CR');
+		const [up, down] = ordered ? ['CR', 'RV'] : ['RV', 'CR']; // upstream listed after downstream: only a file lets that run
+		const wired = loaded({
+			...bundle,
+			network: { ...bundle.network, routes: [...bundle.network.routes, { number: 20, upstreamPosition: at(up), downstreamPosition: at(down), cost: 0 }] },
+			modules: bundle.modules.map((m) =>
+				m.kind === up ? ({ ...m, outflows: [...(m as ChannelModule).outflows, { route: 20, definedFlowFile: null }] } as typeof m)
+				: m.kind === down ? ({ ...m, inflows: [...(m as ChannelModule).inflows, { route: 20, definedFlowFile: 'SYRQ9.ABS' }] } as typeof m)
+				: m)
+		});
+		expect(errors(wired)).toEqual([]);
+		const plan = planDemandRemoval(wired, 'SYRQ9.ABS', { module: { type: down as 'RV', number: wired.modules.find((m) => m.kind === down)!.number as number }, route: 20, direction: 'in' });
+		expect(plan.refused).toMatch(/couldn’t run without this file/);
+		expect(() => applyDemandRemoval(wired, plan)).toThrow(DemandError);
+	});
+
+	it('calls a stale wetland number on a type 0 reach an ordinary route (OQ-CR15)', () => {
+		const bundle = loaded();
+		const stale = { ...bundle, modules: bundle.modules.map((m) => (m.kind === 'CR' ? { ...m, localWetlandOutflowRoute: 9 } : m)) };
+		expect(planDemandRemoval(stale, 'SYRQ9.ABS').routes[0]?.effect).toBe('Route 9 stays on CR 4 and carries nothing. A new demand can use it.');
+	});
+
+	it('takes the volume off a route in historical and present-day modes, and leaves natural alone', () => {
+		const bundle = loaded();
+		const after = applyDemandRemoval(bundle, planDemandRemoval(bundle, 'SYRQ9.ABS'), reason);
+		const total = (b: NetworkBundle, mode: Parameters<typeof run>[1]) => run(b, mode).routeFlows[4]!.values.reduce((s, v) => s + v, 0);
+		for (const mode of [{ kind: 'historical' }, { kind: 'presentDay', year: 1990 }] as const) expect(total(after, mode)).toBeGreaterThan(total(bundle, mode));
+		expect(total(after, { kind: 'natural' })).toBeCloseTo(total(bundle, { kind: 'natural' }), 10);
+	});
+
 	it('says what would happen and changes nothing', () => {
 		const bundle = loaded();
 		const before = JSON.stringify(bundle);

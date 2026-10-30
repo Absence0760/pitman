@@ -202,8 +202,8 @@ adds a `.NET` route to the zero sink when asked, and records the spec in
 `sidecar.demands` and each value's source in `sidecar.values` (target `{ file,
 field, year? }`, rule 8). It hands the page the bundle through `onupdate`.
 Removing works the same way: `planDemandRemoval` says what would happen, the
-confirmation shows that plan and `applyDemandRemoval` carries it out (R7-X8 …
-R7-X12). Undo hands back the bundle from before, while nothing else has
+confirmation shows that plan and `applyDemandRemoval` carries it out (R7-X9 …
+R7-X13). Undo hands back the bundle from before, while nothing else has
 changed it.
 
 `synthetic.ts` builds a synthetic network (the engine's `syntheticNetwork()`

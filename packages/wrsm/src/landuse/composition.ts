@@ -106,7 +106,7 @@ const AFFORESTATION_FIELDS: readonly CompositionField[] = [
 		label: `${label} rotation`,
 		unit: 'years',
 		decimals: 0,
-		max: 9999,
+		max: 999, // free format needs a blank between values, so a value can't fill its field
 		read: (m) => m.afforestation.species?.[genus].rotationYears ?? null,
 		write: (m, v) => withGenus(m, genus, 'rotationYears', v)
 	})),
@@ -169,7 +169,7 @@ const ALIEN_FIELDS: readonly CompositionField[] = [
 		label: `${label} age`,
 		unit: 'years',
 		decimals: 2,
-		max: 9999.99,
+		max: 999.99, // free format needs a blank between values, so a value can't fill its field
 		read: (m) => m.alienVegetation?.composition?.[cls].ageYears ?? null,
 		write: (m, v) => withClass(m, cls, 'ageYears', v)
 	})),
@@ -302,6 +302,7 @@ function savedValues(module: RunoffModule, fields: readonly CompositionField[]):
  * a file. Table edits that open a table go first (`applyTableEdits`).
  */
 export function applyCompositionEdits<B extends NetworkBundle>(bundle: B, edits: readonly CompositionEdit[]): B {
+	if (edits.length === 0) return bundle;
 	const base: Sidecar = bundle.sidecar ?? { schema: 'pitman-sidecar', schemaVersion: 1 };
 	const logged: NonNullable<Sidecar['values']>[number][] = [];
 	const next = new Map<number, RunoffModule>();
@@ -331,13 +332,16 @@ export function applyCompositionEdits<B extends NetworkBundle>(bundle: B, edits:
 			module = field.write(module, edit.value);
 		}
 		const tables = new Set(own.map((e) => compositionField(e.field)!.table));
-		for (const table of tables) {
-			if (!own.some((e) => compositionField(e.field)!.group === 'share' && compositionField(e.field)!.table === table)) continue;
-			const sumProblem = compositionSumProblem(table, compositionShareSum(module, table) ?? 0);
-			if (sumProblem !== null) throw new Error(`RU ${number}: ${sumProblem}`);
-		}
 		const fields = [...tables].flatMap((t) => COMPOSITION_FIELDS[t]);
 		const saved = savedValues(module, fields);
+		for (const table of tables) {
+			if (!own.some((e) => compositionField(e.field)!.group === 'share' && compositionField(e.field)!.table === table)) continue;
+			// R7-T9: going back to the file's shares is always open, whatever they add up to.
+			const backToFile = COMPOSITION_FIELDS[table].filter((f) => f.group === 'share').every((f) => f.read(saved) === compositionHistory(base, number, f, f.read(was)).file);
+			if (backToFile) continue;
+			const sumProblem = compositionSumProblem(table, compositionShareSum(saved, table) ?? 0);
+			if (sumProblem !== null) throw new Error(`RU ${number}: ${sumProblem}`);
+		}
 		for (const f of fields) {
 			if (f.read(saved) === f.read(module)) continue;
 			logged.push({ target: { module: { type: 'RU', number }, field: f.field }, source: { ...own[0]!.source, note: tableEditNote(f.read(module), f.read(saved), 'rounded to what the file can hold') } });

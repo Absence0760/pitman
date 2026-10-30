@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readBundle, writeBundle } from '../io/bundle.js';
 import { readRunoff, writeRunoff } from '../io/runoff.js';
 import { syntheticBundle } from '../network/synthetic-bundle.js';
+import { run } from '../run.js';
 import type { NetworkBundle, RunoffModule, ValueSource } from '../types.js';
 import { alienReductionTargets } from './alien.js';
 import { applyCompositionEdits, COMPOSITION_FIELDS, compositionField, compositionHistory, compositionLock, compositionProblem, compositionShareSum, compositionSumProblem, compositionValueProblem, isSfrChild, type CompositionEdit } from './composition.js';
@@ -11,6 +12,11 @@ import { forestChildTargets } from './forest.js';
 
 const DATE = '2026-10-30T08:00:00.000Z';
 const source = (note = 'Plantation survey 2024'): ValueSource => ({ kind: 'manual', note, date: DATE });
+const readBundleOk = (files: Record<string, string>) => {
+	const result = readBundle(files);
+	if (!result.ok) throw new Error('unreadable');
+	return result.bundle;
+};
 const runoff = (bundle: NetworkBundle, number: number) => bundle.modules.find((m): m is RunoffModule => m.kind === 'RU' && m.number === number)!;
 
 function network(change: (m: RunoffModule) => RunoffModule = (m) => m): NetworkBundle {
@@ -102,7 +108,8 @@ describe('compositionValueProblem', () => {
 		expect(compositionValueProblem(field(PINE), 100.5)).toBe('A percentage runs from 0 to 100.');
 		expect(compositionValueProblem(field(PINE), 33.333)).toBe('The file keeps 2 decimal places here (L.009), so this can’t be saved exactly. Use 33.33 or 33.34.');
 		expect(compositionValueProblem(field('afforestation.species.pine.rotationYears'), 12.5)).toBe('The file keeps whole years here (L.009).');
-		expect(compositionValueProblem(field('afforestation.species.pine.rotationYears'), 10000)).toBe('The file’s column stops at 9999 (L.009).');
+		expect(compositionValueProblem(field('afforestation.species.pine.rotationYears'), 1000)).toBe('The file’s column stops at 999 (L.009).');
+		expect(compositionValueProblem(field('alienVegetation.composition.tallTrees.ageYears'), 1000)).toContain('stops at 999.99');
 		expect(compositionValueProblem(field('alienVegetation.composition.tallTrees.ageYears'), -2)).toBe('Years can’t be negative.');
 		expect(compositionValueProblem(field(PINE), Number.NaN)).toBe('This must be a number.');
 	});
@@ -243,6 +250,48 @@ describe('applyCompositionEdits', () => {
 		const after = runoff(next, 1);
 		expect(forestChildTargets(after).targets).not.toEqual(forestChildTargets(before).targets);
 		expect(alienReductionTargets(after.alienVegetation!).tprm).not.toBe(alienReductionTargets(before.alienVegetation!).tprm);
+	});
+
+	it('writes the largest values it allows, and reads them back', () => {
+		const next = applyCompositionEdits(network(), [edit('afforestation.species.pine.rotationYears', 999), edit('alienVegetation.composition.tallTrees.ageYears', 999.99)]);
+		const m = runoff(next, 1);
+		expect(m.afforestation.species?.pine.rotationYears).toBe(999);
+		expect(readRunoff(writeRunoff(m), 'x').alienVegetation?.composition?.tallTrees.ageYears).toBe(999.99);
+	});
+
+	it('always lets the file\'s shares back, whatever they add up to (R7-T9)', () => {
+		const short = network((m) => ({ ...m, afforestation: { ...m.afforestation, species: { pine: { percent: 50, rotationYears: 20 }, eucalyptus: { percent: 40, rotationYears: 10 }, wattle: { percent: 0, rotationYears: 0 } } } }));
+		const moved = applyCompositionEdits(short, [edit(PINE, 60)]);
+		const back = applyCompositionEdits(moved, [{ ...edit(PINE, 50), source: { kind: 'networkFile', note: 'Back to the network file’s value', date: DATE } }]);
+		expect(compositionShareSum(runoff(back, 1), 'afforestation')).toBe(90);
+	});
+
+	it('judges the shares as the file will hold them (R7-T9)', () => {
+		const loose = network((m) => ({ ...m, afforestation: { ...m.afforestation, species: { pine: { percent: 33.333, rotationYears: 20 }, eucalyptus: { percent: 33.333, rotationYears: 10 }, wattle: { percent: 33.34, rotationYears: 0 } } } }));
+		expect(() => applyCompositionEdits(loose, [edit('afforestation.species.wattle.percent', 33.33)])).toThrow(/99\.99/);
+	});
+
+	it('leaves a bundle alone when there is nothing to apply', () => {
+		const b = network();
+		expect(applyCompositionEdits(b, [])).toBe(b);
+	});
+
+	it('changes only the composition lines of the file, and an unedited network writes back the same', () => {
+		const b = network();
+		expect(writeBundle(readBundleOk(writeBundle(b)))).toEqual(writeBundle(b));
+		const before = writeRunoff(runoff(b, 1)).split('\n');
+		const after = writeRunoff(runoff(applyCompositionEdits(b, [edit('afforestation.species.pine.rotationYears', 25)]), 1)).split('\n');
+		expect(after).toHaveLength(before.length);
+		expect(after.filter((line, i) => line !== before[i])).toHaveLength(1);
+	});
+
+	it('reaches a run: a child\'s shares move the calibrated flow in historical mode, not in natural', () => {
+		const child = network();
+		const family = { ...child, modules: child.modules.map((m) => (m.kind === 'RU' && m.number === 3 ? { ...m, sfrChildren: [1] } : m)) };
+		const edited = applyCompositionEdits(family, [edit(PINE, 40), edit(EUC, 60)]);
+		const total = (b: NetworkBundle, kind: 'historical' | 'natural') => Object.values(run(b, { kind }).routeFlows).reduce((s, f) => s + f.values.reduce((a, v) => a + v, 0), 0);
+		expect(total(edited, 'historical')).not.toBeCloseTo(total(family, 'historical'), 6);
+		expect(total(edited, 'natural')).toBeCloseTo(total(family, 'natural'), 10);
 	});
 
 	it('gives a share sum, and an empty table has none', () => {
