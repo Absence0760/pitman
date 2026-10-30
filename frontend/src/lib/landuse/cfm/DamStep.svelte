@@ -18,7 +18,8 @@
 		year,
 		busy = false,
 		onradius,
-		onapply
+		onapply,
+		onrerun
 	}: {
 		bundle: LoadedBundle;
 		/** The dams as matched at `radiusM`. */
@@ -29,6 +30,7 @@
 		busy?: boolean;
 		onradius: (metres: number) => void;
 		onapply: (next: LoadedBundle, status: string) => void;
+		onrerun: () => void;
 	} = $props();
 
 	interface Override {
@@ -185,9 +187,14 @@
 		{#if blocked.length > 0}<p class="warn" role="status">Finish or clear the {blocked.length === 1 ? 'override' : `${blocked.length} overrides`} above before writing the row.</p>{/if}
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
 		<div class="actions">
-			<button type="button" class="primary" onclick={apply} disabled={!canApply}>Write the row to RV {reservoir?.ref.number}</button>
+			<button type="button" class="primary" onclick={apply} disabled={!canApply}>Apply: write the row to RV {reservoir?.ref.number}</button>
 		</div>
-		{#if applied}<p class="applied" role="status"><strong>Applied.</strong> {applied} Rerun the network to see the effect.</p>{/if}
+		{#if applied}
+			<div class="applied">
+				<p role="status"><strong>Applied.</strong> {applied} The old results were cleared.</p>
+				<div class="actions"><button type="button" onclick={onrerun} disabled={busy}>Rerun the network</button></div>
+			</div>
+		{/if}
 	{/if}
 {/if}
 
@@ -231,12 +238,5 @@
 	.said {
 		display: block;
 		font-size: var(--font-sm);
-	}
-	.applied {
-		border-left: 4px solid var(--accent);
-		background: var(--accent-soft);
-		border-radius: var(--radius);
-		padding: 0.5rem 1rem;
-		margin: 1rem 0;
 	}
 </style>

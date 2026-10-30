@@ -29,12 +29,14 @@ const SCREENS: Record<string, (page: Page) => Promise<Locator>> = {
 		return page.locator('figure[data-chart="monthly"] .canvas');
 	},
 	extend: async (page) => {
+		await page.getByRole('button', { name: 'Show Extend rainfall with CHIRPS' }).click();
 		await page.getByRole('button', { name: 'Extend SYA.RAN' }).click();
 		await page.locator('[id^="extend-"][type=file]').setInputFiles({ name: 'area.geojson', mimeType: 'application/geo+json', buffer: Buffer.from(AREA) });
 		await page.getByRole('button', { name: 'Fetch CHIRPS for this area' }).click();
 		return page.locator('figure[data-chart="extend-means"] .canvas');
 	},
 	'land-use': async (page) => {
+		await page.getByRole('button', { name: 'Show Land-use tables' }).click();
 		await page.getByRole('region', { name: 'Land-use tables' }).getByLabel('Runoff module', { exact: true }).selectOption('1');
 		return page.locator('figure[data-chart="tables-afforestation-chart"] .canvas');
 	}

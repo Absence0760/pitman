@@ -4,6 +4,8 @@
  * state is always said in words as well as shown (WCAG 1.4.1).
  */
 
+import type { Sidecar } from '@pitman/wrsm';
+
 export type StepState = 'done' | 'active' | 'failed' | 'todo';
 
 export interface Step {
@@ -24,10 +26,37 @@ export interface StepInput {
 	readonly rainfallFiles: number;
 	readonly extendedFiles: number;
 	readonly run: 'idle' | 'running' | 'done' | 'failed';
+	/** The network changed after a run, which cleared its results. */
+	readonly changed?: boolean | undefined;
+	/** What the sidecar says was done in the optional steps. */
+	readonly progress?: SidecarProgress | undefined;
 	/** Modes that produced results. */
 	readonly modesRun: number;
 	readonly modesFailed: number;
 }
+
+/** What has been done to the network beyond the extension and the split, as the sidecar records it. */
+export interface SidecarProgress {
+	readonly rowsWritten: boolean;
+	readonly tableEdits: number;
+	readonly demandsMade: number;
+	readonly calibrated: number;
+}
+
+export function sidecarProgress(sidecar: Sidecar | undefined): SidecarProgress {
+	const notes = (sidecar?.values ?? []).map((v) => v.source.note ?? '');
+	return {
+		rowsWritten: sidecar?.capeFarmMapper !== undefined || (sidecar?.dams?.length ?? 0) > 0,
+		tableEdits: notes.filter((n) => n.startsWith('Land use:')).length,
+		demandsMade: Object.keys(sidecar?.demands ?? {}).length,
+		calibrated: notes.filter((n) => n.startsWith('Calibration:')).length
+	};
+}
+
+/** An optional step: done once anything has been recorded, and saying how much. */
+const optional = (count: number, what: string): Pick<Step, 'detail' | 'state'> => (count === 0 ? { detail: 'Optional', state: 'todo' } : { detail: `${count} ${what}${count === 1 ? '' : 's'}`, state: 'done' });
+
+const valuesStep = (count: number): Pick<Step, 'detail' | 'state'> => (count === 0 ? optional(0, '') : { detail: `${count} ${count === 1 ? 'value' : 'values'} changed`, state: 'done' });
 
 function extendStep({ rainfallFiles, extendedFiles }: StepInput): Pick<Step, 'detail' | 'state'> {
 	if (rainfallFiles === 0) return { detail: 'No rainfall files', state: 'todo' };
@@ -35,10 +64,10 @@ function extendStep({ rainfallFiles, extendedFiles }: StepInput): Pick<Step, 'de
 	return { detail: `${extendedFiles} of ${rainfallFiles} extended`, state: extendedFiles === rainfallFiles ? 'done' : 'active' };
 }
 
-function runStep({ run, modesRun, modesFailed }: StepInput): Pick<Step, 'detail' | 'state'> {
+function runStep({ run, changed, modesRun, modesFailed }: StepInput): Pick<Step, 'detail' | 'state'> {
 	if (run === 'running') return { detail: 'Running…', state: 'active' };
 	if (run === 'failed') return { detail: 'The run stopped', state: 'failed' };
-	if (run === 'idle') return { detail: 'Not run yet', state: 'todo' };
+	if (run === 'idle') return { detail: changed ? 'Run again: the network changed' : 'Not run yet', state: 'todo' };
 	if (modesFailed > 0) return { detail: `${modesFailed} of ${modesRun + modesFailed} modes failed`, state: 'failed' };
 	return { detail: modesRun === 1 ? '1 mode run' : `${modesRun} modes run`, state: 'done' };
 }
@@ -49,17 +78,23 @@ function resultsStep({ modesRun }: StepInput): Pick<Step, 'detail' | 'state'> {
 }
 
 export function workflowSteps(input: StepInput): readonly Step[] {
+	const progress = input.progress ?? sidecarProgress(undefined);
 	return [
 		{ id: 'network-h', label: 'Network', detail: input.years, state: 'done' },
 		{ id: 'map-h', label: 'Map', detail: input.quaternary ?? 'Pick a quaternary', state: input.quaternary ? 'done' : 'todo' },
 		{ id: 'extend-h', label: 'Extend rainfall', ...extendStep(input) },
 		{ id: 'subdivide-h', label: 'Sub-divide', detail: input.subdivided ? `${input.subdivided} ${input.subdivided === 1 ? 'quaternary' : 'quaternaries'} split` : 'Optional', state: input.subdivided ? 'done' : 'todo' },
-		{ id: 'landuse-h', label: 'Land use', detail: 'Fields, dams, tables, demands', state: 'todo' },
-		{ id: 'calibrate-h', label: 'Calibrate', detail: 'Optional', state: 'todo' },
+		{ id: 'landuse-h', label: 'Fields and dams', detail: progress.rowsWritten ? 'Rows written' : 'Optional', state: progress.rowsWritten ? 'done' : 'todo' },
+		{ id: 'tables-h', label: 'Land-use tables', ...valuesStep(progress.tableEdits) },
+		{ id: 'demand-h', label: 'Demands', ...optional(progress.demandsMade, 'demand') },
+		{ id: 'calibrate-h', label: 'Calibrate', ...valuesStep(progress.calibrated) },
 		{ id: 'run-h', label: 'Run', ...runStep(input) },
 		{ id: 'results-output', label: 'Results', ...resultsStep(input) }
 	];
 }
+
+/** The ids of the steps that are optional, so their cards start closed. */
+export const OPTIONAL_STEPS: readonly string[] = ['extend-h', 'subdivide-h', 'landuse-h', 'tables-h', 'demand-h', 'calibrate-h'];
 
 /** The bar's short run status, with the tone its pill takes. */
 export function runStatus(steps: readonly Step[]): { readonly text: string; readonly tone: StepState } {

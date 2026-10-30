@@ -246,11 +246,17 @@
 		return () => controller.abort();
 	});
 
-	// The page's map answers the same question first: start from what was picked there, never over a choice made here.
+	// The page's map answers the same question first: follow what is picked there through step 1, never over a choice made here.
+	let followedMap: string | undefined;
 	$effect(() => {
 		const picked = pickedOnMap;
 		const collection = loaded.state === 'ok' ? loaded.collection : undefined;
-		if (picked && collection && featureOf(collection, picked) !== undefined && untrack(() => code === '')) untrack(() => chooseQuaternary(picked));
+		if (!picked || !collection || featureOf(collection, picked) === undefined) return;
+		untrack(() => {
+			if (code !== '' && !(stage === 1 && code === followedMap)) return;
+			followedMap = picked;
+			chooseQuaternary(picked);
+		});
 	});
 
 	function chooseQuaternary(next: string) {
@@ -322,6 +328,17 @@
 	async function startAgain() {
 		restart();
 		await focusById(moduleNumber === undefined ? 'subdivide-module' : 'subdivide-continue');
+	}
+
+	function askRestart() {
+		if ((set?.splits.length ?? 0) === 0) return startAgain();
+		confirmRestart = true;
+		return focusById('subdivide-keep');
+	}
+
+	function keepSplits() {
+		confirmRestart = false;
+		return focusById('subdivide-restart');
 	}
 
 	async function readSample(piece: Piece) {
@@ -612,13 +629,13 @@
 				<div class="warn" role="alert">
 					<p><strong>Start again?</strong> This drops {plural(set?.splits.length ?? 0, 'split')}, the pieces and any calibration.</p>
 					<div class="actions">
+						<button type="button" id="subdivide-keep" onclick={keepSplits}>Keep them</button>
 						<button type="button" onclick={startAgain}>Drop them and start again</button>
-						<button type="button" onclick={() => (confirmRestart = false)}>Keep them</button>
 					</div>
 				</div>
 			{:else}
 				<div class="actions">
-					<button type="button" onclick={() => ((set?.splits.length ?? 0) > 0 ? (confirmRestart = true) : startAgain())}>Start again</button>
+					<button type="button" id="subdivide-restart" onclick={askRestart}>Start again</button>
 				</div>
 			{/if}
 
@@ -798,13 +815,6 @@
 		min-width: 44rem;
 		margin-bottom: 0.75rem;
 	}
-	.applied {
-		border-left: 4px solid var(--accent);
-		background: var(--accent-soft);
-		border-radius: var(--radius);
-		padding: 0.25rem 1rem 0.75rem;
-		margin: 1rem 0;
-	}
 	/* Tiles and charts lift off the tinted block. */
 	.applied :global(table) {
 		background: var(--surface);
@@ -910,6 +920,9 @@
 			top: calc(var(--bar-h) + 1rem);
 			height: min(34rem, calc(100vh - var(--bar-h) - 2rem));
 		}
+	}
+	.work .map-slot[data-map-tool='draw'] {
+		height: auto;
 	}
 	h3 {
 		font-size: 1.05rem;

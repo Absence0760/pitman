@@ -42,7 +42,7 @@
 	const lines = $derived(`${offer.format.yearsLine}–${offer.format.valuesLine}`);
 	const spec = $derived(seriesChart(`${prefix}-chart`, offer.table, offer.title, offer.valueLabel, rows, run));
 	const removable = $derived(canRemove(offer.table, rows));
-	const onlyOne = $derived(!removable && rows.filter((r) => r.target !== null).length === 1);
+	const onlyOne = $derived(!removable && rows.some((r) => r.target !== null && r.state !== 'new'));
 
 	const STATE_WORDS: Readonly<Record<RowState, string>> = { same: '', edited: 'edited', new: 'new', removing: 'to remove', removed: 'removed' };
 
@@ -152,7 +152,7 @@
 											{#if row.state !== 'new' && row.target !== row.file}
 												<button type="button" onclick={() => onreset(row)}>Reset<span class="sr"> {row.year} to {inFile(row.file)}</span></button>
 											{/if}
-											<button type="button" disabled={!removable} onclick={() => remove(row)}>Remove<span class="sr"> {row.year}</span></button>
+											<button type="button" disabled={!removable && row.state !== 'new'} onclick={() => remove(row)}>Remove<span class="sr"> {row.year}</span></button>
 										{/if}
 									</td>
 								</tr>

@@ -26,12 +26,15 @@
 	let {
 		bundle,
 		onupdate,
+		onrerun,
 		busy = false,
 		run = runInWorker
 	}: {
 		bundle: LoadedBundle;
 		/** The working copy changed: the page replaces its bundle, stores it and says `status`. */
 		onupdate: (next: LoadedBundle, status: string) => void;
+		/** Run the network again (the page's Run, with the modes chosen there). */
+		onrerun: () => void;
 		/** A run is in progress: no apply until it finishes. */
 		busy?: boolean;
 		/** `runInWorker`, or a fake in tests. */
@@ -88,16 +91,6 @@
 	$effect(() => () => {
 		before.cancel();
 		after.cancel();
-	});
-
-	// A different network was loaded: nothing here applies to it.
-	let loadedFrom = untrack(() => bundle.files);
-	$effect(() => {
-		if (bundle.files === loadedFrom) return;
-		loadedFrom = bundle.files;
-		selected = undefined;
-		drafts = {};
-		applied = undefined;
 	});
 
 	const status = $derived(previewStatus({ before: beforeState, after: afterState, edits: changes.length, valid: check.valid }));
@@ -265,7 +258,10 @@
 	{#if applied}
 		<div class="applied" id="calibrate-applied" tabindex="-1" role="status">
 			<p><strong>Applied to the working copy.</strong> {applied}</p>
-			<p>It’s recorded in <code>pitman.json</code> with the value it replaced, and goes out with the next save. The old results were cleared: <a href="#run-h">run the network</a> to see them with these values.</p>
+			<p>It’s recorded in <code>pitman.json</code> with the value it replaced, and goes out with the next save. The old results were cleared.</p>
+			<div class="actions">
+				<button type="button" class="primary" onclick={onrerun} disabled={busy}>Rerun the network</button>
+			</div>
 		</div>
 	{/if}
 
@@ -465,13 +461,6 @@
 		margin: 0.25rem 0;
 		padding-left: 1.25rem;
 		font-size: var(--font-sm);
-	}
-	.applied {
-		border-left: 4px solid var(--accent);
-		background: var(--accent-soft);
-		border-radius: var(--radius);
-		padding: 0.25rem 1rem;
-		margin: 1rem 0;
 	}
 	.work {
 		display: grid;

@@ -24,6 +24,7 @@ async function load(page: Page, buffer: Buffer) {
 const panelOf = (page: Page) => page.getByRole('region', { name: 'Land-use tables' });
 
 async function open(page: Page, module = '1') {
+	await page.getByRole('button', { name: 'Show Land-use tables' }).click();
 	const panel = panelOf(page);
 	await panel.getByLabel('Runoff module', { exact: true }).selectOption(module);
 	return panel;
@@ -97,6 +98,7 @@ test('apply clears the results, logs the source, and a save and reload keeps the
 	expect(sidecar.values[0]!.source).toMatchObject({ kind: 'manual', note: 'Land use: 4.5 → 6; Aerial photos 2005' });
 
 	// The browser's working copy: the new value in the box, the file's beside it.
+	await expect(page.locator('[data-working-copy]')).toHaveAttribute('data-working-copy', 'stored');
 	await page.reload();
 	await expect(page.getByRole('heading', { name: 'Network SY' })).toBeVisible();
 	let reopened = await open(page);

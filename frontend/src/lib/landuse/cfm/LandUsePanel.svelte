@@ -1,5 +1,5 @@
 <!--
-	"Land use" (docs/data.md § Cape Farm Mapper, D3, D4): choose a
+	"Crop fields and farm dams" (docs/data.md § Cape Farm Mapper, D3, D4): choose a
 	(sub-)catchment, fetch its crop fields and dams through the backend, confirm
 	how crops map to the irrigation module's crop types, and write the rows. The
 	request is the area's geometry alone (rule 7). The map arrives as a snippet,
@@ -22,6 +22,7 @@
 	let {
 		bundle,
 		onupdate,
+		onrerun,
 		busy = false,
 		quaternary,
 		client = landUseClient,
@@ -30,6 +31,8 @@
 		bundle: LoadedBundle;
 		/** The working copy changed: the page replaces its bundle, stores it and says `status`. */
 		onupdate: (next: LoadedBundle, status: string) => void;
+		/** Run the network again (the page's Run, with the modes chosen there). */
+		onrerun: () => void;
 		/** A run is in progress: no apply until it finishes. */
 		busy?: boolean;
 		/** The quaternary chosen on the page's map: the starting choice here. */
@@ -72,14 +75,23 @@
 
 	const totalHa = $derived(answer?.fields.reduce((sum, f) => sum + f.areaHa, 0) ?? 0);
 
-	onMount(() => {
-		const list = new AbortController();
-		client.quaternaries(list.signal).then(
+	let list = new AbortController();
+
+	function loadBoundaries() {
+		list.abort();
+		const mine = new AbortController();
+		list = mine;
+		boundaries = { state: 'loading' };
+		client.quaternaries(mine.signal).then(
 			(result) => (boundaries = { state: 'ok', collection: result }),
 			(e: Error) => {
-				if (!list.signal.aborted) boundaries = { state: 'failed', message: e.message };
+				if (!mine.signal.aborted) boundaries = { state: 'failed', message: e.message };
 			}
 		);
+	}
+
+	onMount(() => {
+		loadBoundaries();
 		return () => {
 			list.abort();
 			controller?.abort();
@@ -165,7 +177,7 @@
 </script>
 
 <section aria-labelledby="landuse-h" class="card">
-	<h2 id="landuse-h">Land use</h2>
+	<h2 id="landuse-h">Crop fields and farm dams</h2>
 	<p>
 		Bring irrigated areas and farm dams up to date: fetch the crop census and the dams for a catchment or a piece of one, confirm how the crops map to the irrigation
 		module, and write each row. Only the area’s shape is sent, never the network’s files.
@@ -198,7 +210,11 @@
 					<span class="note">{boundaries.collection.source}</span>
 				</div>
 			{:else if boundaries.state === 'failed'}
-				<p class="note">The list of quaternaries isn’t available here ({boundaries.message}). Upload a boundary instead.</p>
+				<p class="warn">
+					<strong>No quaternaries from the service:</strong>
+					{boundaries.message} Upload a boundary instead.
+					<button type="button" class="retry" onclick={loadBoundaries}>Try again</button>
+				</p>
 			{:else}
 				<p class="note">Loading the quaternaries…</p>
 			{/if}
@@ -270,8 +286,8 @@
 		</div>
 
 		{#key answer}
-			<CropStep {bundle} {answer} {year} {busy} onapply={onupdate} />
-			<DamStep {bundle} {dams} {radiusM} {year} {busy} onradius={(m) => (radiusM = m)} onapply={onupdate} />
+			<CropStep {bundle} {answer} {year} {busy} onapply={onupdate} {onrerun} />
+			<DamStep {bundle} {dams} {radiusM} {year} {busy} onradius={(m) => (radiusM = m)} onapply={onupdate} {onrerun} />
 		{/key}
 	{/if}
 </section>
@@ -311,6 +327,9 @@
 		.work.with-map .map-slot {
 			height: 24rem;
 		}
+	}
+	.work .map-slot[data-map-tool='draw'] {
+		height: auto;
 	}
 	.map-side {
 		min-width: 0;
@@ -383,5 +402,8 @@
 	}
 	#landuse-year {
 		width: 8rem;
+	}
+	.retry {
+		margin-left: 0.5rem;
 	}
 </style>

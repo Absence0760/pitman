@@ -12,7 +12,7 @@ vi.mock('$app/env/public', () => ({ PUBLIC_API_URL: 'http://localhost:3001' }));
 describe('LandUsePanel', () => {
 	it('renders its section before anything is fetched', () => {
 		const bundle = syntheticBundle() as LoadedBundle;
-		const { body } = render(LandUsePanel, { props: { bundle, onupdate: () => {}, client: { quaternaries: async () => ({ type: 'FeatureCollection' as const, features: [], source: 'none' }), landUse: async () => ANSWER } } });
+		const { body } = render(LandUsePanel, { props: { bundle, onupdate: () => {}, onrerun: () => {}, client: { quaternaries: async () => ({ type: 'FeatureCollection' as const, features: [], source: 'none' }), landUse: async () => ANSWER } } });
 		expect(body).toContain('id="landuse-h"');
 		expect(body).toContain('Land use');
 		expect(body).toContain('class="card"');

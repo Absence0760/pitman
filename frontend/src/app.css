@@ -483,6 +483,15 @@ table.data thead th:first-child {
 	min-width: 0;
 }
 
+/* What a card has just done, and what to do next. */
+.applied {
+	border-left: 4px solid var(--accent);
+	background: var(--accent-soft);
+	border-radius: var(--radius);
+	padding: 0.25rem 1rem 0.75rem;
+	margin: 1rem 0;
+}
+
 .note {
 	color: var(--text-muted);
 	font-size: 0.9rem;

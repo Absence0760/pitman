@@ -43,6 +43,7 @@ async function startWizard(page: Page) {
 	await stubApi(page);
 	await page.goto('/');
 	await page.getByLabel('Network zip', { exact: true }).setInputFiles({ name: 'SY.zip', mimeType: 'application/zip', buffer: Buffer.from(syntheticNetworkZip()) });
+	await page.getByRole('button', { name: 'Show Sub-divide a quaternary' }).click();
 	const panel = page.getByRole('region', { name: 'Sub-divide a quaternary' });
 	await panel.scrollIntoViewIfNeeded();
 	await panel.getByLabel('Quaternary', { exact: true }).selectOption('Z01A');
@@ -116,6 +117,7 @@ test('a plan the engine refuses stops the wizard at the review, and says the way
 	const old = { ...bundle, modules: bundle.modules.map((m) => (m.kind === 'RU' && m.number === 1 ? { ...m, fileVersion: 2 as const } : m)) };
 	await page.goto('/');
 	await page.getByLabel('Network zip', { exact: true }).setInputFiles({ name: 'SY.zip', mimeType: 'application/zip', buffer: Buffer.from(packZip(writeBundle(old))) });
+	await page.getByRole('button', { name: 'Show Sub-divide a quaternary' }).click();
 	const panel = page.getByRole('region', { name: 'Sub-divide a quaternary' });
 	await panel.scrollIntoViewIfNeeded();
 	await panel.getByLabel('Quaternary', { exact: true }).selectOption('Z01A');
@@ -235,5 +237,6 @@ test('a quaternary picked on the landing map carries into the loaded page and th
 	await page.getByLabel('Network zip', { exact: true }).setInputFiles({ name: 'SY.zip', mimeType: 'application/zip', buffer: Buffer.from(syntheticNetworkZip()) });
 	await expect(page.getByRole('heading', { name: 'Network SY' })).toBeVisible();
 	await expect(map.getByLabel('Quaternary', { exact: true })).toHaveValue('Z01B');
+	await page.getByRole('button', { name: 'Show Sub-divide a quaternary' }).click();
 	await expect(page.getByRole('region', { name: 'Sub-divide a quaternary' }).getByLabel('Quaternary', { exact: true })).toHaveValue('Z01B');
 });

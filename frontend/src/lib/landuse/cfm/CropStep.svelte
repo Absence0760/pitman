@@ -13,7 +13,8 @@
 		answer,
 		year,
 		busy = false,
-		onapply
+		onapply,
+		onrerun
 	}: {
 		bundle: LoadedBundle;
 		answer: LandUseAnswer;
@@ -21,6 +22,7 @@
 		year: number | null;
 		busy?: boolean;
 		onapply: (next: LoadedBundle, status: string) => void;
+		onrerun: () => void;
 	} = $props();
 
 	const rows = $derived(cropRows(answer.fields));
@@ -194,9 +196,14 @@
 		{/if}
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
 		<div class="actions">
-			<button type="button" class="primary" onclick={apply} disabled={!canApply}>Write the row to RR {module.ref.number}</button>
+			<button type="button" class="primary" onclick={apply} disabled={!canApply}>Apply: write the row to RR {module.ref.number}</button>
 		</div>
-		{#if applied}<p class="applied" role="status"><strong>Applied.</strong> {applied} Rerun the network to see the effect.</p>{/if}
+		{#if applied}
+			<div class="applied">
+				<p role="status"><strong>Applied.</strong> {applied} The old results were cleared.</p>
+				<div class="actions"><button type="button" onclick={onrerun} disabled={busy}>Rerun the network</button></div>
+			</div>
+		{/if}
 	{/if}
 {/if}
 
@@ -239,13 +246,6 @@
 	.said {
 		display: block;
 		white-space: nowrap;
-	}
-	.applied {
-		border-left: 4px solid var(--accent);
-		background: var(--accent-soft);
-		border-radius: var(--radius);
-		padding: 0.5rem 1rem;
-		margin: 1rem 0;
 	}
 	.tick {
 		display: inline-flex;

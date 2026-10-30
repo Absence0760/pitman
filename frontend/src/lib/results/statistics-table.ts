@@ -83,7 +83,7 @@ export function statisticsTable(a: TargetAnalysis): StatisticsTable | null {
 		notes.push(
 			`Simulated and observed flows compared over the same ${pairing.completeYears.length} complete hydrological years between ${hydroYearLabel(startYear)} and ${hydroYearLabel(endYear)}: years with all 12 observed months usable.`
 		);
-		if (pairing.dropped.missing > 0) notes.push(`${pairing.dropped.missing} missing observed months (negative values) are not compared.`);
+		if (pairing.dropped.missing > 0) notes.push(`${pairing.dropped.missing === 1 ? '1 missing observed month (a negative value) is' : `${pairing.dropped.missing} missing observed months (negative values) are`} not compared.`);
 		if (pairing.dropped.incomplete > 0) notes.push(`${pairing.dropped.incomplete} incomplete observed months (+) are left out.`);
 		if (pairing.completeYears.length === 0) notes.push('No observed year in this period is complete, so there are no annual statistics.');
 		notes.push('Guidelines (TT 689 p.177): error in MAR and mean (log) under 4 %, standard deviations under 6 %, seasonal index under 8 %.');

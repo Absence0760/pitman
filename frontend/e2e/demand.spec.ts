@@ -10,6 +10,7 @@ async function start(page: Page) {
 	await page.goto('/');
 	await page.getByLabel('Network zip', { exact: true }).setInputFiles({ name: 'SY.zip', mimeType: 'application/zip', buffer: Buffer.from(syntheticNetworkZip({ startYear: 1980, years: 30 })) });
 	await expect(page.getByRole('heading', { name: 'Network SY' })).toBeVisible();
+	await page.getByRole('button', { name: 'Show Demands' }).click();
 	return page.getByRole('region', { name: 'Demands' });
 }
 
@@ -42,8 +43,10 @@ test('a reload keeps the volume and where it came from', async ({ page }) => {
 	const panel = await fill(page);
 	await apply(panel).click();
 	await expect(page.locator('#demand-applied')).toBeFocused();
+	await expect(page.locator('[data-working-copy]')).toHaveAttribute('data-working-copy', 'stored');
 	await page.reload();
 	await expect(page.getByRole('heading', { name: 'Network SY' })).toBeVisible();
+	await page.getByRole('button', { name: 'Show Demands' }).click();
 	const after = page.getByRole('region', { name: 'Demands' });
 	await after.getByRole('button', { name: 'Edit SYRQ10.abs' }).click();
 	await expect(after.getByRole('heading', { name: 'Edit SYRQ10.abs' })).toBeFocused();

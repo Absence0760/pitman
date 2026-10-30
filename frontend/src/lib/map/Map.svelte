@@ -496,6 +496,22 @@
 			min-height: 240px;
 		}
 	}
+	/* In a panel's slot the slot sets the height: a fixed one here would hide the map's middle, where the crosshair
+	   acts, its attribution, and the drawing bar. While drawing the slot grows to hold the bar. */
+	:global(.map-slot) .map-wrap {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+	}
+	:global(.map-slot) .map {
+		flex: 1 1 auto;
+		height: auto;
+		min-height: 0;
+	}
+	:global(.map-slot[data-map-tool='draw']) .map {
+		flex: none;
+		height: 20rem;
+	}
 	.map :global(.maplibregl-canvas:focus-visible) {
 		outline: 3px solid var(--focus);
 		outline-offset: -3px;

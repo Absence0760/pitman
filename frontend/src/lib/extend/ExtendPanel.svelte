@@ -167,11 +167,4 @@
 		font-size: var(--font-sm);
 		color: var(--text-muted);
 	}
-	.applied {
-		border-left: 4px solid var(--accent);
-		background: var(--accent-soft);
-		border-radius: var(--radius);
-		padding: 0.25rem 1rem 0.75rem;
-		margin: 1rem 0;
-	}
 </style>

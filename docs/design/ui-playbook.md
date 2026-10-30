@@ -46,6 +46,16 @@ with them.
 
 - **One page, every section mounted.** The step rail links into the page; it
   doesn't swap screens, because unmounting would lose a half-done extension.
+- **Optional cards start closed** (`shell/Fold.svelte`, R7-U1): the title stays,
+  with where the step stands, and what's under it leaves the view and the tab
+  order, still mounted. A closed card's map isn't near the view, so it makes no
+  WebGL context. The rail opens what it links to, and so does a link from outside.
+- **The rail marks where you are** with `aria-current="location"`, an edge and a
+  tint. A section is current when it crosses a line just under the bar; the last
+  short sections can't reach that line, so the link just followed holds the mark
+  until the user scrolls.
+- **Names tell cards apart.** "Land use" above "Land-use tables" said nothing; a
+  card is named for what it does.
 - **One `h1`:** the landing headline, or `Network <code>` once one is loaded.
 - **Save stays in the bar**, in reach from every step.
 - **Facts read as tiles:** label above value, `.facts`. `.provenance` marks
@@ -65,6 +75,16 @@ with them.
 - **A screen that previews values refuses what the file can't hold.** The
   writer rounds through float32, so a preview of an unwritable value would
   show a result the saved network can't reproduce (`calibrate/validate.ts`).
+
+- **A notice ends in the next step.** Every card's "Applied" (`.applied`) says
+  what changed and carries Rerun the network, so nobody has to find Run again.
+- **A change elsewhere isn't "not run yet".** Results cleared by an apply say why
+  where the results were, and the rail and the bar say to run again.
+- **Ask before losing the only copy, and only then.** A confirmation moves the
+  focus to its safe button and hands it back to the button that opened it.
+- **Don't identify "another network" by object identity.** `applyDemand` returns a
+  new `bundle.files`, which two cards took for a new network and dropped what was
+  typed in them. Loading goes through an empty page, so the cards remount anyway.
 
 ## The map
 
@@ -87,6 +107,10 @@ with them.
 - **What is there isn't drawn like what is proposed.** A dash means "not accepted
   yet", so crop fields, which are the data, take a solid edge and their own layer;
   the key under the map names only the marks on it, in words.
+- **A slot's height is the map's height.** `Map.svelte` sizes itself alone but
+  fills a `.map-slot`: at its own 560 px in a 384 px slot the middle, where the
+  crosshair acts, the attribution and the drawing bar were all cut off, and only
+  the keyboard could reach Finish. A slot grows while drawing.
 - **The wheel belongs to the page.** On the one long page a map must not trap
   scrolling, so it takes `cooperativeGestures`.
 - **Load the heavy thing when it is near the view.** Every section stays

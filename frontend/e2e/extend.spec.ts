@@ -37,6 +37,7 @@ async function loadNetwork(page: Page) {
 		.getByLabel('Network zip', { exact: true })
 		.setInputFiles({ name: 'SY.zip', mimeType: 'application/zip', buffer: Buffer.from(syntheticNetworkZip({ startYear: 1980, years: 30 })) });
 	await expect(page.getByRole('heading', { name: 'Network SY' })).toBeVisible();
+	await page.getByRole('button', { name: 'Show Extend rainfall with CHIRPS' }).click();
 }
 
 async function uploadArea(page: Page, file: string, text: string) {
@@ -147,6 +148,8 @@ test('upload an area, fetch CHIRPS, check the fit, edit a factor, apply, extend 
 	expect(consoleErrors.filter((text) => !/status of 422/.test(text))).toEqual([]);
 
 	// The working copy keeps the extension across a reload.
+	await expect(page.locator('[data-working-copy]')).toHaveAttribute('data-working-copy', 'stored');
 	await page.reload();
+	await page.getByRole('button', { name: 'Show Extend rainfall with CHIRPS' }).click();
 	await expect(page.getByRole('table', { name: 'Rainfall files' }).locator('tr[data-file="SYA.RAN"]')).toContainText('Extended to 2025/26');
 });

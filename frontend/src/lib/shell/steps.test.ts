@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runStatus, workflowSteps, type StepInput } from './steps.js';
+import { runStatus, sidecarProgress, workflowSteps, type StepInput } from './steps.js';
 
 const base: StepInput = { years: '1920/21 to 2024/25', rainfallFiles: 3, extendedFiles: 0, run: 'idle', modesRun: 0, modesFailed: 0 };
 
@@ -11,7 +11,7 @@ function step(input: Partial<StepInput>, id: string) {
 
 describe('workflowSteps', () => {
 	it('goes network, extend, run, results and links to each section', () => {
-		expect(workflowSteps(base).map((s) => s.id)).toEqual(['network-h', 'map-h', 'extend-h', 'subdivide-h', 'landuse-h', 'calibrate-h', 'run-h', 'results-output']);
+		expect(workflowSteps(base).map((s) => s.id)).toEqual(['network-h', 'map-h', 'extend-h', 'subdivide-h', 'landuse-h', 'tables-h', 'demand-h', 'calibrate-h', 'run-h', 'results-output']);
 	});
 
 	it('a loaded network is done and shows its record', () => {
@@ -45,6 +45,30 @@ describe('workflowSteps', () => {
 		expect(step({ run: 'failed' }, 'run-h')).toMatchObject({ state: 'failed', detail: 'The run stopped' });
 		expect(step({ run: 'done', modesRun: 1 }, 'run-h')).toMatchObject({ state: 'done', detail: '1 mode run' });
 		expect(step({ run: 'done', modesRun: 3 }, 'run-h').detail).toBe('3 modes run');
+	});
+
+	it('after a change that cleared the results it says to run again, not that nothing has run', () => {
+		expect(step({ changed: true }, 'run-h')).toMatchObject({ state: 'todo', detail: 'Run again: the network changed' });
+	});
+
+	it('the optional steps say what the sidecar holds', () => {
+		const progress = sidecarProgress({
+			schema: 'pitman-sidecar',
+			schemaVersion: 1,
+			dams: [],
+			capeFarmMapper: { fetchedOn: '2026-10-30' },
+			demands: { 'SYRQ10.ABS': {} as never, 'SYRQ11.ABS': {} as never },
+			values: [
+				{ target: { module: { type: 'RU', number: 1 }, field: 'afforestation.areaKm2', year: 2025 }, source: { kind: 'manual', note: 'Land use: none → 3.5; Survey', date: '2026-10-30' } },
+				{ target: { module: { type: 'RU', number: 1 }, field: 'pitman.ST' }, source: { kind: 'manual', note: 'Calibration: 150 → 180', date: '2026-10-30' } }
+			]
+		});
+		expect(progress).toEqual({ rowsWritten: true, tableEdits: 1, demandsMade: 2, calibrated: 1 });
+		expect(step({ progress }, 'landuse-h')).toMatchObject({ state: 'done', detail: 'Rows written' });
+		expect(step({ progress }, 'tables-h')).toMatchObject({ state: 'done', detail: '1 value changed' });
+		expect(step({ progress }, 'demand-h')).toMatchObject({ state: 'done', detail: '2 demands' });
+		expect(step({ progress }, 'calibrate-h')).toMatchObject({ state: 'done', detail: '1 value changed' });
+		expect(step({}, 'tables-h')).toMatchObject({ state: 'todo', detail: 'Optional' });
 	});
 
 	it('a partly failed run is reported as failed, with the count', () => {

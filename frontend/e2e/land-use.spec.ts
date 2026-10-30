@@ -36,7 +36,8 @@ async function start(page: Page, answer: (route: Route) => Promise<void> | void)
 	await page.goto('/');
 	await page.getByLabel('Network zip', { exact: true }).setInputFiles({ name: 'SY.zip', mimeType: 'application/zip', buffer: Buffer.from(syntheticNetworkZip({ startYear: 1980, years: 30 })) });
 	await expect(page.getByRole('heading', { name: 'Network SY' })).toBeVisible();
-	const panel = page.getByRole('region', { name: 'Land use', exact: true });
+	await page.getByRole('button', { name: 'Show Crop fields and farm dams' }).click();
+	const panel = page.getByRole('region', { name: 'Crop fields and farm dams' });
 	await panel.scrollIntoViewIfNeeded();
 	await panel.getByLabel('Quaternary', { exact: true }).selectOption('Z01A');
 	return panel;
@@ -66,7 +67,7 @@ test('fetch, confirm the crops, write both rows, and the saved zip says where th
 	await expect(panel.locator('[data-value="irrigated-km2"]')).toHaveText('1.20 km²');
 	await crops.getByLabel('Lucerne is irrigated').check();
 	await expect(panel.locator('[data-value="irrigated-km2"]')).toHaveText('2.00 km²');
-	await panel.getByRole('button', { name: 'Write the row to RR 6' }).click();
+	await panel.getByRole('button', { name: 'Apply: write the row to RR 6' }).click();
 	await expect(panel.locator('.applied').first()).toContainText('RR 6: 2.00 km² irrigated in 2025/26.');
 
 	// A dam's own figure needs its note; the row follows it.
@@ -75,10 +76,10 @@ test('fetch, confirm the crops, write both rows, and the saved zip says where th
 	await expect(dams).toContainText('0.400, Cape Farm Mapper');
 	await dams.getByLabel('Your capacity for Synthetic dam 1, million m³').fill('0.7');
 	await expect(dams.getByRole('alert')).toHaveText('Say where this figure came from.');
-	await expect(panel.getByRole('button', { name: 'Write the row to RV 5' })).toBeDisabled();
+	await expect(panel.getByRole('button', { name: 'Apply: write the row to RV 5' })).toBeDisabled();
 	await dams.getByLabel('Where the figure for Synthetic dam 1 came from').fill('Site visit');
 	await expect(panel.locator('[data-value="dams-mm3"]')).toContainText('0.70 million m³');
-	await panel.getByRole('button', { name: 'Write the row to RV 5' }).click();
+	await panel.getByRole('button', { name: 'Apply: write the row to RV 5' }).click();
 	await expect(panel.locator('.applied').last()).toContainText('RV 5: 0.70 million m³ from 1 dam in 2025/26.');
 
 	const [saved] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save as WRSM2000 zip' }).click()]);
@@ -167,7 +168,8 @@ test('without the list of quaternaries an uploaded boundary still reaches the fe
 	await page.route('**/cfm/land-use', (route) => route.fulfill({ json: ANSWER }));
 	await page.goto('/');
 	await page.getByLabel('Network zip', { exact: true }).setInputFiles({ name: 'SY.zip', mimeType: 'application/zip', buffer: Buffer.from(syntheticNetworkZip()) });
-	const panel = page.getByRole('region', { name: 'Land use', exact: true });
+	await page.getByRole('button', { name: 'Show Crop fields and farm dams' }).click();
+	const panel = page.getByRole('region', { name: 'Crop fields and farm dams' });
 	await expect(panel).toContainText('Upload a boundary instead.');
 	await panel.locator('#landuse-file').setInputFiles({ name: 'point.geojson', mimeType: 'application/geo+json', buffer: Buffer.from(JSON.stringify({ type: 'Point', coordinates: [22, -33] })) });
 	await expect(panel.getByRole('alert')).toContainText('point.geojson');
