@@ -33,7 +33,7 @@ const DIVIDED: Readonly<Record<SplitModuleKind, readonly string[]>> = {
 	runoff: ['areaKm2', 'afforestation.areaKm2', 'alienVegetation.areaKm2', 'sami.abstractions', 'sami.gwEvaporationArea', 'hughes.upperAbstraction.annual', 'hughes.riparianAbstraction.annual'],
 	child: ['areaKm2', 'afforestation.areaKm2', 'alienVegetation.areaKm2'],
 	reservoir: ['capacity.fullSupplyVolumeMm3', 'capacity.fullSupplyAreaKm2', 'initialStorageMm3'],
-	irrigation: ['areaKm2', 'maxAllocationMm3PerYear', 'allocation.values']
+	irrigation: ['areaKm2', 'maxAllocationMm3PerYear', 'allocation.values', 'capacity.values']
 };
 
 /** Fields each module has for itself: a new piece gets its own, so a note can only stay on the module it was on, while that still holds the value. */
@@ -85,8 +85,8 @@ function carryEntry(entry: ValueEntry, line: SplitLineage, carry: ValueCarry): V
 		const kept = findModule(after.modules, line.from) !== undefined && part(line.from) === whole;
 		return [kept ? entry : retire(entry, line.from, quaternary, findModule(after.modules, line.from) ? OWN_REPLACED : MODULE_GONE)];
 	}
-	// A negative initial storage means 50 % of full supply (R5-E4), and types 2-3's allocation table is a growth factor on RRMA (R7-I7): both are copied.
-	const shares = !(field === 'initialStorageMm3' && whole !== null && whole < 0) && !(field.startsWith('allocation.') && !isType4(was));
+	// A negative initial storage means 50 % of full supply (R5-E4), types 2-3's allocation table is a growth factor on RRMA (R7-I7), and a capacity of 0 is no limit (R7-I15): all are copied.
+	const shares = !(field === 'initialStorageMm3' && whole !== null && whole < 0) && !(field.startsWith('allocation.') && !isType4(was)) && !(field.startsWith('capacity.values') && whole === 0);
 	const divided = within(DIVIDED[line.kind], field) && shares;
 	const scaled = line.kind === 'runoff' && field === SCALED;
 	// A piece that got none of a value holds nothing to give a source for.
@@ -142,13 +142,15 @@ export function describeValueSplit(split: ValueSplit): string {
 	const pieces = listModules(split.pieces);
 	const when = `when ${split.quaternary} was sub-divided`;
 	const figures = split.part !== undefined && split.part !== null && split.whole !== undefined && split.whole !== null;
+	// A type 4 capacity divides unrounded (R5-E10), and the screen has no use for its last float digits.
+	const figure = (v: number | null | undefined) => (typeof v === 'number' ? Number(v.toPrecision(6)) : v);
 	switch (split.how) {
 		case 'copied':
 			return `copied to ${pieces} ${when}`;
 		case 'moved':
 			return `moved from ${split.from.type} ${split.from.number} to ${pieces} ${when}`;
 		case 'divided':
-			return `divided among ${pieces} ${when}${figures ? `: ${split.part} here of ${split.whole}` : ''}`;
+			return `divided among ${pieces} ${when}${figures ? `: ${figure(split.part)} here of ${figure(split.whole)}` : ''}`;
 		case 'scaled':
 			return `scaled for ${pieces} ${when}${figures ? `: ${split.part} here from ${split.whole}` : ''}`;
 	}

@@ -1072,6 +1072,43 @@ describe('sidecar values follow their value (R7-C14)', () => {
 		expect(on(split, 'RR', 8, 'allocation.values')[0]!.splits![0]).toMatchObject({ how: 'divided', whole: 1.001, part: tables[0] });
 	});
 
+	it('divides a type 4 capacity among the blocks, and leaves 0 as no limit (R7-I15)', () => {
+		const base = exampleBundle({ irrigation: 'wqt' });
+		const withCapacity = (value: number) => ({ ...base, modules: base.modules.map((m) => (m.kind === 'RR' ? ({ ...m, modelType: 4, layout: 'wqt4', capacity: { interpolation: 1, values: [{ year: 2000, value }] } } as unknown as Module) : m)) });
+		const plan = examplePlan({ pieces: [piece('tributary', 100, 800), piece('remainder', 300, 600)], shares: ALL_AREA });
+		const limits = (b: NetworkBundle) => [rr(b, 8), rr(b, 7)].map((m) => (m as unknown as { capacity: { values: { value: number }[] } }).capacity.values[0]!.value);
+		const shared = limits(applyMaps(withCapacity(9), plan, [800, 600]));
+		expect(shared[0]! + shared[1]!).toBeCloseTo(9, 10);
+		expect(shared[0]!).toBeLessThan(9);
+		expect(limits(applyMaps(withCapacity(0), plan, [800, 600]))).toEqual([0, 0]);
+	});
+
+	it('refuses to split an SFR child that takes an inflow, which each piece would count', () => {
+		const b = withChild(exampleBundle());
+		const taking = { ...b, modules: b.modules.map((m) => (m.kind === 'RU' && m.number === 11 ? { ...m, inflowRoute: 3 } : m)) };
+		expect(() => applyMaps(taking, AREA, [800, 600])).toThrow(/SFR child RU 11 takes inflow from route 3/);
+		expect(previewSplit(taking, AREA).refused).toMatch(/SFR child RU 11 takes inflow from route 3/); // the wizard stops before calibrating
+	});
+
+	it('carries a note on a type 4 capacity: divided, and copied where 0 means no limit (R7-I15)', () => {
+		const base = exampleBundle({ irrigation: 'wqt' });
+		const withCapacity = (value: number) => noted({ ...base, modules: base.modules.map((m) => (m.kind === 'RR' ? ({ ...m, modelType: 4, layout: 'wqt4', capacity: { interpolation: 1, values: [{ year: 2000, value }] } } as unknown as Module) : m)) }, note(RR7, 'capacity.values', 2000));
+		const plan = examplePlan({ pieces: [piece('tributary', 100, 800), piece('remainder', 300, 600)], shares: ALL_AREA });
+		const limited = on(applyMaps(withCapacity(9), plan, [800, 600]), 'RR', 8, 'capacity.values')[0]!;
+		expect(limited.splits![0]).toMatchObject({ how: 'divided', whole: 9 });
+		expect(on(applyMaps(withCapacity(0), plan, [800, 600]), 'RR', 8, 'capacity.values')[0]!.splits![0]!.how).toBe('copied');
+	});
+
+	it('keeps a type 4 limit biting: the blocks together take what the whole block took (eq. 6.24, invariant 3)', () => {
+		const base = exampleBundle({ irrigation: 'wqt' });
+		const capped = { ...base, modules: base.modules.map((m) => (m.kind === 'RR' ? ({ ...m, modelType: 4, layout: 'wqt4', capacity: { interpolation: 1, values: [{ year: 2000, value: 0.001 }] } } as unknown as Module) : m)) };
+		const plan = examplePlan({ pieces: [piece('tributary', 100, 800), piece('remainder', 300, 600)], shares: ALL_AREA });
+		const limits = (b: NetworkBundle) => b.modules.filter((m) => m.kind === 'RR').map((m) => (m as unknown as { capacity: { values: { value: number }[] } }).capacity.values[0]!.value);
+		const split = applyMaps(capped, plan, [800, 600]);
+		expect(limits(split)).toHaveLength(2);
+		expect(limits(split).reduce((s, v) => s + v, 0)).toBeCloseTo(limits(capped)[0]!, 12);
+	});
+
 	it('moves an RR\'s notes when the block goes wholly to another piece', () => {
 		const plan = examplePlan({ pieces: [piece('tributary', 100, 800, { locationShares: { damCapacity: 0.5, afforestation: 0.5, irrigation: 1 } }), piece('remainder', 300, 600, { locationShares: { damCapacity: 0.5, afforestation: 0.5, irrigation: 0 } })] });
 		const split = applyMaps(noted(exampleBundle({ irrigation: true }), note(RR7, 'areaKm2', 2009)), plan, [800, 600]);

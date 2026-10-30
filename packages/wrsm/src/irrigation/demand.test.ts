@@ -144,6 +144,17 @@ describe('WQT type 2, TT 690 ch.4', () => {
 		expect(d.messages.some((m) => m.level === 'warning' && m.text.includes('R7-I4'))).toBe(true);
 	});
 
+	it('a divided type 4 capacity takes what the whole block took, where whole copies would not (eq. 6.24, R5-E10)', () => {
+		const block = (area: number, cap: number) => wqt4Block({ areaKm2: [{ year: 2000, value: area }], capacity: { interpolation: 1, values: [{ year: 2000, value: cap }] } });
+		const total = (area: number, cap: number) => irrigationDemand(block(area, cap), year(), HISTORICAL, 2000, 2000).gross.values.reduce((s, v) => s + v, 0);
+		const free = total(10, 0);
+		const cap = (free / 12) * 0.5; // bites in every month of a flat year, or in the months that matter
+		const whole = total(10, cap);
+		expect(whole).toBeLessThan(free);
+		expect(total(7.5, cap * 0.75) + total(2.5, cap * 0.25)).toBeCloseTo(whole, 8);
+		expect(total(7.5, cap) + total(2.5, cap)).toBeGreaterThan(whole); // the old whole copies
+	});
+
 	it('applies the zero-RRMA rule only where it was measured: type 2, no table, no clipping (R7-I4)', () => {
 		const monthsWithWater = (b: Parameters<typeof irrigationDemand>[0]) => irrigationDemand(b, year(), HISTORICAL, 2000, 2000).gross.values.filter((v) => v > 0).length;
 		expect(monthsWithWater(wqtBlock({ maxAllocationMm3PerYear: 0 }))).toBe(1);

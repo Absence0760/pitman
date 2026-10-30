@@ -502,6 +502,9 @@ function splitChildren(
 	for (const number of module.sfrChildren ?? []) {
 		const child = findRunoff(bundle.modules, number);
 		if (!child) throw new SubdivisionError(`RU ${module.number} names SFR child RU ${number}, which isn't in the network`);
+		if (child.inflowRoute) throw new SubdivisionError( // R5-E17
+			`SFR child RU ${number} takes inflow from route ${child.inflowRoute}, and a split would count or lose that water`
+		);
 		const kind = sfrKind(child);
 		const shares = kind === 'forest' ? tableShares(plan, plan.shares.afforestation, 'afforestation', at.areaShares) : kind === 'alien' ? tableShares(plan, plan.shares.alien, 'alien', at.areaShares) : at.areaShares;
 		const areas = largestRemainder(child.areaKm2, shares, TABLE_DECIMALS);
@@ -571,6 +574,9 @@ function splitIrrigation(
 		const allocations = 'maxAllocationMm3PerYear' in rr ? largestRemainder(rr.maxAllocationMm3PerYear, blockShares, IRRIGATION_DECIMALS) : undefined;
 		// Type 4's table is the allocation itself; for types 2-3 it is a growth factor on RRMA, which has been shared already (R7-I7).
 		const allocationTables = 'allocation' in rr && rr.modelType === 4 ? splitYearTable(rr.allocation.values, blockShares, ALLOCATION_DECIMALS) : undefined;
+		// R5-E10: a limit each block applies alone (eq. 6.24), so n whole copies would allow n times it. Unrounded: 0 means no limit (R7-I15), and a share rounding to 0 would lift it. Type 4 is never written.
+		const shareTotal = blockShares.reduce((s, v) => s + v, 0);
+		const capacityFor = (i: number) => ('capacity' in rr ? { capacity: { ...rr.capacity, values: rr.capacity.values.map((row) => ({ ...row, value: (row.value * blockShares[i]!) / shareTotal })) } } : {});
 		const blockSource = d.route(rr.abstractionRoute)?.up ?? null;
 		const fieldsFor = (i: number) =>
 			({
@@ -578,6 +584,7 @@ function splitIrrigation(
 				areaKm2: tables[i]!,
 				...(allocations ? { maxAllocationMm3PerYear: allocations[i]! } : {}),
 				...('allocation' in rr && allocationTables ? { allocation: { ...rr.allocation, values: allocationTables[i]! } } : {}),
+				...capacityFor(i),
 				...('runoffModule' in rr ? { runoffModule: at.numbers[i]! } : {})
 			}) as IrrigationModule;
 		plan.pieces.forEach((_, i) => {

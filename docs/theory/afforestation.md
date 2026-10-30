@@ -214,7 +214,10 @@ factors, the L.003 parameters, the groundwater model and the Hughes and Sami
 parameter sets. It keeps the child's number, name, L.002 area, land-use tables
 and outflow route. It drops paved area (not allowed), the RTIN inflow and the
 upstream-groundwater link (the parent's), and the Sami groundwater abstractions,
-which are volumes for the parent's catchment (R6-F13).
+which are volumes for the parent's catchment (R6-F13). `inheritFromParent` drops
+RTIN from the runoff parameters only: `runNetwork` still adds an inflow route named
+on a child to its outflow. No reference child has one, and a split refuses one
+(R5-E17).
 
 ### 4.4 Virgin MAR and low flow
 

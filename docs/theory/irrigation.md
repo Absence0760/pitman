@@ -124,7 +124,7 @@ always linear (TT 689 p.83).
 | Allocation L.022–L.024 | growth on RRMA (TT 689 p.98) | the value; RRMA when empty |
 | Efficiency L.028–L.030 | growth on RRIE (p.102) | the value; RRIE when empty (R7-I7) |
 | Return factor L.025–L.027 | growth on RRLF (p.107) | growth on RRLF ("same for both", p.106) |
-| Capacity L.033–L.035 | – | the value |
+| Capacity L.033–L.035 | – | the value, 10⁶ m³/month (RRCAP, TT 690 p.40) |
 
 D1: **historical** takes each year's values; **present day** holds every table at
 its value in the chosen year; **natural** removes the block, with no demand and

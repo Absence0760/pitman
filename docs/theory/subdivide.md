@@ -297,6 +297,8 @@ vegetation is modelled as child modules; `docs/formats.md` § RU, TT 691
 §7.4) is split as a group:
 
 - every piece of the parent is a parent;
+- a child with an inflow route refuses the split (R5-E17): a copy would count that
+  water again, and a child moved to a new number would lose it;
 - each child is **split by share** into one child per piece that gets a
   non-zero share (area share by default, location share if its land use is
   located), attached to that piece; a child whose share in a piece rounds
@@ -373,7 +375,8 @@ the outlet piece's runoff, so the preview warns (R5-E11). When every other
 piece joins through the outlet's inflow route the route still carries all the
 water, so there is no warning.
 
-**Irrigation modules** drawing from `V` are split by the irrigated area in
+**Irrigation modules** drawing from `V` (their RRMA, a type 4 block's allocation
+and capacity tables with them) are split by the irrigated area in
 each piece (Cape Farm Mapper fields located in it, Round 7; else by area
 share): each piece with irrigation gets an RR copy drawing from its own
 `V_i` (or, with no dams of its own, a new route from `V`: an RR has one inflow,
@@ -405,7 +408,8 @@ to no surface area (R5-E4).
    to 1e-12).
 3. Every split table's total is preserved per year (afforestation, alien
    vegetation, paved, abstraction volumes, irrigated area per crop, irrigation
-   allocations (RRMA, and a type 4 block's allocation table), farm-dam capacity and surface
+   allocations (RRMA, and a type 4 block's allocation table and its capacity table,
+   which is held unrounded because 0 means no limit), farm-dam capacity and surface
    area, plus the Sami evaporation area). A reservoir's initial storage too,
    except that a piece's share is capped at its first year's capacity, so the
    total can fall when a dam starts nearly full (R5-E4).
@@ -490,7 +494,7 @@ copy gains a record in `splits`, oldest first, because a piece can be split agai
 |---|---|---|
 | `copied` | a **Copied** field of § Fields, and an RR's or RV's other parameters | the same value |
 | `moved` | the value went wholly to one other module (`pieces` has one) | all of it |
-| `divided` | a **Split** field of § Fields, an SFR child's area and tables, an RR's area and RRMA (and a type 4 block's allocation table), an RV's capacity and initial storage | `part` of `whole`; a piece that got none gets no copy |
+| `divided` | a **Split** field of § Fields, an SFR child's area and tables, an RR's area and RRMA (and a type 4 block's allocation and capacity tables, a capacity of 0 being copied), an RV's capacity and initial storage | `part` of `whole`; a piece that got none gets no copy |
 | `scaled` | HGRAD | `part`, from `whole` |
 
 A value that stays whole on the module it was on keeps its entry as it was, and
