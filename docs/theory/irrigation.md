@@ -199,7 +199,7 @@ counts 0 (R7-I9).
 **Allocation, types 2–3.** AQIG is the year's QIG on the full area, with that
 year's real rain. If AQIG > ALL, AREAT = AREA × ALL / AQIG (eq. 4.8), so every
 month falls in proportion; or, with L.003 v4 = 1, each month is capped at ALL /
-12 (TT 689 p.95; TT 691 p.161; R7-I10). A WQT allocation of 0 or less is no limit
+12 (TT 689 p.95; TT 691 p.161; R7-I10). A WQT allocation of 0 or less takes October's demand only on a type 2 block with no allocation table and no clipping, and is otherwise no limit
 (R7-I4).
 
 **Constraints, type 4,** in the manual's order:
@@ -354,14 +354,20 @@ RRPRFL holds for types 2–3, not type 4.
   "insufficient water at source". The other reading (unused means unsupplied) would
   make next month's demand depend on this month's supply and need month-by-month
   solving.
-- **R7-I4** WQT RRMA ≤ 0 means no limit (`zeroAllocation: 'noWater'` for eq. 4.8 as
-  printed). TT 689 p.95's "no abstractions" is said of PERM only, and the repo's v32
-  example carries a type 2 block with 0.00. Against it: TT 690 p.42 and TT 689 p.95
-  switch a limit off with a large value (9999), not with 0, and TT 689 p.98 has
-  values below 1 reduce the allocation. So this covers RRMA alone: a year-table value
-  of 0 is no water. Highest-risk default: if WRSM2000 reads RRMA 0 as no water those
-  blocks abstract nothing; if the default is wrong the other way, they abstract too
-  much.
+- **R7-I4** WQT RRMA ≤ 0 on a type 2 block with no allocation table and no clipping:
+  the block takes October's demand and no water for the other 11 months, AREAT is 0
+  in those months (AEFF 0, ANEFF the whole area, as in a supply failure, eqs. 4.7,
+  4.9), and the run warns. This is a measurement, not a reading of the manuals, and it
+  overrides eq. 4.8 with ALL = 0, so a hydrologist should confirm it (#21). It was
+  first read as no limit, which overstated abstraction about 12 to 14 times where it
+  mattered. Three reference blocks have RRMA 0 and a real demand, all of this form. On
+  two, WRSM2000's October flow follows Pitman's October demand (r above 0.96) and the
+  other months total 0.00. The third takes nothing at all, and the second takes
+  nothing in its first October; no mechanism explains these (DP-8). Every other block
+  with RRMA ≤ 0 (types 3 and 4, a table, clipping) keeps no limit: no reference block
+  tests them. `zeroAllocation` keeps `noLimit` and `noWater` (eq. 4.8 as printed). A
+  year-table value of 0 with RRMA above 0 is no water, and a block meant to be
+  unlimited should say 9999 (TT 690 p.42, TT 689 p.95).
 - **R7-I5** Crop demand is cut off per crop (`cropDemandClip: 'total'` for p.35).
   That is the default for type 4 too, against ch.6's own sentence on p.35.
 - **R7-I6** RRIE and RRLF above 1 are percentages: TT 690 eq. 4.3 has EFI in %, TT
@@ -415,5 +421,16 @@ RRPRFL holds for types 2–3, not type 4.
 
 ## 13. Reference comparison
 
-Not run: `WRSM_REFERENCE_DIR` was unset when this was built. Run the whole-network
-comparison before trusting any default; R7-I4, R7-I2 and R7-I12 first.
+Run 2026-10-30, every network under `WRSM_REFERENCE_DIR`, historical mode, defaults.
+
+- **Abstraction:** 41 blocks carry real flow in the answer files. Of those, 22 are
+  within 1 % of WRSM2000 on annual volume, 28 within 2 %, 33 within 5 % and 39 within
+  10 %, with no tuning. Another 28 blocks are zero on both sides, which tests nothing.
+  The two beyond 10 % are small (under 0.1 million m³/year), and the block that
+  WRSM2000 leaves dry is DP-8.
+- **Return flows:** 41 of 70 routes an RR controls miss the thresholds. 25 of those carry
+  under 0.01 million m³ a month, below what the two-decimal `.ANS` files resolve, and 23
+  are within 2 % on MAR, missing only NSE. The three RRMA 0 blocks return 4 to 11 % too
+  much, with a poor monthly shape (DP-8). The rest are not yet explained one by one.
+- R7-I2's two-pass solve holds: every block is listed before its supplier, the common
+  case, and agrees.

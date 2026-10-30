@@ -483,7 +483,7 @@ Every line is written in **minimal width, single-space separated**. A plain `F0.
 
 **Version 42 (WQT type 4)** adds L.031–L.040 (TT 691 pp.169–176; RRERFT4, RRERFMT4, the capacity table, canal loss, deep GW, max/min upper-zone storage, canal-end spill). It's **manual only**: read it per TT 691 pp.162–176 and never write it. Our app writes v32 only.
 
-What the fields mean to the simulation (which method reads which, and what the year tables hold) is in [`docs/theory/irrigation.md`](theory/irrigation.md) §1, §3. In short: L.024 and L.030 are growth factors for types 2–3 and values for type 4 (TT 689 p.98, p.102); L.027 is a growth factor for all; a capacity of 0 is no limit (R7-I15); RRMA of 0 is read as no limit for now (R7-I4); L.015's efficiency and return factor are proportions, and above 1 are read as percentages (R7-I6, TT 691 p.160's example has 96 and 6).
+What the fields mean to the simulation (which method reads which, and what the year tables hold) is in [`docs/theory/irrigation.md`](theory/irrigation.md) §1, §3. In short: L.024 and L.030 are growth factors for types 2–3 and values for type 4 (TT 689 p.98, p.102); L.027 is a growth factor for all; a capacity of 0 is no limit (R7-I15); RRMA of 0 takes October's demand only on a plain type 2 block and is otherwise no limit (R7-I4); L.015's efficiency and return factor are proportions, and above 1 are read as percentages (R7-I6, TT 691 p.160's example has 96 and 6).
 
 ### 8.2 Unversioned (WRSM90) layout
 

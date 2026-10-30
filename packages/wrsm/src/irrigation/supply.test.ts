@@ -151,6 +151,12 @@ describe('WQT types 2 and 3 on the land', () => {
 		expect(s.landTransfer.values[12]).toBeCloseTo((-s.soilMoistureMm.values[11]! * 10) / 1000, 12);
 	});
 
+	it('leaves a zero-allocation block no effective land outside October, at full supply too (R7-I4, eqs. 4.7, 4.9)', () => {
+		const s = full(wqtBlock({ maxAllocationMm3PerYear: 0 })).settled;
+		expect(s.effectiveAreaKm2[0]).toBe(10);
+		expect(s.effectiveAreaKm2[1]).toBe(0);
+	});
+
 	it('adds the canal seepage back into the return (eqs. 4.55, 4.56)', () => {
 		const without = full(wqtBlock({ canalFlowLoss: 0.2, canalSeepageToReturn: 0 })).settled;
 		const withIt = full(wqtBlock({ canalFlowLoss: 0.2, canalSeepageToReturn: 0.5 })).settled;
@@ -310,6 +316,7 @@ describe('invariants, every method, every month', () => {
 	const blocks: readonly [string, IrrigationModule][] = [
 		['Pitman', pitmanBlock({ areaKm2: areas })],
 		['WQT net', wqtBlock({ areaKm2: areas, canalFlowLoss: 0.15, canalSeepageToReturn: 0.3, maxAllocationMm3PerYear: 40, effectiveRainfallLimits: [100, 10] })],
+		['WQT zero allocation', wqtBlock({ areaKm2: areas, maxAllocationMm3PerYear: 0 })],
 		['WQT total', wqtBlock({ areaKm2: areas, netReturnFlows: false, canalFlowLoss: 0.1, droughtReduction: true })],
 		['SAPWAT', wqtBlock({ modelType: 3, areaKm2: areas, droughtReduction: true, crops: [{ factors: twelve(140), percent: 100, description: 'r' }] })],
 		['type 4', wqt4Block({ areaKm2: areas, canalFlowLoss: 0.15, canalTransmissionLoss: 0.4, canalSeepageToReturn: 0.3, canalEndSpill: 0.05, deepSeatedGroundwater: 0.1, minUpperZoneStorageMm: 30, maxAllocationMm3PerYear: 60 })]

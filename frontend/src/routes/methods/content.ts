@@ -201,6 +201,11 @@ export const DEPARTURES: readonly Departure[] = [
 		id: 'DP-7',
 		module: 'An irrigation block whose return flow enters a module listed before its supplier',
 		summary: 'Pitman solves the supplier first, so that module gets the return as adjusted to the real supply. WRSM2000 appears to loop by month, so they may differ when the supplier falls short. Not measured yet.'
+	},
+	{
+		id: 'DP-8',
+		module: 'An irrigation block with an allocation of 0',
+		summary: 'Pitman gives it October’s demand and nothing else, which is what the reference outputs show on most of the few blocks that test it. WRSM2000 takes less than that on two of them, for a reason not yet known, and these blocks return a little too much. Awaiting a hydrologist’s confirmation.'
 	}
 ];
 

@@ -37,6 +37,7 @@ export function wqtBlock(over: Partial<IrrigationWqtLayout> = {}): IrrigationWqt
 		...upgradeIrrigation(pitmanBlock()),
 		modelType: 2,
 		efficiencyFactor: 0.8,
+		maxAllocationMm3PerYear: 9999,
 		rainfallFactors: twelve(0.5),
 		aPanFactors: twelve(0.9),
 		crops: [{ factors: twelve(0.8), percent: 100, description: 'composite' }],

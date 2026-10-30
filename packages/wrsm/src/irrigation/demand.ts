@@ -38,10 +38,13 @@ import type {
 export interface IrrigationOptions {
 	/**
 	 * R7-I4: a WQT RRMA (L.013) of 0 or less.
-	 * `noLimit` (default): no allocation is set. `noWater`: eq. 4.8 as printed,
-	 * so the block demands nothing.
+	 * `firstMonth` (default, measured on the reference networks): a type 2
+	 * block with no allocation table and no clipping takes October's demand and
+	 * nothing for the rest of the year; any other block, with no reference
+	 * evidence, sets no allocation. `noLimit`: no allocation is set. `noWater`:
+	 * eq. 4.8 as printed, so the block demands nothing.
 	 */
-	readonly zeroAllocation: 'noLimit' | 'noWater';
+	readonly zeroAllocation: 'firstMonth' | 'noLimit' | 'noWater';
 	/**
 	 * R7-I5: where a negative crop demand is cut off. `perCrop` (default, TT 690
 	 * p.12: "positive value only" under the Σ); `total` (p.35: "If DIN is less
@@ -51,7 +54,7 @@ export interface IrrigationOptions {
 }
 
 export const DEFAULT_IRRIGATION_OPTIONS: IrrigationOptions = {
-	zeroAllocation: 'noLimit', // R7-I4
+	zeroAllocation: 'firstMonth', // R7-I4
 	cropDemandClip: 'perCrop' // R7-I5
 };
 
@@ -276,8 +279,12 @@ export function irrigationDemand(
 
 	if (method !== 1 && module.layout !== 'pitman') {
 		if (!natural) wqtDataNotes(module, method, startYear, endYear, yearFor, note, label);
+		const octoberOnly = takesOctoberOnly(module, method, opts);
+		if (!natural && octoberOnly && s.area.some((a) => a > 0)) {
+			note('warning', `${label}: its allocation is 0, so it takes October's demand and nothing else each year, which is what the reference networks show; use 9999 for no limit (R7-I4)`);
+		}
 		const cut = s.area.reduce((n, a, t) => (a > 0 && (s.target[t] ?? a) < a - 1e-12 ? n + 1 : n), 0);
-		if (cut > 0) note('info', `${label}: the allocation limits irrigation in ${Math.ceil(cut / 12)} year(s) (TT 690 eq. 4.8)`);
+		if (cut > 0 && !octoberOnly) note('info', `${label}: the allocation limits irrigation in ${Math.ceil(cut / 12)} year(s) (TT 690 eq. 4.8)`);
 	}
 
 	return {
@@ -370,6 +377,11 @@ function wqtFactors(module: IrrigationWqtLayout | IrrigationWqt4Layout, type4: b
 	return { efficiency: Math.min(1, efficiency), returnFactor: proportion(module.returnFlowFactor) * tableAt(module.returnFlowGrowth, year, 1) };
 }
 
+/** R7-I4: the one case the reference networks measure, a type 2 block with RRMA 0, no allocation table and no clipping. */
+function takesOctoberOnly(module: IrrigationWqtLayout | IrrigationWqt4Layout, method: IrrigationModelType, opts: IrrigationOptions): boolean {
+	return opts.zeroAllocation === 'firstMonth' && method === 2 && !(module.maxAllocationMm3PerYear > 0) && module.allocation.values.length === 0 && module.curtailByClipping !== true;
+}
+
 /**
  * The annual allocation in force, or `null` when none limits the block. R7-I4
  * covers RRMA alone: a year-table value of 0 is a real allocation of nothing
@@ -381,7 +393,7 @@ function allocationIn(module: IrrigationWqtLayout | IrrigationWqt4Layout, type4:
 	const value = interpolateYearTable(t.values, year, t.interpolation);
 	if (type4 && has) return Math.max(0, value);
 	const rrma = module.maxAllocationMm3PerYear;
-	if (!(rrma > 0)) return opts.zeroAllocation === 'noWater' ? 0 : null;
+	if (!(rrma > 0)) return opts.zeroAllocation === 'noWater' ? 0 : null; // wqtYear handles `firstMonth`; type 4 has no limit
 	return Math.max(0, rrma * (has ? value : 1));
 }
 
@@ -427,7 +439,10 @@ function wqtYear(module: IrrigationWqtLayout, method: IrrigationModelType, { rai
 	const aqig = full.reduce((s, v) => s + v, 0);
 	let gross = full;
 	let target = new Array<number>(12).fill(area);
-	if (all !== null && aqig > all) {
+	if (takesOctoberOnly(module, method, opts)) {
+		gross = full.map((v, m) => (m === 0 ? v : 0)); // R7-I4
+		target = target.map((v, m) => (m === 0 ? v : 0)); // the land goes unwatered: AEFF 0, ANEFF the rest, as in a failure (eqs. 4.7, 4.9)
+	} else if (all !== null && aqig > all) {
 		if (module.curtailByClipping === true) {
 			gross = full.map((v) => Math.min(v, all / 12)); // R7-I10
 			target = full.map((v, m) => (v > 0 ? (area * gross[m]!) / v : area));

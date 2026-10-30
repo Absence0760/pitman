@@ -133,9 +133,31 @@ describe('WQT type 2, TT 690 ch.4', () => {
 		expect(d.targetAreaKm2[6]).toBeCloseTo(10 * (1 / 2), 10); // the unlimited month is 2.0
 	});
 
-	it('takes a zero RRMA as no limit by default and as no water on request (R7-I4)', () => {
+	it("gives a zero RRMA October's demand and nothing else, as the reference networks do (R7-I4)", () => {
 		const block = wqtBlock({ maxAllocationMm3PerYear: 0 });
-		expect(irrigationDemand(block, year(), HISTORICAL, 2000, 2000).gross.values[0]).toBeCloseTo(1.8125, 10);
+		const d = irrigationDemand(block, year(), HISTORICAL, 2000, 2000);
+		expect(d.gross.values[0]).toBeCloseTo(1.8125, 10);
+		expect(d.gross.values.slice(1)).toEqual(new Array(11).fill(0));
+		expect(d.targetAreaKm2[0]).toBe(block.areaKm2[0]!.value);
+		expect(d.targetAreaKm2.slice(1)).toEqual(new Array(11).fill(0)); // AEFF 0 outside October, not a cut by eq. 4.8
+		expect(d.messages.some((m) => m.text.includes('allocation limits'))).toBe(false);
+		expect(d.messages.some((m) => m.level === 'warning' && m.text.includes('R7-I4'))).toBe(true);
+	});
+
+	it('applies the zero-RRMA rule only where it was measured: type 2, no table, no clipping (R7-I4)', () => {
+		const monthsWithWater = (b: Parameters<typeof irrigationDemand>[0]) => irrigationDemand(b, year(), HISTORICAL, 2000, 2000).gross.values.filter((v) => v > 0).length;
+		expect(monthsWithWater(wqtBlock({ maxAllocationMm3PerYear: 0 }))).toBe(1);
+		expect(monthsWithWater(wqtBlock({ maxAllocationMm3PerYear: 0, curtailByClipping: true }))).toBe(12);
+		expect(monthsWithWater(wqtBlock({ maxAllocationMm3PerYear: 0, allocation: { interpolation: 1, values: [{ year: 2000, value: 1 }] } }))).toBe(12);
+		expect(monthsWithWater(wqtBlock({ maxAllocationMm3PerYear: 0, modelType: 3, crops: [{ factors: twelve(140), percent: 100, description: 'r' }] }))).toBe(12);
+	});
+
+	it('keeps the other zero-RRMA readings on request (R7-I4)', () => {
+		const block = wqtBlock({ maxAllocationMm3PerYear: 0 });
+		const limitless = irrigationDemand(block, year(), HISTORICAL, 2000, 2000, { zeroAllocation: 'noLimit' });
+		expect(limitless.gross.values[0]).toBeCloseTo(1.8125, 10);
+		expect(limitless.gross.values[1]).toBeGreaterThan(0);
+		expect(limitless.messages.some((m) => m.text.includes('R7-I4'))).toBe(false);
 		expect(irrigationDemand(block, year(), HISTORICAL, 2000, 2000, { zeroAllocation: 'noWater' }).gross.values[0]).toBe(0);
 	});
 
