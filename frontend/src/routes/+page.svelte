@@ -27,6 +27,7 @@
 	import { rainfallFiles } from '#lib/extend/files.js';
 	import Results from '#lib/results/Results.svelte';
 	import { hydroYearLabel } from '#lib/results/format.js';
+	import { groupRunMessages, messageSummary } from '#lib/results/run-messages.js';
 	import Map from '#lib/map/Map.svelte';
 	import MapPanel from '#lib/map/MapPanel.svelte';
 	import TributaryTool from '#lib/map/tributary/TributaryTool.svelte';
@@ -253,7 +254,8 @@
 			});
 			runState = 'done';
 			const failed = outcomes.filter((o) => !o.ok).length;
-			status = failed === 0 ? 'The run finished.' : `The run finished; ${plural(failed, 'mode')} failed.`;
+			const said = messageSummary(groupRunMessages(outcomes.flatMap((o) => (o.ok ? [o.result] : []))));
+			status = failed > 0 ? `The run finished; ${plural(failed, 'mode')} failed.` : said ? `The run finished with ${said}: see Results.` : 'The run finished.';
 		} catch (error) {
 			if ((error as Error).name === 'AbortError') {
 				runState = 'idle';

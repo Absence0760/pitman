@@ -70,6 +70,12 @@ it.
 One mode failing doesn't lose the others: the failure is shown and the rest
 appear in Results.
 
+Anything the model has to say about a run stands at the top of Results, under
+"Read before using these results": supply failures, an irrigation allocation of
+0, area tables that don't cover the run. The same complaint across months is one
+line, with how many months and which years. Notes that need no action are folded
+below it.
+
 ## Read the results
 
 Pick a route or reservoir. A route with a gauge opens with the statistics period

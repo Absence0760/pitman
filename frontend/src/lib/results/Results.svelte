@@ -13,6 +13,7 @@
 	import { targetCharts } from './charts.js';
 	import { answerDownload, csvDownload, type Download } from './downloads.js';
 	import { hydroYearLabel } from './format.js';
+	import RunMessages from './RunMessages.svelte';
 	import { statisticsTable } from './statistics-table.js';
 	import { defaultTarget, resultTargets, targetSeries } from './targets.js';
 
@@ -74,6 +75,8 @@
 
 <section class="results" aria-labelledby="results-title">
 	<h2 id="results-title">Results</h2>
+
+	<RunMessages {runs} />
 
 	{#if runs.length === 0}
 		<p>Run the network to see results.</p>
