@@ -64,6 +64,7 @@ export * from './landuse/forest.js';
 export * from './landuse/sfr.js';
 export * from './landuse/alien.js';
 export * from './landuse/paved.js';
+export * from './landuse/tables.js';
 export * from './runoff/wiring.js';
 export * from './network/sfr-groups.js';
 
