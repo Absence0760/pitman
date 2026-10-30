@@ -55,6 +55,7 @@ export * from './run.js';
 // (afforestation.md), alien vegetation and paved area (alien.md), and their wiring.
 export type * from './groundwater/sami/contract.js';
 export type * from './landuse/contract.js';
+export type * from './landuse/round7-contract.js';
 export * from './groundwater/sami/soil.js';
 export * from './groundwater/sami/aquifer.js';
 export * from './groundwater/sami/index.js';
