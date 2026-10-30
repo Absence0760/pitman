@@ -4,17 +4,19 @@
 	growth (DemandEditor.svelte, docs/formats.md § 12). A file with a spec in
 	pitman.json can be edited; one without can be viewed and replaced, because
 	a spec can't be recovered from monthly rows. Applying hands the page an
-	updated bundle (`onupdate`), as the extension does.
+	updated bundle (`onupdate`), as the extension does. Any file can be removed:
+	the confirmation shows the engine's plan (`planDemandRemoval`) and carries it
+	out, and Undo gives the page back the bundle from before.
 -->
 <script lang="ts">
 	import { scrollable } from '#lib/shell/scrollable.js';
 	import { tick } from 'svelte';
-	import { applyDemand, demandSourcesOf, type DemandPlan, type LoadedBundle } from '@pitman/wrsm';
+	import { applyDemand, applyDemandRemoval, demandRemovals, demandSourcesOf, planDemandRemoval, type DemandPlan, type DemandRouteChoice, type LoadedBundle } from '@pitman/wrsm';
 	import { plural } from '#lib/network/format.js';
 	import { formatNumber, hydroYearLabel } from '#lib/results/format.js';
 	import DemandEditor from './DemandEditor.svelte';
 	import { draftFromFile, draftFromSpec, newDraft, type DemandDraft } from './draft.js';
-	import { attachmentLabel, demandFiles, sourceLabel, type DemandFileRow } from './files.js';
+	import { attachmentLabel, demandFiles, removalConsequences, removalRoutes, sourceLabel, type DemandFileRow } from './files.js';
 	import MonthlyRows from './MonthlyRows.svelte';
 
 	let {
@@ -42,6 +44,21 @@
 	const entry = $derived(open?.key == null ? undefined : files.find((f) => f.key === open?.key));
 	const viewed = $derived(open?.kind === 'view' && entry ? bundle.flowFiles[entry.key] : undefined);
 	let applied = $state<string | undefined>();
+
+	/** The file a confirmation is open on, and which route of a shared file it takes it off; none is all of them. */
+	let removing = $state<string | undefined>();
+	let onlyRoute = $state('');
+	let removeWhy = $state('');
+	const removingFile = $derived(files.find((f) => f.key === removing));
+	const routeChoices = $derived(removingFile?.attachments ?? []);
+	const choiceId = (a: DemandRouteChoice) => `${a.module.type}${a.module.number}-${a.route}-${a.direction}`;
+	const removal = $derived(removingFile ? planDemandRemoval(bundle, removingFile.key, routeChoices.find((a) => choiceId(a) === onlyRoute)) : undefined);
+	const removeBlocked = $derived(removal === undefined || removal.refused !== null || busy || (removal.needsReason && removeWhy.trim() === ''));
+
+	/** What the last removal did, with the bundle from before it: Undo lasts until the network moves on. */
+	type Removed = { readonly text: string; readonly fileGoes: boolean; readonly before: LoadedBundle; readonly after: LoadedBundle; readonly undone: boolean };
+	let removed = $state.raw<Removed | undefined>();
+	const removals = $derived(demandRemovals(bundle.sidecar));
 
 	const slug = (key: string) => key.replace(/[^A-Za-z0-9]+/g, '-');
 
@@ -77,11 +94,46 @@
 		void focus(key ? `demand-pick-${slug(key)}` : 'demand-new');
 	}
 
+	function askRemove(file: DemandFileRow) {
+		removing = file.key;
+		onlyRoute = '';
+		removeWhy = '';
+		void focus('demand-remove-keep');
+	}
+
+	function keepFile() {
+		const key = removing;
+		removing = undefined;
+		void focus(key ? `demand-remove-${slug(key)}` : 'demand-new');
+	}
+
+	function remove() {
+		if (!removal || removeBlocked) return;
+		const summary = `${removal.fileName}${removal.routes.length === 0 ? '' : ` off ${removalRoutes(removal)}`}`;
+		const source = removal.needsReason ? { kind: 'manual' as const, note: removeWhy.trim(), date: new Date().toISOString() } : undefined;
+		const next = applyDemandRemoval(bundle, removal, source);
+		if (removal.fileGoes && open?.key === removal.key) open = undefined;
+		removed = { text: summary, fileGoes: removal.fileGoes, before: bundle, after: next, undone: false };
+		removing = undefined;
+		applied = undefined;
+		onupdate(next, `Demand removed: ${summary}. Run again to see its effect.`);
+		void focus('demand-removed');
+	}
+
+	function undoRemoval() {
+		if (!removed) return;
+		const { text, before } = removed;
+		removed = { ...removed, undone: true };
+		onupdate(before, `Removal undone: ${text}. Run again to see its effect.`);
+		void focus('demand-removed');
+	}
+
 	function onapply(plan: DemandPlan) {
 		const where = plan.attach ? ` on ${plan.attach.module.type} ${plan.attach.module.number} route ${plan.attach.route}` : '';
 		const summary = `${plan.fileName}${where}: ${hydroYearLabel(plan.firstYear)} to ${hydroYearLabel(plan.lastYear)}.`;
 		onupdate(applyDemand(bundle, plan), `Demand applied: ${summary} Run again to see its effect.`);
 		applied = summary;
+		removed = undefined;
 		open = undefined;
 		void focus('demand-applied');
 	}
@@ -91,7 +143,8 @@
 	<h2 id="demand-h">Demands</h2>
 	<p>
 		The demand and defined-flow files on this network’s routes, mostly domestic supply. Make one from an annual volume, a monthly distribution and growth to 2025 and
-		beyond; Pitman writes it in WRSM2000’s format, one row per year, and records how it was made in <code>pitman.json</code>.
+		beyond; Pitman writes it in WRSM2000’s format, one row per year, and records how it was made in <code>pitman.json</code>. Remove one you no longer want, the network’s own
+		included; the confirmation says what happens to its routes.
 	</p>
 
 	{#if files.length === 0}
@@ -136,10 +189,10 @@
 									{/if}
 								{:else}
 									The file as loaded
-									<span class="sub">No spec: view or replace</span>
+									<span class="sub">No spec: view, replace or remove</span>
 								{/if}
 							</td>
-							<td>
+								<td class="acts">
 								<button
 									type="button"
 									id={`demand-pick-${slug(f.key)}`}
@@ -149,6 +202,7 @@
 								>
 									{f.spec ? 'Edit' : 'View'}<span class="sr"> {f.name}</span>
 								</button>
+								<button type="button" id={`demand-remove-${slug(f.key)}`} onclick={() => askRemove(f)} aria-pressed={removing === f.key} disabled={busy}>Remove<span class="sr"> {f.name}</span></button>
 							</td>
 						</tr>
 					{/each}
@@ -161,9 +215,76 @@
 		<p class="note">{plural(files.length, 'file')}. Volumes are million m³; a year is a hydrological year, October to September, so 2025/26 starts in October 2025.</p>
 	{/if}
 
+	{#if removingFile && removal}
+		<div class="warn confirm" role="alert" data-removing={removingFile.key}>
+			<p><strong>Remove {removal.fileName}?</strong></p>
+			{#if routeChoices.length > 1}
+				<fieldset>
+					<legend>{plural(routeChoices.length, 'route')} read this file</legend>
+					<label class="choice"><input type="radio" name="demand-remove-route" value="" bind:group={onlyRoute} /> All of them: the file goes</label>
+					{#each routeChoices as a (choiceId(a))}
+						<label class="choice"><input type="radio" name="demand-remove-route" value={choiceId(a)} bind:group={onlyRoute} /> Only {attachmentLabel(a)}: the file stays on the rest</label>
+					{/each}
+				</fieldset>
+			{/if}
+			<ul>
+				{#each removalConsequences(removal) as line (line)}
+					<li>{line}</li>
+				{/each}
+			</ul>
+			{#if removal.refused}
+				<p class="error">{removal.refused}</p>
+			{:else if removal.needsReason}
+				<label class="why" for="demand-remove-why">
+					<span>Why it goes (required)</span>
+					<input id="demand-remove-why" type="text" autocomplete="off" required aria-required="true" bind:value={removeWhy} />
+				</label>
+			{/if}
+			<div class="actions">
+				<button type="button" id="demand-remove-keep" onclick={keepFile}>Keep it</button>
+				{#if !removal.refused}
+					<button type="button" onclick={remove} disabled={removeBlocked} data-remove-confirm>{removal.fileGoes ? `Remove ${removal.fileName}` : `Take it off ${removalRoutes(removal)}`}</button>
+				{/if}
+			</div>
+			{#if busy}
+				<p class="note">Wait for the run to finish.</p>
+			{/if}
+		</div>
+	{/if}
+
+	{#if removals.length > 0}
+		<div class="removals">
+			<p><strong>Removed from this network</strong>, as <code>pitman.json</code> records it:</p>
+			<ul>
+				{#each removals as r, k (k)}
+					<li>{r.date.slice(0, 10)}: {r.note}</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+
 	<div class="actions">
 		<button type="button" id="demand-new" onclick={create} disabled={busy}>New demand</button>
 	</div>
+
+	{#if removed}
+		<div class="applied" id="demand-removed" tabindex="-1" role="status">
+			{#if removed.undone}
+				<p><strong>Put back.</strong> {removed.text} is undone: the working copy is as it was before the removal. The old results were cleared.</p>
+			{:else}
+				<p><strong>Removed.</strong> {removed.text}. {removed.fileGoes ? 'It is out of the working copy, and the next save goes without it.' : 'The file stays on its other routes, and the next save keeps it for them.'} The old results were cleared.</p>
+			{/if}
+			<div class="actions">
+				<button type="button" class="primary" onclick={onrerun} disabled={busy}>Rerun the network</button>
+				{#if !removed.undone && bundle === removed.after}
+					<button type="button" onclick={undoRemoval} disabled={busy}>Undo the removal</button>
+				{/if}
+			</div>
+			{#if !removed.undone && bundle !== removed.after}
+				<p class="note">Undo has gone, because the network has changed since.</p>
+			{/if}
+		</div>
+	{/if}
 
 	{#if applied}
 		<div class="applied" id="demand-applied" tabindex="-1" role="status">
@@ -179,7 +300,7 @@
 			<h3 id="demand-view-h" tabindex="-1">{entry.name}</h3>
 			<p class="warn">
 				This file has no spec in pitman.json, so it isn’t editable as an annual volume, shares and growth: its monthly rows don’t say how they were made, and a spec can’t
-				be recovered from them. You can read it here or replace it with a new demand.
+				be recovered from them. You can read it here, replace it with a new demand, or remove it.
 			</p>
 			<dl class="facts provenance">
 				<div>
@@ -215,6 +336,63 @@
 		position: sticky;
 		right: 0;
 		background: var(--surface);
+	}
+	.acts {
+		white-space: nowrap;
+	}
+	.acts button + button {
+		margin-left: 0.25rem;
+	}
+	/* The stuck column takes less of a phone with its two buttons stacked. */
+	@media (max-width: 30rem) {
+		.acts button {
+			display: block;
+			width: 100%;
+		}
+		.acts button + button {
+			margin: 0.25rem 0 0;
+		}
+	}
+	.confirm {
+		margin: 1rem 0;
+	}
+	.confirm p,
+	.confirm ul {
+		margin: 0 0 0.5rem;
+	}
+	.confirm ul,
+	.removals ul {
+		padding-left: 1.25rem;
+	}
+	.confirm fieldset {
+		margin: 0 0 0.5rem;
+		padding: 0;
+		border: 0;
+	}
+	.confirm legend {
+		font-weight: 600;
+		padding: 0;
+	}
+	.choice {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		min-height: 1.75rem;
+	}
+	.why {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		margin-bottom: 0.5rem;
+		font-weight: 600;
+	}
+	.removals {
+		margin-top: 0.75rem;
+		font-size: var(--font-sm);
+	}
+	.removals p,
+	.removals ul {
+		margin: 0 0 0.25rem;
 	}
 	.files tbody th {
 		font-weight: 600;

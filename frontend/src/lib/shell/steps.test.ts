@@ -63,12 +63,20 @@ describe('workflowSteps', () => {
 				{ target: { module: { type: 'RU', number: 1 }, field: 'pitman.ST' }, source: { kind: 'manual', note: 'Calibration: 150 → 180', date: '2026-10-30' } }
 			]
 		});
-		expect(progress).toEqual({ rowsWritten: true, tableEdits: 1, demandsMade: 2, calibrated: 1 });
+		expect(progress).toEqual({ rowsWritten: true, tableEdits: 1, demandsMade: 2, demandsRemoved: 0, calibrated: 1 });
 		expect(step({ progress }, 'landuse-h')).toMatchObject({ state: 'done', detail: 'Rows written' });
 		expect(step({ progress }, 'tables-h')).toMatchObject({ state: 'done', detail: '1 value changed' });
 		expect(step({ progress }, 'demand-h')).toMatchObject({ state: 'done', detail: '2 demands' });
 		expect(step({ progress }, 'calibrate-h')).toMatchObject({ state: 'done', detail: '1 value changed' });
 		expect(step({}, 'tables-h')).toMatchObject({ state: 'todo', detail: 'Optional' });
+	});
+
+	it('counts a removed demand, which leaves no spec behind', () => {
+		const removed = { target: { file: 'SYRQ9.ABS', field: 'demandRemoved' }, source: { kind: 'manual', note: 'Demand removed: SYRQ9.ABS; closed', date: '2026-10-30' } } as const;
+		const alone = sidecarProgress({ schema: 'pitman-sidecar', schemaVersion: 1, values: [removed] });
+		expect(step({ progress: alone }, 'demand-h')).toMatchObject({ state: 'done', detail: '1 removed' });
+		const both = sidecarProgress({ schema: 'pitman-sidecar', schemaVersion: 1, demands: { 'SYRQ10.ABS': {} as never }, values: [removed] });
+		expect(step({ progress: both }, 'demand-h')).toMatchObject({ state: 'done', detail: '1 demand, 1 removed' });
 	});
 
 	it('a partly failed run is reported as failed, with the count', () => {

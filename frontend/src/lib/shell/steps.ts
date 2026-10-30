@@ -40,6 +40,7 @@ export interface SidecarProgress {
 	readonly rowsWritten: boolean;
 	readonly tableEdits: number;
 	readonly demandsMade: number;
+	readonly demandsRemoved: number;
 	readonly calibrated: number;
 }
 
@@ -49,12 +50,18 @@ export function sidecarProgress(sidecar: Sidecar | undefined): SidecarProgress {
 		rowsWritten: sidecar?.capeFarmMapper !== undefined || (sidecar?.dams?.length ?? 0) > 0,
 		tableEdits: notes.filter((n) => n.startsWith('Land use:')).length,
 		demandsMade: Object.keys(sidecar?.demands ?? {}).length,
+		demandsRemoved: notes.filter((n) => n.startsWith('Demand removed:')).length,
 		calibrated: notes.filter((n) => n.startsWith('Calibration:')).length
 	};
 }
 
 /** An optional step: done once anything has been recorded, and saying how much. */
 const optional = (count: number, what: string): Pick<Step, 'detail' | 'state'> => (count === 0 ? { detail: 'Optional', state: 'todo' } : { detail: `${count} ${what}${count === 1 ? '' : 's'}`, state: 'done' });
+
+function demandsStep(made: number, removed: number): Pick<Step, 'detail' | 'state'> {
+	if (removed === 0) return optional(made, 'demand');
+	return { detail: `${made === 0 ? '' : `${made} demand${made === 1 ? '' : 's'}, `}${removed} removed`, state: 'done' };
+}
 
 const valuesStep = (count: number): Pick<Step, 'detail' | 'state'> => (count === 0 ? optional(0, '') : { detail: `${count} ${count === 1 ? 'value' : 'values'} changed`, state: 'done' });
 
@@ -86,7 +93,7 @@ export function workflowSteps(input: StepInput): readonly Step[] {
 		{ id: 'subdivide-h', label: 'Sub-divide', detail: input.subdivided ? `${input.subdivided} ${input.subdivided === 1 ? 'quaternary' : 'quaternaries'} split` : 'Optional', state: input.subdivided ? 'done' : 'todo' },
 		{ id: 'landuse-h', label: 'Fields and dams', detail: progress.rowsWritten ? 'Rows written' : 'Optional', state: progress.rowsWritten ? 'done' : 'todo' },
 		{ id: 'tables-h', label: 'Land-use tables', ...valuesStep(progress.tableEdits) },
-		{ id: 'demand-h', label: 'Demands', ...optional(progress.demandsMade, 'demand') },
+		{ id: 'demand-h', label: 'Demands', ...demandsStep(progress.demandsMade, progress.demandsRemoved) },
 		{ id: 'calibrate-h', label: 'Calibrate', ...valuesStep(progress.calibrated) },
 		{ id: 'run-h', label: 'Run', ...runStep(input) },
 		{ id: 'results-output', label: 'Results', ...resultsStep(input) }

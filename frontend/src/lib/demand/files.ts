@@ -4,7 +4,7 @@
  * it. One row per file, whatever spellings the modules give its name.
  */
 
-import { demandAttachments, demandFileKeys, demandSpecOf, specGenerates, type DemandAttachment, type DemandSpec, type HydroYear, type NetworkBundle, type ValueSource } from '@pitman/wrsm';
+import { demandAttachments, demandFileKeys, demandSpecOf, specGenerates, type DemandAttachment, type DemandRemovalPlan, type DemandSpec, type HydroYear, type NetworkBundle, type ValueSource } from '@pitman/wrsm';
 import { hydroYearLabel } from '#lib/results/format.js';
 
 export interface DemandFileRow {
@@ -62,6 +62,22 @@ export function demandFiles(bundle: NetworkBundle): DemandFileRow[] {
 	}
 	const inflowOnly = (r: DemandFileRow) => (r.attachments.length > 0 && r.attachments.every((a) => a.direction === 'in') ? 1 : 0);
 	return rows.sort((a, b) => inflowOnly(a) - inflowOnly(b) || a.name.localeCompare(b.name));
+}
+
+/** Which routes a removal takes the file off: `CR 4 route 9, RV 5 route 12`. */
+export function removalRoutes(plan: DemandRemovalPlan): string {
+	return plan.routes.map(({ attachment: a }) => `${a.module.type} ${a.module.number} route ${a.route}`).join(', ');
+}
+
+/** Everything a removal does, a sentence each, as the confirmation says it. */
+export function removalConsequences(plan: DemandRemovalPlan): string[] {
+	const out = plan.routes.map((r) => r.effect);
+	if (!plan.fileGoes) out.push(`The file stays, on ${plan.stays.map(attachmentLabel).join('; ')}.`);
+	else if (plan.stillInZip) out.push(`It stops being a demand here. ${plan.stillInZip}`);
+	else out.push('The file leaves the working copy and the next saved zip.');
+	if (plan.specGoes) out.push('Its spec and sources leave pitman.json.');
+	if (plan.needsReason) out.push(plan.fileGoes ? 'This is one of the network’s own files, with no spec to make it again from. Your reason stays in pitman.json. Undo brings the file back until the network next changes; after that only the zip you loaded can.' : 'Your reason stays in pitman.json.');
+	return out;
 }
 
 /** A value's source in words (issue #3 rule 8). */

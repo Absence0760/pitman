@@ -37,6 +37,7 @@ export async function everythingOpen(page: Page) {
 	const demands = page.getByRole('region', { name: 'Demands' });
 	await demands.getByRole('button', { name: 'New demand' }).click();
 	await demands.getByRole('button', { name: 'View SYRQ9.ABS' }).click();
+	await demands.getByRole('button', { name: 'Remove SYRQ9.ABS' }).click();
 	const calibrate = page.getByRole('region', { name: 'Calibrate' });
 	await calibrate.getByLabel('Runoff module', { exact: true }).selectOption('1');
 	await calibrate.getByLabel(/^ST /).fill('420');
