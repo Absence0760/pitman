@@ -440,7 +440,7 @@ pattern).
 | R3-RV10 | Minor vs major failure | per month and per class (defined, calculated): shortfall > 0.009 million m³ major, otherwise minor; shortfalls below 1e-9 are rounding, not failures | TT 691 p.80 (`RVFAIL` codes, "< 0.009 per month") | – |
 | R3-RV11 | Arithmetic | float64. Under float32, `S₂` is rounded before the spill test, so it never ends above `CAP` and the balance closes to float32 precision | TT 691 p.79 declares the state `REAL` (float32) | `precision: 'float64' \| 'float32'` |
 | R3-RV12 | Restriction factor outside 0–1 | > 1 → 1 with a warning; < 0 → error | TT 689 p.151 | – |
-| R3-RV13 | A blank-file outflow route that isn't the spill route | carries the calculated demand the caller passes (irrigation abstraction), else 0 | TT 690 p.10 type 1; the contract can't pass it yet (report) | `runReservoir(…, { demands })` |
+| R3-RV13 | A blank-file outflow route that isn't the spill route | carries the calculated demand the caller passes (irrigation abstraction), else 0 | TT 690 p.10 type 1; `ReservoirSimulator`'s fourth argument passes it (R7-I2) | `runReservoir(…, { demands })` |
 | R3-RV14 | Natural mode | dam removed: `CAP = 0`, no drafts, no rain or evaporation, inflow to the spill route | §5 | – |
 | R3-RV15 | Present-day capacity when the table doesn't reach the year | the nearest end row, with an info message (as R3-2 for flow files) | D1 | – |
 | R3-RV16 | Rainfall file coverage and sign | every simulated year required; negative % MAP is an error | R2-2 | – |

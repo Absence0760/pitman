@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { wqtBlock } from '../irrigation/fixtures.js';
 import type { ChannelModule, Module, Network, NetworkBundle, ReservoirModule, Route, RunoffModule } from '../types.js';
 import { syntheticBundle } from './synthetic-bundle.js';
 import { findCycles, networkDependencies, validateNetwork } from './validate.js';
@@ -136,6 +137,16 @@ describe('validateNetwork', () => {
 				text: 'sequence error: CR 4 takes route 5 from RV 5, but RV 5 (position 6) is solved after CR 4 (position 5); move RV 5 above CR 4 in the module list (TT 689 §6.1.16, p.56)'
 			}
 		]);
+	});
+
+	it('warns of a WQT block lying in an SFR child (TT 689 p.165)', () => {
+		const bundle = syntheticBundle();
+		const modules = bundle.modules.map((m): Module => {
+			if (m.kind === 'RU' && m.number === 1) return { ...m, sfrChildren: [3] };
+			if (m.kind === 'RR') return { ...wqtBlock(), number: m.number, rainfallFile: m.rainfallFile, abstractionRoute: m.abstractionRoute, returnFlowRoute: m.returnFlowRoute, runoffModule: 3 };
+			return m;
+		});
+		expect(validateNetwork({ ...bundle, modules })).toContainEqual(expect.objectContaining({ level: 'warning', text: expect.stringContaining('can only lie in a parent') }));
 	});
 
 	it('requires an irrigation module to come before the module that supplies it (TT 691 p.183)', () => {

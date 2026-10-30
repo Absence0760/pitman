@@ -236,7 +236,7 @@ export function validateNetwork(bundle: NetworkBundle): RunMessage[] {
 				}
 			}
 		}
-		if ((m.kind === 'RU' || m.kind === 'RV') && !lookupFile(bundle.rainfall, m.rainfallFile)) {
+		if ((m.kind === 'RU' || m.kind === 'RV' || m.kind === 'RR') && !lookupFile(bundle.rainfall, m.rainfallFile)) {
 			error(`${label}: rainfall file '${m.rainfallFile}' is not in the network`, ref);
 		}
 		if (m.kind === 'CR' && m.wetlandType !== 0 && m.wetlandRainfallFile && !lookupFile(bundle.rainfall, m.wetlandRainfallFile)) {
@@ -294,6 +294,14 @@ export function validateNetwork(bundle: NetworkBundle): RunMessage[] {
 			if (ins > limit.in) warning(`${label} has ${ins} inflow routes; TT 689 Table 2.1 allows ${limit.in}`, ref);
 			if (outs > limit.out) warning(`${label} has ${outs} outflow routes; TT 689 Table 2.1 allows ${limit.out}`, ref);
 		}
+	}
+
+	// A WQT block can only lie in a parent: a child's runoff is already reduced at source (TT 689 p.165; TT 691 p.211 item 113).
+	for (const p of placed) {
+		const m = p.module;
+		if (m?.kind !== 'RR' || m.layout === 'pitman' || m.modelType === 1 || !childOf.has(m.runoffModule)) continue;
+		// A warning, not an error: nothing has yet shown a real network never does this, and a refusal would stop it running.
+		warning(`${placedLabel(p)}: lies in RU ${m.runoffModule} (L.013), an SFR child of RU ${childOf.get(m.runoffModule)}; a WQT block can only lie in a parent (TT 689 p.165)`, { module: p.ref });
 	}
 
 	// 5. Sequence and cycles (TT 689 §6.1.16 pp.56–58, p.48, p.104; TT 691 §12.6 p.183).

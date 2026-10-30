@@ -4,7 +4,7 @@ How to take a WRSM2000 network through Pitman: load it, extend its rainfall,
 run it, read the results, calibrate, and save. What the model does and how far
 it agrees with WRSM2000 is on the app's Methods page (`/methods`); read that
 before you rely on a result. In short: **Pitman doesn't yet reproduce WRSM2000
-across a whole network, and irrigation isn't simulated.** Check anything that
+across a whole network, and its irrigation model hasn't been compared with it.** Check anything that
 matters by opening the saved network in WRSM2000.
 
 Your network stays in your browser. Extending rainfall sends the outline of an
@@ -167,9 +167,9 @@ type. It runs in historical mode. **Nothing changes until you apply it.**
    module, keeps the working copy and clears the old results; run the network again
    to see them with the new values.
 
-Read a fit with the model's gaps in mind. **Irrigation isn't simulated**, so flows
-below an abstraction are too high; the panel warns when the network has irrigation.
-Don't tune a catchment's parameters to absorb that. The priority when the guidelines
+Read a fit with the model's gaps in mind. **Irrigation is new and hasn't been compared
+with WRSM2000**; the panel warns when the network has irrigation. Don't tune a
+catchment's parameters to absorb a difference below an abstraction. The priority when the guidelines
 conflict is MAR, then standard deviation, then seasonal index (TT 689 p.177).
 
 On an SFR parent, a change reaches its children: they take the parent's parameters

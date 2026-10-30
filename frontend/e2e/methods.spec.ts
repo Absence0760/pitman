@@ -20,7 +20,7 @@ test('the matrix says what isn’t modelled, in words', async ({ page }) => {
 	const matrix = page.getByRole('table', { name: 'Supported features' });
 	await expect(matrix).toBeVisible();
 	await expect(matrix.getByRole('row', { name: /Hughes groundwater/ })).toContainText('Not yet');
-	await expect(matrix.getByRole('row', { name: /Irrigation \(RR\)/ })).toContainText('Not yet');
+	await expect(matrix.getByRole('row', { name: /Irrigation \(RR\)/ })).toContainText('Partly');
 	await expect(matrix.getByRole('row', { name: /Mines \(MM\)/ })).toContainText('Not yet');
 	await expect(matrix.getByRole('row', { name: /Sami groundwater/ })).toContainText('Partly');
 });

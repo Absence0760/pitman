@@ -73,8 +73,8 @@ export const FEATURE_GROUPS: readonly FeatureGroup[] = [
 			},
 			{
 				name: 'Irrigation (RR)',
-				status: 'Not yet',
-				detail: 'Not simulated. It demands nothing, so abstraction routes carry zero and flows below them are not reduced; its return-flow route carries zero. In natural mode it is removed, as intended. The files are read, kept and saved (version 42 is read but not written).'
+				status: 'Partly',
+				detail: 'Simulated from TT 690 ch.3 to 6: demand, supply, application and return flow, for all four methods, with the water balance tested month by month. It has not been compared with WRSM2000, its defaults are provisional, and salinity is out of scope. In natural mode it is removed, as intended. The files are read, kept and saved (version 42 is read but not written).'
 			},
 			{
 				name: 'Mines (MM)',
@@ -191,6 +191,16 @@ export const DEPARTURES: readonly Departure[] = [
 		id: 'DP-4',
 		module: 'Free module with CSIR, Van der Zel or LUT Gush afforestation',
 		summary: 'Those curves aren’t printed in the manuals, so Pitman applies no reduction, with a warning. The size of the difference can’t be measured: no reference module uses them.'
+	},
+	{
+		id: 'DP-6',
+		module: 'An irrigation block with total return flows',
+		summary: 'WRSM2000 reduces the runoff module’s outflow, and Pitman’s handling differs, especially in months of supply failure. Not measured yet.'
+	},
+	{
+		id: 'DP-7',
+		module: 'An irrigation block whose return flow enters a module listed before its supplier',
+		summary: 'Pitman solves the supplier first, so that module gets the return as adjusted to the real supply. WRSM2000 appears to loop by month, so they may differ when the supplier falls short. Not measured yet.'
 	}
 ];
 

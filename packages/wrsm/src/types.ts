@@ -820,7 +820,7 @@ export interface IrrigationWqtLayout extends IrrigationCore {
 	readonly crops: readonly IrrigationCrop[];
 	/** L.021 v1–v2: effective rainfall limits (RRERL1, RRERL2). */
 	readonly effectiveRainfallLimits: readonly [number, number];
-	/** L.022–L.024: water allocation by year (WAG; values are allocations, not growth). L.023/L.024 absent when the count is 0. */
+	/** L.022–L.024: water allocation by year (WAG): growth factors on RRMA for types 2–3, the allocations themselves for type 4 (TT 689 p.98). L.023/L.024 absent when the count is 0. */
 	readonly allocation: InterpolatedYearTable;
 	/** L.025–L.027: return-flow growth factors by year (RFG). */
 	readonly returnFlowGrowth: InterpolatedYearTable;
@@ -1085,6 +1085,26 @@ export interface RunoffDiagnostics {
 	readonly interflow?: MonthlySeries;
 }
 
+/** What one irrigation module did over a run (docs/theory/irrigation.md §10), for the screens. */
+export interface IrrigationDiagnostics {
+	/** Gross demand at the source (QIG), million m³/month. */
+	readonly demand: MonthlySeries;
+	/** What the abstraction route carried, million m³/month. */
+	readonly supply: MonthlySeries;
+	/** What reached the land (QIS), million m³/month. */
+	readonly application: MonthlySeries;
+	/** QIR, what the block returns, million m³/month; on the return route when it has one. */
+	readonly returnFlow: MonthlySeries;
+	/** Water the block used, million m³/month. */
+	readonly evapotranspiration: MonthlySeries;
+	/** Soil store depth at month end (the effective store for WQT), mm. */
+	readonly soilMoistureMm: MonthlySeries;
+	/** The block's area in force, km², 12 values per year. */
+	readonly areaKm2: readonly number[];
+	/** AEFF, the area the water reached, km², 12 values per year. */
+	readonly effectiveAreaKm2: readonly number[];
+}
+
 /** A message from a run, the counterpart of WRSM2000.ERR lines. */
 export interface RunMessage {
 	readonly level: 'info' | 'warning' | 'error';
@@ -1106,6 +1126,8 @@ export interface RunResult {
 	readonly reservoirStorage: Readonly<Record<number, MonthlySeries>>;
 	/** Optional per-runoff-module diagnostics, keyed by module number. */
 	readonly runoff?: Readonly<Record<number, RunoffDiagnostics>>;
+	/** Each simulated irrigation module, keyed by module number. Absent in natural mode and when a network has none. */
+	readonly irrigation?: Readonly<Record<number, IrrigationDiagnostics>>;
 	/** "Virgin MAR" of each SFR child, million m³/year (as WRSM2000.ERR reports), keyed by module number. */
 	readonly virginMarMm3?: Readonly<Record<number, number>>;
 	readonly messages: readonly RunMessage[];

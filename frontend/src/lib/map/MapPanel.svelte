@@ -39,6 +39,8 @@
 	let view = $state.raw<Box | null>(null);
 	let gridStatus = $state('');
 	let loadedBox: Box | null = null;
+	// The box on its way: a second move before the answer mustn't ask for it again.
+	let askedBox: Box | null = null;
 	let gridRequest: AbortController | undefined;
 
 	const features = $derived(quaternaries?.features ?? []);
@@ -75,13 +77,16 @@
 		gridRequest?.abort();
 		const request = new AbortController();
 		gridRequest = request;
+		askedBox = box;
 		gridStatus = 'Loading the MAP grid…';
 		try {
 			cells = await fetchMapGridCells(box, { baseUrl: API_BASE_URL, signal: request.signal });
 			loadedBox = box;
+			askedBox = null;
 			gridStatus = '';
 		} catch (error) {
 			if (request.signal.aborted) return;
+			askedBox = null;
 			const refused = error instanceof MapRequestError ? error : new MapRequestError('server', 'The MAP grid could not be loaded.');
 			if (refused.kind === 'no_coverage') {
 				cells = null;
@@ -103,12 +108,13 @@
 			gridRequest?.abort();
 			cells = null;
 			loadedBox = null;
+			askedBox = null;
 			gridStatus = '';
 			return;
 		}
 		if (!view) return;
 		const box = mapGridViewBbox(view);
-		if (box && !boxHolds(loadedBox, view) && Date.now() >= gridPausedUntil) void loadCells(box);
+		if (box && !boxHolds(loadedBox, view) && !boxHolds(askedBox, view) && Date.now() >= gridPausedUntil) void loadCells(box);
 	});
 
 	const km2 = (v: number | undefined) => (v === undefined ? 'not given' : `${formatNumber(v, 1)} km²`);

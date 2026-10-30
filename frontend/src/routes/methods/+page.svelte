@@ -37,7 +37,7 @@
 		and the data in network files and their outputs.
 	</p>
 	<p class="warn">
-		Pitman is still being built and doesn’t yet reproduce WRSM2000 across a whole network. Irrigation, in particular, isn’t simulated. Check anything you rely on
+		Pitman is still being built and doesn’t yet reproduce WRSM2000 across a whole network. Irrigation, in particular, is new and hasn’t been compared with WRSM2000. Check anything you rely on
 		by saving the network and opening it in WRSM2000.
 	</p>
 
@@ -69,7 +69,7 @@
 			</table>
 		</div>
 		<p>
-			That is not yet agreement. The known causes: irrigation isn’t simulated, SFR children respond differently from WRSM2000 at the same parameters, and free Sami
+			That is not yet agreement. The known causes: those figures predate the irrigation model, which hasn’t been compared yet; SFR children respond differently from WRSM2000 at the same parameters, and free Sami
 			modules run about 0.7 % high, a residual that sits in the surface volume. The goal is every reference network within 5 % of MAR at every gauge, or a recorded
 			reason why not. It hasn’t been reached.
 		</p>

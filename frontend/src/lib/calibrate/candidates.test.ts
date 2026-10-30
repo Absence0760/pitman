@@ -92,8 +92,8 @@ describe('calibrationTargets', () => {
 });
 
 describe('modelGaps', () => {
-	it('says irrigation isn’t simulated, and what that does to a fit', () => {
-		expect(modelGaps(bundle).join(' ')).toContain('isn’t simulated yet');
+	it('says irrigation hasn’t been compared with WRSM2000, and what that means for a fit', () => {
+		expect(modelGaps(bundle).join(' ')).toContain('hasn’t been compared with WRSM2000');
 	});
 
 	it('counts several irrigation modules', () => {

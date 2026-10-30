@@ -114,8 +114,7 @@ export interface ReservoirRunInput {
 	/**
 	 * Calculated demands on outflow routes without a defined-flow file, e.g.
 	 * an irrigation module's abstraction route, keyed by route number,
-	 * million m³/month. A calculated route not listed has no demand. The
-	 * contract has no slot for these yet (report, contract change 1).
+	 * million m³/month. A calculated route not listed has no demand.
 	 */
 	readonly demands?: RouteFlows;
 	readonly options?: Partial<ReservoirOptions>;
@@ -414,7 +413,7 @@ function deficitText(c: DeficitCase, month: string, year: HydroYear, definedDefi
 	return `${head} ${what} Shortfall (million m³): ${amounts}.`;
 }
 
-/** The `ReservoirSimulator` of the Round 3 contract: `runReservoir` with no calculated demands and the default options. */
-export function simulateReservoir(module: ReservoirModule, inflows: RouteFlows, ctx: ModuleRunContext): ModuleRunResult {
-	return runReservoir(module, inflows, ctx).result;
+/** The `ReservoirSimulator` of the contract: `runReservoir` with the default options. */
+export function simulateReservoir(module: ReservoirModule, inflows: RouteFlows, ctx: ModuleRunContext, demands: RouteFlows = {}): ModuleRunResult {
+	return runReservoir(module, inflows, ctx, { demands }).result;
 }

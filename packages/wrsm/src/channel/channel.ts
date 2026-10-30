@@ -182,8 +182,7 @@ interface OutRoute {
 /**
  * Simulates one channel reach over the run. `demands` holds the calculated
  * demand on each outflow route that has one (an irrigation module's
- * abstraction route), million m³/month; it is the fourth argument because
- * the contract has no slot for it yet (OQ-CR4; spec §7, contract change C-1).
+ * abstraction route), million m³/month (`ChannelSimulator`, OQ-CR4).
  */
 export function runChannel(
 	module: ChannelModule,
@@ -541,7 +540,7 @@ function validate(m: ChannelModule, fail: (t: string) => never): void {
 	}
 }
 
-/** A `ChannelSimulator` with the given options. The optional fourth argument carries calculated demands (contract change C-1). */
+/** A `ChannelSimulator` with the given options. */
 export function createChannelSimulator(options: Partial<ChannelOptions> = {}) {
 	const full: ChannelOptions = { ...DEFAULT_CHANNEL_OPTIONS, ...options };
 	return (module: ChannelModule, inflows: RouteFlows, ctx: ModuleRunContext, demands: RouteFlows = {}): ChannelRunResult =>

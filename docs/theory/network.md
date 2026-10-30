@@ -6,7 +6,8 @@ checks made before a run, and what the three run modes (D1) change. It is
 the spec for `packages/wrsm/src/network/` (`runNetwork`, `validateNetwork`,
 `applyRunMode`). The module simulators themselves are specified elsewhere:
 runoff in `pitman.md` (and `sami.md`, `hughes.md`), reservoirs and channels
-by their Round 3 agents against `src/network/contract.ts`.
+by their Round 3 agents against `src/network/contract.ts`, and irrigation in
+`irrigation.md`.
 
 Sources, all public WRC reports (issue #3 rule 1):
 
@@ -32,8 +33,9 @@ list does three things:
 
 1. **It is the solution order.** "The main function of the network is to
    specify the order in which the modules must be solved" (TT 689 p.xviii).
-   Pitman solves modules in exactly this order and never reorders them
-   (R3-N3).
+   Pitman solves modules in exactly this order (R3-N3). The one exception
+   is R7-I2: a supplier moves ahead of a module that takes its block's return
+   flow, which only arises under R3-N22.
 2. **It defines the positions routes refer to.** A route's source and sink
    are "the source (or tail) module number as it appears in the list of
    linetype 8's" (TT 691 p.183), i.e. 1-based positions, not module numbers
@@ -170,7 +172,8 @@ Irrigation Block" (TT 689 p.85); returning to the supplier "has all the
 makings of a circular argument" (p.104). A return into the supplier is an
 error, and a return that flows back to the supplier shows up as a cycle
 (§4). A return into a module that is merely listed earlier, on another
-branch, is accepted (R3-N22).
+branch, is accepted (R3-N22); the supplier is then solved ahead of that module
+(R7-I2).
 
 ## 3. Gauges and the summary file
 
@@ -248,7 +251,7 @@ number, file), the route and the file; `runNetwork` throws one
 | a module file names a route the `.NET` lacks, or names it as an outflow (inflow) while the `.NET` routes it from (to) another module | error |
 | a `.NET` route leaving (entering) a module whose file doesn't name it as an outflow (inflow) | error |
 | a route from the zero module whose downstream module gives it no defined-flow file (p.xv) | error (warning when that module is unparsed) |
-| a defined-flow file, RU or RV rainfall file, or CR wetland rainfall file (wetland type ≠ 0) that the bundle lacks | error |
+| a defined-flow file, RU, RV or RR rainfall file, or CR wetland rainfall file (wetland type ≠ 0) that the bundle lacks | error |
 | an RU module with no outflow routes (TT 689 p.133), the same L.020 route listed twice, or percentages missing 100 by more than 0.05 % per route (R3-N5) | error |
 | an irrigation return flow into the module that supplies it (TT 689 p.85, p.104) | error |
 | a missing upstream groundwater module or SFR child | error |
@@ -278,15 +281,18 @@ issue a warning" (TT 689 p.142). It is held flat beyond them (OQ-17).
      `PitmanRunError` naming it, and the run fails (R2-2).
    - **RV, CR**: the simulator gets, as `inflows`, the flow on every inflow
      route that has an upstream module and no defined-flow file; a defined
-     route it reads itself through `ctx.flowFile` (`contract.ts`). Its
+     route it reads itself through `ctx.flowFile` (`contract.ts`). As
+     `demands` it gets the demand of each irrigation module drawing on it. Its
      outflows go on the routes that leave it in the `.NET`. A route it leaves
      out carries zero (warned), a route it returns that isn't its own is
      ignored (warned) (R3-N13), and a series of the wrong length fails the
      run. RV storage goes to `reservoirStorage[number]`. A simulator's error
      is rethrown as a `NetworkError` naming the module (cause kept).
-   - **RR**: not simulated before Round 7: no demand, zero on its
-     return-flow route; a warning, or an info message in natural mode where
-     irrigation is removed anyway (R3-N6).
+   - **RR**: two passes (`irrigation.md` §2, R7-I2). At its place in the list
+     it computes its demand and puts it on the route's demand stream. As soon
+     as the abstraction route has a flow, normally right after the supplier,
+     it settles against that flow and puts its return on the return route. In
+     natural mode it is removed: an info message, zero on both routes.
    - **unparsed** (a mine, or an unknown file version): zero on every route
      that leaves it, with a warning naming it and the reader's reason
      (R3-N7).
@@ -301,8 +307,12 @@ solve order.
 Over every month, with pass-through simulators that report their losses:
 
     Σ runoff generated + Σ zero-source (defined) inflows
+      + Σ irrigation return flows
       = Σ flow on routes into the zero sink or into a module that consumes it (RR, MM, unparsed, unsolved)
       + Σ reservoir storage change + Σ simulator losses
+
+Inside an irrigation module the balance closes on its own terms (`irrigation.md`
+§10).
 
 Routes are lossless (§2), so the balance closes to rounding error.
 `run-network.test.ts` checks it in all three modes on `syntheticBundle()`.
@@ -314,7 +324,7 @@ Routes are lossless (§2), so the balance closes to rounding error.
 | RU | as the file says | afforestation, alien vegetation and paved year tables, and Sami groundwater abstractions (L.036–L.037), held at their value in Y (interpolated, flat beyond the table; R3-N10) | paved area, afforestation, alien vegetation removed (TT 689 p.27), so SFR children have no effect (p.13); groundwater abstractions removed (R3-N9) |
 | RV | simulator (`ctx.mode`) | simulator: capacity and drafts at Y | simulator: the dam removed, inflow passes to the spill route, drafts zero (`contract.ts`) |
 | CR | simulator | simulator | simulator (defined abstractions zero) |
-| RR | not simulated (R3-N6) | not simulated | removed |
+| RR | area, allocation, efficiency, return and capacity tables by year | held at Y | removed (`irrigation.md` §3) |
 | MM, unparsed | zero (R3-N7) | zero | zero |
 | defined-flow files | each year's row (R3-2) | the row for Y, else the nearest year (R3-2) | zero (R3-2) |
 
@@ -357,11 +367,12 @@ read, every RU percentage exactly 100, and every module file agrees with its
   says that "when the supply is less than the demand, the Irrigation Module
   is told to adjust" (feedback). `ModuleSimulators` gets no demands. Default:
   no demand until Round 7; the contract needs a `demands` argument (route →
-  series) before then.
+  series) before then. **Closed by R7-I2:** the argument exists; demand doesn't
+  depend on supply, so the feedback needs no iteration.
 - **R3-N3** Sequence errors are errors, as TT 689 p.56 and TT 691 p.183 say;
   Pitman never reorders. One public reference network then fails (§8).
   Alternative: solve runoff modules first when nothing else depends on them.
-  Default strict.
+  Default strict. R7-I2 adds the one reorder.
 - **R3-N4** A route its downstream module reads from a defined-flow file
   imposes no order (the downstream module doesn't wait for the upstream one).
   Needed by two reference routes.
@@ -372,6 +383,7 @@ read, every RU percentage exactly 100, and every module file agrees with its
   rescales; if it does, this is a departure.
 - **R3-N6** RR modules before Round 7: zero demand on the abstraction route
   and zero on the return-flow route, with a warning (info in natural mode).
+  **Superseded by `irrigation.md`.**
 - **R3-N7** MM and unparsed modules: zero on every outflow route, with a
   warning. A mine also generates runoff from its own area, so a network with
   one under-counts flow; none exists in the reference set.

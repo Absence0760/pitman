@@ -61,11 +61,16 @@ export interface ModuleRunResult {
  * module; a route with a defined-flow file is read from `ctx.flowFile` by
  * the simulator. Mode handling (D1) is the simulator's: natural mode removes
  * the dam (inflow passes to the spill route, drafts are zero).
+ *
+ * `demands` is the route's "demand stream" (TT 689 p.84): what each irrigation
+ * module drawing on this one asks of its abstraction route, keyed by route
+ * number. The simulator supplies what it can and the route's flow is the
+ * "supply stream"; the runner hands that back to the irrigation module (R7-I2).
  */
-export type ReservoirSimulator = (module: ReservoirModule, inflows: RouteFlows, ctx: ModuleRunContext) => ModuleRunResult;
+export type ReservoirSimulator = (module: ReservoirModule, inflows: RouteFlows, ctx: ModuleRunContext, demands?: RouteFlows) => ModuleRunResult;
 
 /** Simulates one channel reach (TT 689 / TT 691 §12.2, TT 690 ch.9–10). Same conventions as `ReservoirSimulator`. */
-export type ChannelSimulator = (module: ChannelModule, inflows: RouteFlows, ctx: ModuleRunContext) => ModuleRunResult;
+export type ChannelSimulator = (module: ChannelModule, inflows: RouteFlows, ctx: ModuleRunContext, demands?: RouteFlows) => ModuleRunResult;
 
 /** The simulators the network runner calls, injected so each can be tested and replaced on its own. */
 export interface ModuleSimulators {

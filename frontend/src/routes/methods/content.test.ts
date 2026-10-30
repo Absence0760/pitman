@@ -38,11 +38,12 @@ describe('the features matrix against the engine', () => {
 		expect(() => run(hughes, { kind: 'historical' })).toThrow(/RU 1.*Hughes/);
 	});
 
-	it('irrigation: not simulated, so its routes carry zero', () => {
-		expect(feature('Irrigation')?.status).toBe('Not yet');
+	it('irrigation: simulated, and the page says it isn’t compared yet', () => {
+		expect(feature('Irrigation')?.status).toBe('Partly');
+		expect(feature('Irrigation')?.detail).toContain('not been compared with WRSM2000');
 		const result = run(bundle, { kind: 'historical' });
-		expect(result.messages.some((m) => /irrigation is not simulated/.test(m.text))).toBe(true);
-		expect(result.routeFlows[8]?.values.every((v) => v === 0)).toBe(true);
+		expect(result.messages.some((m) => /irrigation is not simulated/.test(m.text))).toBe(false);
+		expect(Object.keys(result.irrigation ?? {}).length).toBeGreaterThan(0);
 	});
 
 	it('mines: kept, and their routes carry zero', () => {

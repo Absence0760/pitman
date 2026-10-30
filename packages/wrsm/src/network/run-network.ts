@@ -8,12 +8,16 @@
  */
 
 import type { SamiOptionsInput, SamiRunParts } from '../groundwater/sami/index.js';
+import { irrigatedAreaKm2, irrigationDemand, type IrrigationDemand, type IrrigationOptions } from '../irrigation/demand.js';
+import { settleIrrigation } from '../irrigation/supply.js';
 import type { StreamflowReduction } from '../landuse/contract.js';
 import type { ChildTargetModel, SfrOptions } from '../landuse/sfr.js';
 import { SFR_TARGETS } from '../runoff/wiring.js';
-import { collapseYears, specialAreaMessages } from '../landuse/paved.js';
+import { collapseYears, pavedFractionByMonth, specialAreaMessages } from '../landuse/paved.js';
 import { PitmanRunError, runRunoffModule, type PitmanOptions } from '../runoff/pitman.js';
 import type {
+	IrrigationDiagnostics,
+	IrrigationModule,
 	MonthlySeries,
 	NetworkBundle,
 	RunMessage,
@@ -26,7 +30,7 @@ import { definedFlowSeries, monthCount, zeroSeries, type ModuleRunContext, type 
 import { applyRunMode } from './modes.js';
 import { definedFileOn, lookupFile, moduleLabel, placedLabel, placeModules, type PlacedModule } from './modules.js';
 import { runGroup, sfrParents, type PlacedGroup } from './sfr-groups.js';
-import { NetworkError, validateNetwork } from './validate.js';
+import { NetworkError, networkDependencies, validateNetwork, type Dependency } from './validate.js';
 
 /** What `runNetwork` needs besides the bundle and the mode. */
 export interface RunNetworkOptions {
@@ -45,6 +49,15 @@ export interface RunNetworkOptions {
 	 * (`runoff/wiring.ts`; afforestation is `runSfrGroup`'s own default).
 	 */
 	readonly sfr?: { readonly options?: Partial<SfrOptions>; readonly targets?: { readonly forest?: ChildTargetModel; readonly alien?: ChildTargetModel } };
+	/** The irrigation modules' provisional switches (R7-I4, R7-I5). */
+	readonly irrigation?: Partial<IrrigationOptions>;
+}
+
+/** An irrigation module whose demand is on its route and whose supply isn't known yet. */
+interface PendingIrrigation {
+	readonly p: PlacedModule;
+	readonly module: IrrigationModule;
+	readonly demand: IrrigationDemand;
 }
 
 /**
@@ -58,8 +71,14 @@ export interface RunNetworkOptions {
  *
  * The result has a series for **every** `.NET` route, each `monthCount`
  * long: what the module that controls it put on it, the defined flow of a
- * zero-source route, or zeros (a route leaving an unsolved, irrigation,
- * mine or unparsed module; R3-N6, R3-N7).
+ * zero-source route, or zeros (a route leaving an unsolved, mine or
+ * unparsed module, or an irrigation module in natural mode; R3-N7).
+ *
+ * An irrigation module is solved in two passes (R7-I2): at its place in the
+ * list it puts its demand on the abstraction route; once the supplier has
+ * solved, it settles against what the route carries and puts its return flow
+ * on the return route. Demand never depends on supply and a return can't
+ * reach back to the supplier (validation), so nothing needs iterating.
  */
 export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNetworkOptions): RunResult {
 	const validation = validateNetwork(bundle);
@@ -73,6 +92,11 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 	const flows = new Map<number, MonthlySeries>();
 	const reservoirStorage: Record<number, MonthlySeries> = {};
 	const runoff: Record<number, RunoffDiagnostics> = {};
+	const irrigation: Record<number, IrrigationDiagnostics> = {};
+	const pending: PendingIrrigation[] = [];
+	const demandStream = new Map<number, MonthlySeries>(); // the routes' demand stream (TT 689 p.84)
+	const solvedRunoff = new Map<number, { outflow: MonthlySeries; diagnostics: RunoffDiagnostics }>();
+	const totalReturn = totalReturnBlocks(placed); // RU number → the blocks whose 'total' return flow takes its area (R7-I13)
 	const virginMarMm3: Record<number, number> = {};
 	const parents = sfrParents(bundle);
 	const groups = new Map<number, PlacedGroup>();
@@ -113,7 +137,83 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 		for (const m of result.messages) messages.push({ ...m, route: m.route ?? route.number });
 	}
 
-	for (const p of placed) {
+	/**
+	 * A runoff module's own runoff, the first time anything needs it: its place in the list, or a block
+	 * lying in it (R7-I12). Generated runoff reads no route, so a block can ask at any point in the order.
+	 */
+	const solveRunoff = (p: PlacedModule, module: RunoffModule): { outflow: MonthlySeries; diagnostics: RunoffDiagnostics } => {
+		const known = solvedRunoff.get(module.number);
+		if (known) return known;
+		// An SFR parent or child runs with its group (R6-F…, docs/theory/afforestation.md); a free module on its own, with the reductions.
+		const parent = (module.sfrChildren?.length ?? 0) > 0 ? module : parents.get(module.number);
+		let result: { outflow: MonthlySeries; diagnostics: RunoffDiagnostics };
+		if (parent) {
+			result = groupOf(p, parent).members.get(module.number)!;
+		} else {
+			const free = runRunoff(p, module, bundle, mode, options);
+			messages.push(...free.messages);
+			if (free.virginMarMm3 !== undefined) virginMarMm3[module.number] = free.virginMarMm3;
+			result = free;
+		}
+		runoff[module.number] = result.diagnostics;
+		solvedRunoff.set(module.number, result);
+		return result;
+	};
+	/** QC (TT 690 eq. 4.18) for a WQT block: the runoff per unit pervious area of the module it lies in (R7-I12). */
+	const unitRunoff = (rr: PendingIrrigation): readonly number[] | undefined => {
+		const { module, p } = rr;
+		if (module.layout === 'pitman' || rr.demand.modelType === 1 || rr.demand.modelType === 4 || !module.runoffModule) return undefined;
+		const q = placed.find((x) => x.entry.type === 'RU' && x.entry.number === module.runoffModule);
+		const ru = q?.module;
+		if (!q || ru?.kind !== 'RU' || !q.entry.solve) {
+			const why = q ? 'is not solved' : 'is not in the network';
+			messages.push({ level: 'warning', module: p.ref, text: `${placedLabel(p)}: runoff module RU ${module.runoffModule} (L.013) ${why}, so no catchment runoff passes through the block (R7-I12)` });
+			return undefined;
+		}
+		const own = solveRunoff(q, ru).outflow;
+		const paved = pavedFractionByMonth(ru, mode, startYear, endYear).fraction;
+		const pavedFlow = runoff[ru.number]?.pavedFlow?.values;
+		return own.values.map((v, t) => {
+			const pervious = ru.areaKm2 * (1 - paved[t]!);
+			return pervious > 0 ? (Math.max(0, v - (pavedFlow?.[t] ?? 0)) * 1000) / pervious : 0;
+		});
+	};
+	/** Settle every block whose abstraction route now has a flow; `force` settles the rest on no supply. A settled block's return may feed another block. */
+	const settleReady = (force = false): void => {
+		for (let k = 0; k < pending.length; ) {
+			const rr = pending[k]!;
+			const supply = flows.get(rr.module.abstractionRoute);
+			if (!supply && !force) {
+				k++;
+				continue;
+			}
+			pending.splice(k, 1);
+			const { module, p, demand } = rr;
+			const settled = guard(p, () => settleIrrigation(module, demand, supply?.values ?? zeroSeries(startYear, endYear).values, unitRunoff(rr)));
+			messages.push(...settled.messages);
+			if (module.returnFlowRoute) flows.set(module.returnFlowRoute, settled.returnFlow);
+			irrigation[module.number] = {
+				demand: demand.gross,
+				supply: settled.supply,
+				application: settled.application,
+				returnFlow: settled.returnFlow,
+				evapotranspiration: settled.evapotranspiration,
+				soilMoistureMm: settled.soilMoistureMm,
+				areaKm2: demand.areaKm2,
+				effectiveAreaKm2: settled.effectiveAreaKm2
+			};
+			k = 0;
+		}
+	};
+
+	const dependencies = networkDependencies(bundle, placed);
+	for (const d of dependencies) {
+		if (d.kind !== 'returnFlow' || d.before < d.after) continue;
+		const [supplier, target] = [placed[d.before - 1]!, placed[d.after - 1]!];
+		messages.push({ level: 'info', route: d.route, text: `${placedLabel(supplier)} is solved ahead of ${placedLabel(target)}, which takes the return flow on route ${d.route} from an irrigation module ${placedLabel(supplier)} supplies (R7-I2)` });
+	}
+
+	for (const p of solveOrder(placed, dependencies)) {
 		const module = p.module!; // validation guarantees a file per entry
 		const leaving = network.routes.filter((r) => r.upstreamPosition === p.position).map((r) => r.number);
 		if (!p.entry.solve) {
@@ -123,20 +223,15 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 		}
 		switch (module.kind) {
 			case 'RU': {
-				// An SFR parent or child runs with its group (R6-F…, docs/theory/afforestation.md); a free module on its own, with the reductions.
-				const parent = (module.sfrChildren?.length ?? 0) > 0 ? module : parents.get(module.number);
-				let result: { outflow: MonthlySeries; diagnostics: RunoffDiagnostics };
-				if (parent) {
-					result = groupOf(p, parent).members.get(module.number)!;
-				} else {
-					const free = runRunoff(p, module, bundle, mode, options);
-					messages.push(...free.messages);
-					if (free.virginMarMm3 !== undefined) virginMarMm3[module.number] = free.virginMarMm3;
-					result = free;
-				}
-				runoff[module.number] = result.diagnostics;
+				const result = solveRunoff(p, module);
 				const inflow = module.inflowRoute ? flows.get(module.inflowRoute)!.values : undefined;
-				const total = result.outflow.values.map((v, i) => v + (inflow ? inflow[i]! : 0));
+				// R7-I13: a block with 'total' return flows takes its area out of the module (TT 689 p.106).
+				const taken = mode.kind === 'natural' ? [] : (totalReturn.get(module.number) ?? []);
+				const total = result.outflow.values.map((v, i) => {
+					const year = startYear + Math.floor(i / 12);
+					const share = taken.reduce((s, rr) => s + irrigatedAreaKm2(rr, mode, year), 0) / module.areaKm2;
+					return v * (1 - Math.min(1, share)) + (inflow ? inflow[i]! : 0);
+				});
 				for (const o of module.outflows) {
 					// TT 689 p.xvi (c): "fixed proportions of the total runoff along various routes"; TT 691 L.020.
 					const share = o.percent / 100;
@@ -154,8 +249,16 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 					if (route.upstreamPosition === 0) continue;
 					inflows[c.route] = flows.get(c.route)!;
 				}
+				// R7-I19: a route the supplier defines by file keeps the file; the block takes what it brings.
+				const demands: Record<number, MonthlySeries> = {};
+				for (const o of module.outflows) {
+					const demand = demandStream.get(o.route);
+					if (!demand) continue;
+					if (o.definedFlowFile === null) demands[o.route] = demand;
+					else messages.push({ level: 'info', module: p.ref, route: o.route, text: `${placedLabel(p)}: irrigation route ${o.route} is defined by '${o.definedFlowFile}', so it carries that flow, not the block's demand (R7-I19)` });
+				}
 				const result: ModuleRunResult = guard(p, () =>
-					module.kind === 'RV' ? options.simulators.reservoir(module, inflows, ctx) : options.simulators.channel(module, inflows, ctx)
+					module.kind === 'RV' ? options.simulators.reservoir(module, inflows, ctx, demands) : options.simulators.channel(module, inflows, ctx, demands)
 				);
 				for (const m of result.messages) messages.push(m.module ? m : { ...m, module: p.ref });
 				takeOutflows(p, leaving, result.outflows, length, flows, messages);
@@ -165,14 +268,18 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 				}
 				break;
 			}
-			case 'RR':
-				// R3-N6: irrigation is simulated from Round 7; until then it demands and returns nothing.
-				messages.push(
-					mode.kind === 'natural'
-						? { level: 'info', module: p.ref, text: `${placedLabel(p)}: irrigation is removed in natural mode; its return-flow route carries zero` }
-						: { level: 'warning', module: p.ref, text: `${placedLabel(p)}: irrigation is not simulated yet (Round 7); it demands nothing and its return-flow route carries zero (R3-N6)` }
-				);
+			case 'RR': {
+				if (mode.kind === 'natural') {
+					// D1: no irrigation. Nothing goes on the demand stream, and the return route carries zero below.
+					messages.push({ level: 'info', module: p.ref, text: `${placedLabel(p)}: irrigation is removed in natural mode; its return-flow route carries zero` });
+					break;
+				}
+				const demand = guard(p, () => irrigationDemand(module, lookupFile(bundle.rainfall, module.rainfallFile), mode, startYear, endYear, options.irrigation));
+				messages.push(...demand.messages);
+				demandStream.set(module.abstractionRoute, demand.gross);
+				pending.push({ p, module, demand });
 				break;
+			}
 			case 'unparsed':
 				// R3-N7: a module the engine can't read (a mine, or an unknown file version).
 				messages.push({
@@ -182,13 +289,56 @@ export function runNetwork(bundle: NetworkBundle, mode: RunMode, options: RunNet
 				});
 				break;
 		}
-		// Whatever the module didn't put a flow on (irrigation, unparsed, a route a simulator left out) carries zero.
-		for (const route of leaving) if (!flows.has(route)) flows.set(route, zeroSeries(startYear, endYear));
+		// Whatever the module didn't put a flow on (unparsed, a route a simulator left out) carries zero; a waiting block's return route waits with it.
+		const waiting = new Set(pending.map((rr) => rr.module.returnFlowRoute));
+		for (const route of leaving) if (!flows.has(route) && !waiting.has(route)) flows.set(route, zeroSeries(startYear, endYear));
+		settleReady();
 	}
+	settleReady(true); // a block no solved module supplied gets nothing
 
 	const routeFlows: Record<number, MonthlySeries> = {};
 	for (const route of network.routes) routeFlows[route.number] = flows.get(route.number) ?? zeroSeries(startYear, endYear);
-	return { mode, startYear, endYear, routeFlows, reservoirStorage, runoff, ...(Object.keys(virginMarMm3).length > 0 ? { virginMarMm3 } : {}), messages };
+	return {
+		mode,
+		startYear,
+		endYear,
+		routeFlows,
+		reservoirStorage,
+		runoff,
+		...(Object.keys(irrigation).length > 0 ? { irrigation } : {}),
+		...(Object.keys(virginMarMm3).length > 0 ? { virginMarMm3 } : {}),
+		messages
+	};
+}
+
+/**
+ * The order modules are solved in: the list (R3-N3), except that a supplier
+ * moves ahead of a module that takes its block's return flow (R3-N22, R7-I2).
+ * That module may sit earlier in the list on another branch, and a return flow
+ * isn't known until the supply is. Stable, and the list itself when no such
+ * case exists; validation has already ruled out cycles.
+ */
+function solveOrder(placed: readonly PlacedModule[], dependencies: readonly Dependency[]): readonly PlacedModule[] {
+	if (!dependencies.some((d) => d.kind === 'returnFlow' && d.before > d.after)) return placed;
+	const left = [...placed];
+	const order: PlacedModule[] = [];
+	while (left.length > 0) {
+		const ready = (p: PlacedModule) => !dependencies.some((d) => d.after === p.position && left.some((q) => q.position === d.before));
+		const k = Math.max(0, left.findIndex(ready));
+		order.push(...left.splice(k, 1));
+	}
+	return order;
+}
+
+/** Solved blocks with 'total' return flows (L.014 v2 = 0) by the runoff module they lie in. Types 2 and 3 only: type 4 is always net (R7-I13). */
+function totalReturnBlocks(placed: readonly PlacedModule[]): ReadonlyMap<number, readonly IrrigationModule[]> {
+	const out = new Map<number, IrrigationModule[]>();
+	for (const { entry, module: m } of placed) {
+		if (!entry.solve || m?.kind !== 'RR' || m.layout === 'pitman' || m.netReturnFlows || !m.runoffModule) continue;
+		if (m.modelType !== 2 && m.modelType !== 3) continue;
+		out.set(m.runoffModule, [...(out.get(m.runoffModule) ?? []), m]);
+	}
+	return out;
 }
 
 function series(startYear: number, values: number[]): MonthlySeries {

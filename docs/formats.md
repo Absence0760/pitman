@@ -483,6 +483,8 @@ Every line is written in **minimal width, single-space separated**. A plain `F0.
 
 **Version 42 (WQT type 4)** adds L.031–L.040 (TT 691 pp.169–176; RRERFT4, RRERFMT4, the capacity table, canal loss, deep GW, max/min upper-zone storage, canal-end spill). It's **manual only**: read it per TT 691 pp.162–176 and never write it. Our app writes v32 only.
 
+What the fields mean to the simulation (which method reads which, and what the year tables hold) is in [`docs/theory/irrigation.md`](theory/irrigation.md) §1, §3. In short: L.024 and L.030 are growth factors for types 2–3 and values for type 4 (TT 689 p.98, p.102); L.027 is a growth factor for all; a capacity of 0 is no limit (R7-I15); RRMA of 0 is read as no limit for now (R7-I4); L.015's efficiency and return factor are proportions, and above 1 are read as percentages (R7-I6, TT 691 p.160's example has 96 and 6).
+
 ### 8.2 Unversioned (WRSM90) layout
 
 There's one orphan **[F]**, which matches the manual's "original method" lines with **no model-type line**:
@@ -783,7 +785,7 @@ Each unknown has a best guess and the evidence for it. Later rounds resolve thes
 | U-11 | RR L.023/L.024, L.029/L.030 formats; all of v42 (WQT type 4) | `F0` years and `F0.3` values; v42 per TT 691 pp.162–176 | Never observed |
 | U-12 | RR L.013 vars 3–4 vs L.022 (both "number of allocation points") | L.013 var 3 is the legacy copy; L.022 governs the table | Variable names NPMA/KMA appear in both (TT 691 pp.170–172) |
 | U-13 | Mine module `.NET` letters (`MM`?) and real layout | `MM`, per TT 689 §2.3.1 | No mine files; TT 691 §12.6 lists four types only |
-| U-14 | Interpolation codes (RR L.013, L.022, L.025, L.028): which number is linear, exponential or defined | 1 linear, 2 exponential, 3 defined (stored as KA+1) | TT 691 p.171 `KA + 1`; every file has 1 |
+| U-14 | Interpolation codes (RR L.013, L.022, L.025, L.028, L.033): which number is linear, exponential or defined | 1 linear, 2 exponential, 3 defined (stored as KA+1). The simulation reads "defined" as stepped, the latest row at or before the year (`interpolateYearTable`) | TT 691 p.171 `KA + 1`; every file has 1 |
 | U-15 | CR wetland types 1–3 and diversion (L.012–L.017) semantics | Per TT 690 ch.9–10 | All files are type 0 with dummy values |
 | U-16 | Missing-value convention in `.obs`; meaning of flags other than `+` | Negative = missing; `A`/`E` = estimated, `M` = missing, `*`/`#` = DWS quality codes | -99.999 and -199.998 seen; flags A, E, M, *, # in 5 files |
 | U-17 | ERR: units of `Virgin LQT`/`VLQT`; when the child block is written | Low-flow index (WR90's "LQT"); written only when the SFR reduction is recomputed | A 2014 log has 9 child blocks; a later run of the same network has none |

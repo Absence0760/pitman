@@ -101,7 +101,7 @@ export function modelGaps(bundle: NetworkBundle): string[] {
 	const irrigation = bundle.modules.filter((m) => m.kind === 'RR').length;
 	if (irrigation > 0) {
 		gaps.push(
-			`${irrigation === 1 ? 'This network’s irrigation module isn’t' : `This network’s ${irrigation} irrigation modules aren’t`} simulated yet: abstraction and return-flow routes carry zero, so flows below them are not reduced. Don’t tune parameters to make up for that difference.`
+			`${irrigation === 1 ? 'This network’s irrigation module hasn’t' : `This network’s ${irrigation} irrigation modules haven’t`} been compared with WRSM2000: the irrigation model is new and its defaults are provisional. Don’t tune a catchment’s parameters to absorb a difference below an abstraction.`
 		);
 	}
 	const skipped = bundle.modules.filter((m) => m.kind === 'unparsed').length;
