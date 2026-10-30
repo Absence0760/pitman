@@ -2,3 +2,4 @@
 
 export * from './generate.js';
 export * from './attach.js';
+export * from './remove.js';
