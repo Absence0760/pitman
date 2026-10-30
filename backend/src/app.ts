@@ -2,6 +2,8 @@ import { timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
+import { landUseRoutes } from './cfm/routes.js';
+import { type LandUseSource, landUseSourceFromEnv } from './cfm/source.js';
 import { ChirpsCopy, chirpsCopyConfig } from './chirps/copy.js';
 import { chirpsRoutes } from './chirps/routes.js';
 import { delineationRoutes } from './delineation/routes.js';
@@ -21,7 +23,9 @@ export const RATE_LIMITS = {
 	// Exploring a river takes many clicks, and one tool session up to four boxes; the 20 s budget and the caches bound each call.
 	delineate: { limit: 30, windowMs: 10 * 60_000 },
 	channels: { limit: 60, windowMs: 10 * 60_000 },
-	quaternaries: { limit: 120, windowMs: 10 * 60_000 }
+	quaternaries: { limit: 120, windowMs: 10 * 60_000 },
+	// One fetch per area on the screen, cached; each miss may cost up to 40 upstream pages.
+	landUse: { limit: 20, windowMs: 10 * 60_000 }
 } as const;
 
 /** What the data routes read; tests pass their own, the app builds them from the environment. */
@@ -30,12 +34,14 @@ export interface AppDeps {
 	mapGrids: MapGridCatalog;
 	dem: DemSource;
 	quaternaries: QuaternaryStore;
+	landUse: LandUseSource | { problem: string };
 	rateLimits: {
 		chirps: { limit: number; windowMs: number };
 		mapGrid: { limit: number; windowMs: number };
 		delineate?: { limit: number; windowMs: number };
 		channels?: { limit: number; windowMs: number };
 		quaternaries?: { limit: number; windowMs: number };
+		landUse?: { limit: number; windowMs: number };
 	};
 	now: () => number;
 	today: () => string;
@@ -48,6 +54,7 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	const mapGrids = deps.mapGrids ?? new MapGridCatalog(mapGridSourcesFromEnv());
 	const dem = deps.dem ?? new DemSource(demLocationFromEnv());
 	const quaternaries = deps.quaternaries ?? new QuaternaryStore(quaternarySourceFromEnv());
+	const landUse = deps.landUse ?? landUseSourceFromEnv();
 	const limits = deps.rateLimits ?? RATE_LIMITS;
 
 	// CloudFront-stamped shared secret. In prod, CloudFront stamps every
@@ -105,11 +112,14 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	app.use('/delineate', rateLimit({ ...(limits.delineate ?? RATE_LIMITS.delineate), now }));
 	app.use('/channels', rateLimit({ ...(limits.channels ?? RATE_LIMITS.channels), now }));
 	app.use('/quaternaries', rateLimit({ ...(limits.quaternaries ?? RATE_LIMITS.quaternaries), now }));
+	app.use('/cfm/*', rateLimit({ ...(limits.landUse ?? RATE_LIMITS.landUse), now }));
 	app.route('/chirps', chirpsRoutes({ copy: chirps, now }));
 	app.route('/map-grid', mapGridRoutes({ catalog: mapGrids, today: deps.today }));
 	app.route('/', delineationRoutes({ dem, now }));
 	// Synthetic in dev; a 503 "not configured" in production until D-1 gives Pitman licensed boundaries.
 	app.route('/quaternaries', quaternaryRoutes({ store: quaternaries }));
+	// Synthetic in dev; a 503 "not configured" in production until the operator's token arrives (D3).
+	app.route('/cfm', landUseRoutes({ source: landUse, now, today: deps.today }));
 
 	app.notFound((c) => c.json({ error: 'not found' }, 404));
 
