@@ -279,6 +279,30 @@ A request to erase a person's address (POPIA), in order:
    address). Erasure is complete 35 days later, when point-in-time recovery
    no longer holds the deleted items.
 
+## Compliance drift
+
+`.github/workflows/compliance-drift.yml` (`pnpm check:compliance`,
+`scripts/ci-guards/compliance-drift.mjs`) runs on every pull request and every
+push to `main` and annotates a change that should have moved this page or
+`docs/data.md` and didn't:
+
+- **outbound-host**: `backend/src`, `frontend/src` or `packages/*/src` gains
+  a URL to a host that isn't local, reserved, AWS or the site, and that
+  neither this page nor `docs/data.md` names. A data source goes in
+  `docs/data.md`; a host that receives personal data is a sub-processor and
+  goes here.
+- **sdk-dependency**: a `package.json` gains an analytics, telemetry or
+  other third-party SDK this page doesn't name.
+- **pii-field**: the sign-in code (`backend/src/auth`, `backend/scripts`,
+  `infra/users.tf`) gains a personal-data-shaped identifier (a phone number,
+  a display name, a user agent, …) this page doesn't name.
+- **auth-kit-bump**: the `@absence0760/auth-kit` pin moves. auth-kit owns the
+  user record and the audit rows, so check its changelog for new stored or
+  logged personal data and update § Users and sign-in.
+
+It warns and never fails, and isn't in the CI gate; the workflow's header
+records what it found over the history when it was introduced.
+
 ## Incident playbook
 
 1. **Suspected secret leak** — rotate at the source dashboard, update

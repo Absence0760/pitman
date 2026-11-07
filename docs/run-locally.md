@@ -47,6 +47,7 @@ pnpm check                # all workspaces
 pnpm frontend check       # svelte-check on frontend
 pnpm backend check        # tsc --noEmit on backend
 pnpm check:env            # the committed .env.development files stay local-only
+pnpm check:compliance     # advisory: this branch vs origin/main, privacy/data docs kept in step
 ```
 
 ## Building

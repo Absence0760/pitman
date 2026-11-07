@@ -44,6 +44,7 @@ Per the rule in `CLAUDE.md`: every PR that touches code also touches tests and d
 pnpm install               # bootstrap (or the stack's equivalent)
 pnpm check                 # typecheck across workspaces
 pnpm check:env             # committed .env.development files stay local-only
+pnpm check:compliance      # advisory: privacy/data docs moved with new hosts, SDKs, personal data
 pnpm test                  # unit / integration tests
 pnpm test:tools            # repo-script and CI-guard tests (includes test:scripts)
 pre-commit run --all-files # gitleaks + the other hygiene hooks
