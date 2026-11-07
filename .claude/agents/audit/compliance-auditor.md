@@ -31,7 +31,7 @@ Legal questions that need a reasoned position go to the `za-legal-researcher` ag
 
 ## Where the data paths are
 
-- **Access requests (POPIA s23)**: there is no self-serve export. An operator would answer from the user table (the user item, the audit rows naming the address, the delivery-problem flag). Whether that procedure is written down is part of what you check.
+- **Access requests (POPIA s23)**: there is no self-serve export. `docs/security.md` § Access requests: verify the requester, then `pnpm admin:export` (`backend/scripts/export-address.ts`) writes every kind in `backend/scripts/personal-records.ts` (user, address index, code, throttle, audit rows as actor and as target, "added by", the SES suppression entry) as JSON with other people's addresses withheld, audited as `export`; the DLQ and log checks are manual. `personal-records.test.ts` fails if erasure touches a kind the export doesn't report.
 - **Correction and removal**: an admin edits or removes a user on the Users page (`frontend/src/routes/users/+page.svelte`, `PATCH` / `DELETE /users/:id` in `backend/src/auth/routes.ts`).
 - **Erasure**: `docs/security.md` § Erasure: the admin removal, then `pnpm admin:erase` (`backend/scripts/erase-address.ts`), which pseudonymises the audit rows and clears the SES suppression entry, then 35 days of point-in-time recovery.
 - **Cookies and storage**: the session cookie; the IndexedDB working copy (`frontend/src/lib/network/storage.ts`); nothing else should set a cookie or a storage key that identifies a person.

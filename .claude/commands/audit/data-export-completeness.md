@@ -8,9 +8,14 @@ Audit whether Pitman can answer a request for access to a person's information
 ## Goal
 
 Pitman has no self-serve "download my data". An access request reaches the
-operator, who must gather everything the system holds about the address. The
-risk is silent drift: a new item or attribute naming a person is added, the
-procedure (if any) doesn't know about it, and the answer comes back partial.
+operator, who follows `docs/security.md` § Access requests and runs
+`pnpm admin:export` (`backend/scripts/export-address.ts`), which writes one
+section per kind in `backend/scripts/personal-records.ts`. The risk is silent
+drift: a new item or attribute naming a person is added, the export doesn't
+know about it, and the answer comes back partial.
+`backend/scripts/personal-records.test.ts` guards one direction (anything
+`admin:erase` touches, the export reports); this audit looks for what neither
+script knows about.
 
 ## What to check
 
@@ -20,20 +25,30 @@ procedure (if any) doesn't know about it, and the answer comes back partial.
    address index, codes, locks and send counters, revocations and the
    watermark, audit rows (as actor, target and "added by"), the
    delivery-problem flag.
-2. **Reachability.** For each, how would the operator find it for one
-   address: a key lookup, an index, or a scan the Lambda isn't allowed to run?
-   Name any item that can only be found by a scan.
-3. **Procedure.** Is the access procedure written down (in `docs/security.md`
-   next to § Erasure, or an operator script beside `backend/scripts/erase-address.ts`)?
-   If not, that is the headline finding; describe what it would have to do.
-4. **Other people's data.** Audit rows name two people (actor and target).
-   What would have to be redacted before sending one to the requester?
-5. **Outside the table.** SES's suppression list entry, the bounce queue and
-   its DLQ (`infra/ses.tf`), CloudWatch logs (should hold no address,
-   `backend/src/__tests__/logGuard.ts`). Note what the answer must mention.
+2. **Reachability.** For each, does `export-address.ts` read it (a key
+   lookup, the USER or AUDIT partition), and is it a section in
+   `personal-records.ts`? Name any item that can only be found by a scan, and
+   any item kind the inventory found that the export has no section for
+   (Critical). Audit rows count under every form the address takes: in
+   clear, `unlisted:<hmac>` and `erased:<hmac>`.
+3. **Procedure.** Does `docs/security.md` § Access requests still match the
+   script (its prompts, the output path rule, the IAM it needs, the `export`
+   audit row) and cover verification, the deadline, what to send and what to
+   record? Does `personal-records.test.ts` still classify every item erasure
+   touches, rather than skipping unknown ones?
+4. **Other people's data.** Audit rows name two people (actor and target),
+   and the user item names who added them. Confirm the export withholds every
+   address but the requester's (the export test checks the seeded case; look
+   for any field it passes through unredacted).
+5. **Outside the table.** SES's suppression list entry (the export reads
+   it), the bounce queue and its DLQ (`infra/ses.tf`), CloudWatch logs (should
+   hold no address, `backend/src/__tests__/logGuard.ts`). Confirm the
+   procedure's manual checks for the DLQ and logs still name the right queue
+   and log group.
 6. **What is not held.** Network files and the working copy stay in the
-   user's browser; the data API receives only area outlines. The answer can
-   say so; confirm the code still makes it true (`frontend/src/lib/network/storage.ts`).
+   user's browser; the data API receives only area outlines. The export's
+   `notHeld` list says so; confirm the code still makes each line true
+   (`frontend/src/lib/network/storage.ts`, the log retention in `infra/`).
 7. **Format.** The answer should be readable and complete: timestamps in UTC
    ISO 8601, roles and actions in words.
 
