@@ -20,6 +20,8 @@ describe('the audit log in words', () => {
 		expect(actionText({ at: '', actor: 'a', action: 'recover', target: t })).toBe(`restored admin rights to ${t}`);
 		expect(actionText({ at: '', actor: 'a', action: 'clear-lock', target: t })).toBe(`cleared the sign-in lock on ${t}`);
 		expect(actionText({ at: '', actor: 'a', action: 'erase', target: t })).toBe(`erased ${t} from the log`);
+		// Pitman's own (`pnpm admin:export`), until auth-kit has an access-request action.
+		expect(actionText({ at: '', actor: 'operator', action: 'export', target: t })).toBe(`exported what Pitman holds about ${t} (access request)`);
 		expect(actionText({ at: '', actor: 'system', action: 'mail.bounce', target: t })).toBe(`reported that mail to ${t} bounced`);
 		expect(actionText({ at: '', actor: 'system', action: 'mail.complaint', target: t })).toBe(`reported that ${t} marked Pitman’s mail as spam`);
 		expect(actionText({ at: '', actor: 'a', action: 'mail.cleared', target: t })).toBe(`cleared the mail problem for ${t}`);

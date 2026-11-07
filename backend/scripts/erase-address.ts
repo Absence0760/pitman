@@ -7,7 +7,7 @@
 // Asks for confirmation. The Lambda has no such grant; the operator's IAM is the operator's.
 import { normalEmail, type AuthKit } from '@absence0760/auth-kit';
 import type { SESv2Client } from '@aws-sdk/client-sesv2';
-import { type OperatorIO, prompter, refuseArguments, runIfMain } from './operator.js';
+import { type OperatorIO, operatorSes, prompter, refuseArguments, runIfMain } from './operator.js';
 
 /** Removes an address from SES's suppression list: `removed`, or `not-suppressed` when SES had no entry. */
 export type RemoveSuppression = (email: string) => Promise<'removed' | 'not-suppressed'>;
@@ -31,11 +31,9 @@ export function sesSuppressionRemover(client: Pick<SESv2Client, 'send'>): Remove
 
 /** The real one: SES in af-south-1 (AWS_REGION overrides) with the operator's profile (AWS_PROFILE, default `pitman`). */
 export async function sesSuppression(env: Record<string, string | undefined> = process.env): Promise<Suppression> {
-	if (env.DYNAMODB_ENDPOINT) return { remove: null, why: 'DynamoDB Local (DYNAMODB_ENDPOINT is set): there is no SES suppression list to clear' };
-	process.env.AWS_PROFILE ||= 'pitman';
-	const region = env.AWS_REGION || 'af-south-1';
-	const { SESv2Client } = await import('@aws-sdk/client-sesv2');
-	return { remove: sesSuppressionRemover(new SESv2Client({ region })), where: `SES in ${region} (profile ${process.env.AWS_PROFILE})` };
+	const ses = await operatorSes(env);
+	if (!ses.client) return { remove: null, why: `${ses.why}: there is no SES suppression list to clear` };
+	return { remove: sesSuppressionRemover(ses.client), where: ses.where };
 }
 
 export async function main(

@@ -1,4 +1,4 @@
-// What the operator scripts share (bootstrap-admin, recover-admin, clear-lock, erase-address): reading the
+// What the operator scripts share (bootstrap-admin, recover-admin, clear-lock, erase-address, export-address): reading the
 // address from stdin (never argv, so it stays out of shell history, A-AUTH-5), and auth-kit bound to the
 // production table with the operator's own AWS credentials (AWS_PROFILE, default `pitman`).
 //
@@ -11,6 +11,7 @@ import type { Readable, Writable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import { createAuthKit, cryptoRandom, randomSecret, type AuthKit } from '@absence0760/auth-kit';
 import { dynamoStore } from '@absence0760/auth-kit/dynamodb';
+import type { SESv2Client } from '@aws-sdk/client-sesv2';
 import { dynamoClient } from '../src/auth/store.js';
 import { errorSummary } from '../src/http/logError.js';
 
@@ -74,6 +75,18 @@ export async function operatorKit(env: Env = process.env): Promise<{ kit: AuthKi
 		issuer: 'pitman'
 	});
 	return { kit, where };
+}
+
+/**
+ * SES v2 for the scripts that touch the suppression list (erase-address, export-address): af-south-1
+ * (AWS_REGION overrides) with the operator's profile (AWS_PROFILE, default `pitman`); none against DynamoDB Local.
+ */
+export async function operatorSes(env: Env = process.env): Promise<{ client: Pick<SESv2Client, 'send'>; where: string } | { client: null; why: string }> {
+	if (env.DYNAMODB_ENDPOINT) return { client: null, why: 'DynamoDB Local (DYNAMODB_ENDPOINT is set)' };
+	process.env.AWS_PROFILE ||= 'pitman';
+	const region = env.AWS_REGION || 'af-south-1';
+	const { SESv2Client } = await import('@aws-sdk/client-sesv2');
+	return { client: new SESv2Client({ region }), where: `SES in ${region} (profile ${process.env.AWS_PROFILE})` };
 }
 
 /** Runs `main` when the file is the process's entry, printing an OperatorError's message without a stack. */
