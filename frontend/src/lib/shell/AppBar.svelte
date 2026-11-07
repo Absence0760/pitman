@@ -1,9 +1,12 @@
 <!--
 	The bar across every screen: the name, and with a network loaded its code,
 	record and run status, and Save. Save lives here so it stays in reach from
-	any step; the page owns what it does.
+	any step; the page owns what it does. Once signed in it shows the address,
+	Users for an admin, and Sign out (lib/auth).
 -->
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { session } from '#lib/auth/store.js';
 	import type { StepState } from './steps.js';
 
 	let {
@@ -17,6 +20,23 @@
 		run?: { text: string; tone: StepState };
 		onsave?: () => void;
 	} = $props();
+
+	let signingOut = $state(false);
+	let signOutError = $state<string | undefined>();
+
+	async function signOut(everywhere: boolean) {
+		signingOut = true;
+		signOutError = undefined;
+		try {
+			if (everywhere) await session.logoutEverywhere();
+			else await session.logout();
+			await goto('/sign-in');
+		} catch (error) {
+			signOutError = (error as Error).message;
+		} finally {
+			signingOut = false;
+		}
+	}
 </script>
 
 <header class="bar">
@@ -37,6 +57,15 @@
 	{/if}
 	{#if onsave}
 		<button type="button" class="save" onclick={onsave}>Save as WRSM2000 zip</button>
+	{/if}
+	{#if session.user}
+		<nav class="account" aria-label="Account">
+			<span class="who"><span class="sr">Signed in as </span>{session.user.email}</span>
+			{#if session.user.isAdmin}<a href="/users">Users</a>{/if}
+			<button type="button" onclick={() => signOut(false)} disabled={signingOut}>Sign out</button>
+			<button type="button" onclick={() => signOut(true)} disabled={signingOut}>Sign out everywhere</button>
+			{#if signOutError}<span class="failed" role="alert">{signOutError}</span>{/if}
+		</nav>
 	{/if}
 </header>
 
@@ -142,5 +171,45 @@
 	.save:hover:not(:disabled) {
 		background: var(--bar-text);
 		border-color: var(--bar-text);
+	}
+	.account {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.25rem 0.75rem;
+		min-width: 0;
+		margin-left: auto;
+		font-size: 0.9rem;
+	}
+	.save + .account {
+		margin-left: 0;
+	}
+	.who {
+		color: var(--bar-muted);
+		overflow-wrap: anywhere;
+		min-width: 0;
+	}
+	.account a {
+		color: var(--bar-accent);
+		display: inline-flex;
+		align-items: center;
+		min-height: 1.5rem;
+		font-weight: 600;
+	}
+	.account button {
+		background: transparent;
+		border-color: var(--bar-border);
+		color: var(--bar-text);
+	}
+	.account button:hover:not(:disabled) {
+		background: var(--bar-bg-2);
+		border-color: var(--bar-accent);
+	}
+	.failed {
+		background: var(--danger-soft);
+		border: 1px solid var(--danger);
+		border-radius: var(--radius);
+		padding: 0 0.5rem;
+		color: var(--text);
 	}
 </style>

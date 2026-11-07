@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures.js';
 import { syntheticNetworkZip } from '../src/lib/network/synthetic.js';
 
 // Calibration end to end on the synthetic network (rule 2), with the real worker.

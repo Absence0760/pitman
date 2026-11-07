@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures.js';
 import { everythingOpen } from './a11y.helper.js';
 
 // A keyboard walk through the whole page, in two halves, so the second isn't paying for the first, and with no WebGL:

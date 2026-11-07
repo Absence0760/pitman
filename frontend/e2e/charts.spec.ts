@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './fixtures.js';
 import { syntheticChirpsMonthly } from '@pitman/wrsm';
 import { writeBundle } from '../src/lib/network/engine.js';
 import { syntheticBundle } from '../src/lib/network/synthetic.js';

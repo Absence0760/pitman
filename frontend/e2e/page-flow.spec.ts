@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures.js';
 import { syntheticNetworkZip } from '../src/lib/network/synthetic.js';
 
 // The page as one product: the cards that start closed, the rail that follows you, and what one card's change

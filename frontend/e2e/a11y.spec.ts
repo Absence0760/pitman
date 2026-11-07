@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 import { syntheticNetworkZip } from '../src/lib/network/synthetic.js';
 import { ANSWER, everythingOpen, QUATERNARIES } from './a11y.helper.js';
 

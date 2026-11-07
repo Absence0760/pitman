@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 
 // The Methods page: static, one title, the features matrix, what isn't modelled said
 // in words, the attribution, and no sideways scroll on a phone.

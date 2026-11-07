@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page, type Route } from './fixtures.js';
 import { syntheticNetworkZip } from '../src/lib/network/synthetic.js';
 
 // The map, against the real MapLibre and its worker under the site's real CSP

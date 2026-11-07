@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures.js';
 import { writeBundle } from '@pitman/wrsm';
 import { syntheticBundle, syntheticNetworkZip } from '../src/lib/network/synthetic.js';
 import { packZip } from '../src/lib/network/zip.js';

@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page, type Route } from './fixtures.js';
 import { syntheticChirpsMonthly } from '@pitman/wrsm';
 import { syntheticNetworkZip } from '../src/lib/network/synthetic.js';
 
