@@ -732,6 +732,11 @@ run "auth_alarms" {
     condition     = aws_cloudwatch_log_metric_filter.mail_events_unrecorded.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.mail_events_unrecorded.pattern == "\"mail.events_unrecorded\"" && aws_cloudwatch_metric_alarm.mail_events_unrecorded.metric_name == aws_cloudwatch_log_metric_filter.mail_events_unrecorded.metric_transformation[0].name && aws_cloudwatch_metric_alarm.mail_events_unrecorded.threshold == 1 && aws_cloudwatch_metric_alarm.mail_events_unrecorded.period == 300 && aws_cloudwatch_metric_alarm.mail_events_unrecorded.alarm_actions == toset([aws_sns_topic.alerts.arn])
     error_message = "mail.events_unrecorded alarms at 1 in 300 s, from the API Lambda's log group."
   }
+
+  assert {
+    condition     = aws_cloudwatch_log_metric_filter.mail_events_dropped.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.mail_events_dropped.pattern == "?\"mail.event_refused\" ?\"mail.event_ignored\"" && aws_cloudwatch_metric_alarm.mail_events_dropped.metric_name == aws_cloudwatch_log_metric_filter.mail_events_dropped.metric_transformation[0].name && aws_cloudwatch_metric_alarm.mail_events_dropped.threshold == 1 && aws_cloudwatch_metric_alarm.mail_events_dropped.comparison_operator == "GreaterThanOrEqualToThreshold" && aws_cloudwatch_metric_alarm.mail_events_dropped.period == 3600 && aws_cloudwatch_metric_alarm.mail_events_dropped.alarm_actions == toset([aws_sns_topic.alerts.arn])
+    error_message = "mail.event_refused or mail.event_ignored (a bounce or complaint dropped unrecorded) alarms at 1 in an hour, from the API Lambda's log group."
+  }
   assert {
     condition     = aws_cloudwatch_log_metric_filter.auth_send_capped.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.auth_send_capped.pattern == "\"auth.send_capped\""
     error_message = "auth.send_capped (a listed address reached its daily code-send cap) is counted from the API Lambda's log group."

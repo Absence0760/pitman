@@ -164,7 +164,11 @@ privacy notice and AWS account. Network files still never leave the browser.
   spent its daily send budget), `auth.slow_code_request` (a `POST /auth/code`
   ran past the 4.5 s floor, so its timing could tell a listed address from an
   unlisted one), `mail.send_failed`, `mail.bounce` and `mail.complaint` (with counts flagged,
-  unchanged and refused), `mail.record_failed`, `mail.events_unrecorded`,
+  unchanged and refused), `mail.event_refused` (auth-kit refused a
+  recipient's address or time, so that bounce or complaint was dropped
+  unrecorded) and `mail.event_ignored` (a record that can't be read, or of
+  another kind; both alarm through one filter, as either may mean SES's event
+  shape or timestamps changed), `mail.record_failed`, `mail.events_unrecorded`,
   `auth.unconfigured`, `cloudfront_secret.unset`, and `unhandled_error` with
   the error's name and code only. Every one but `mail.bounce`,
   `mail.complaint` and `unhandled_error` raises an alarm (`infra/alarms.tf`).

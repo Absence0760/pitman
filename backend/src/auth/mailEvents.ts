@@ -10,7 +10,8 @@
 // auth-kit refuses (400), would fail the same way every time, so it is logged and dropped.
 //
 // Each record is logged as one line, `mail.bounce` or `mail.complaint`, with the event's type and counts:
-// never an address (A-AUTH-11).
+// never an address (A-AUTH-11). A record with refused recipients also logs `mail.event_refused`, and one
+// that can't be read, or of another kind, `mail.event_ignored`; both raise an alarm.
 import type { Result } from '@absence0760/auth-kit';
 import type { SQSBatchResponse, SQSEvent } from 'aws-lambda';
 import { errorSummary } from '../http/logError.js';
@@ -82,22 +83,28 @@ export async function handleMailEvents(event: SQSEvent, auth: AuthRuntime): Prom
 		// A configuration-set event names its kind in eventType; an identity notification in notificationType.
 		const kind = e?.eventType ?? e?.notificationType;
 		let retry = false;
+		let refused = 0;
 		if (kind === 'Bounce') {
 			const bounceType = str(e?.bounce?.bounceType);
 			const recipients = list(e?.bounce?.bouncedRecipients);
 			// A transient bounce (mailbox full, a timeout) may deliver next time: logged, never flagged.
 			const tally = bounceType === 'Permanent' ? await recordAll(record, recipients, 'bounce', e?.bounce?.timestamp ?? e?.mail?.timestamp) : null;
 			retry = !!tally?.retry;
+			refused = tally?.refused ?? 0;
 			logEvent({ event: 'mail.bounce', bounceType, bounceSubType: str(e?.bounce?.bounceSubType), recipients: recipients.length, ...(tally ? { flagged: tally.flagged, unchanged: tally.unchanged, refused: tally.refused, retry } : {}) });
 		} else if (kind === 'Complaint') {
 			const recipients = list(e?.complaint?.complainedRecipients);
 			const tally = await recordAll(record, recipients, 'complaint', e?.complaint?.timestamp ?? e?.mail?.timestamp);
 			retry = tally.retry;
+			refused = tally.refused;
 			logEvent({ event: 'mail.complaint', feedbackType: str(e?.complaint?.complaintFeedbackType), recipients: recipients.length, flagged: tally.flagged, unchanged: tally.unchanged, refused: tally.refused, retry });
 		} else {
 			// Retrying a record we can't read would fail the same way; it is logged and dropped.
 			logEvent({ event: 'mail.event_ignored', kind: typeof kind === 'string' ? kind : 'unreadable' });
 		}
+		// auth-kit refused a recipient's address or time (400): dropped, so that bounce or complaint is never
+		// recorded. Its own line, so the alarm on it (infra/alarms.tf) doesn't have to parse the counts.
+		if (refused > 0) logEvent({ event: 'mail.event_refused', records: refused });
 		if (retry) batchItemFailures.push({ itemIdentifier: r.messageId });
 	}
 	if (!auth.ready && batchItemFailures.length) logEvent({ event: 'mail.events_unrecorded', reason: 'sign-in is not configured', records: batchItemFailures.length });

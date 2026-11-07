@@ -99,8 +99,21 @@ describe('handleMailEvents', () => {
 		expect(r).toEqual({ batchItemFailures: [] });
 		expect(eventsLogged()).toEqual([
 			{ event: 'mail.bounce', bounceType: 'Permanent', bounceSubType: 'General', recipients: 1, flagged: 0, unchanged: 0, refused: 1, retry: false },
+			{ event: 'mail.event_refused', records: 1 },
 			{ event: 'mail.event_ignored', kind: 'unreadable' },
 			{ event: 'mail.event_ignored', kind: 'Delivery' }
+		]);
+	});
+
+	it('logs mail.event_refused with the refused count only when a recipient was refused, for complaints too', async () => {
+		// One address auth-kit refuses, one it records: a complaint with both, then one with only the good one.
+		const { auth } = fakeRecord(async (email) => (email === 'bad' ? { ok: false, status: 400, error: 'Enter a whole email address' } : { ok: true, value: { flagged: true } }));
+		await handleMailEvents(sqs(complaint('bad', 'bad', 'ok@example.test'), complaint('ok@example.test'), bounce('Transient', 'bad')), auth);
+		expect(eventsLogged()).toEqual([
+			{ event: 'mail.complaint', feedbackType: 'abuse', recipients: 3, flagged: 1, unchanged: 0, refused: 2, retry: false },
+			{ event: 'mail.event_refused', records: 2 },
+			{ event: 'mail.complaint', feedbackType: 'abuse', recipients: 1, flagged: 1, unchanged: 0, refused: 0, retry: false },
+			{ event: 'mail.bounce', bounceType: 'Transient', bounceSubType: 'General', recipients: 1 }
 		]);
 	});
 

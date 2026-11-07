@@ -641,3 +641,38 @@ resource "aws_cloudwatch_metric_alarm" "mail_events_unrecorded" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
 }
+
+# mail.event_refused (auth-kit refused a recipient's address or time) and
+# mail.event_ignored (a record that can't be read, or of a kind other than
+# Bounce or Complaint): see backend/src/auth/mailEvents.ts. Both are dropped
+# without a retry, so the bounce or complaint is never recorded; the only
+# other trace is a count inside a mail.bounce / mail.complaint line. One
+# filter, either term (CloudWatch Logs' `?term ?term` OR syntax, each term
+# quoted because it holds a dot).
+resource "aws_cloudwatch_log_metric_filter" "mail_events_dropped" {
+  name           = "${local.project}-mail-events-dropped"
+  log_group_name = aws_cloudwatch_log_group.lambda.name
+  pattern        = "?\"mail.event_refused\" ?\"mail.event_ignored\""
+
+  metric_transformation {
+    name          = "MailEventsDropped"
+    namespace     = "${local.project}/Auth"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "mail_events_dropped" {
+  alarm_name          = "${local.project}-mail-events-dropped"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.mail_events_dropped.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.mail_events_dropped.metric_transformation[0].namespace
+  period              = 3600
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "An SES bounce or complaint event was dropped unrecorded (mail.event_refused: auth-kit refused a recipient's address or timestamp; mail.event_ignored: unreadable or an unexpected event type). SES's event shape or timestamps may have changed, so bounces and complaints aren't being recorded on the Users page. Read the Lambda's mail.* log lines and compare with SES's current event format."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
