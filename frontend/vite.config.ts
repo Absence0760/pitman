@@ -53,7 +53,20 @@ function maplibreWorkerChunk(): Plugin {
 	};
 }
 
+/**
+ * Same origin in dev, as in production (A-AUTH-9): the browser calls `/api/*`
+ * on the page's own origin and Vite passes it to the Hono dev server with
+ * `/api` stripped, as CloudFront does (R4-I4). The session cookie is then a
+ * first-party cookie and CORS needs no credentials. `PITMAN_API_TARGET`
+ * points it elsewhere (another port). The end-to-end tests mock every `/api`
+ * call (e2e/fixtures.ts), so they never reach it.
+ */
+const API_TARGET = process.env.PITMAN_API_TARGET || 'http://localhost:3001';
+const apiProxy = { '/api': { target: API_TARGET, rewrite: (path: string) => path.replace(/^\/api(?=\/|$)/, '') || '/' } };
+
 export default defineConfig({
+	server: { proxy: apiProxy },
+	preview: { proxy: apiProxy },
 	define: {
 		__PITMAN_VERSION__: JSON.stringify(version)
 	},
