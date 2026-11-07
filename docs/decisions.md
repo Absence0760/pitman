@@ -74,7 +74,7 @@ Round 2 reference suite (local, `WRSM_REFERENCE_DIR`): every `.NET` (35), `.RAN`
 
 | Item | Status |
 |---|---|
-| The base-owned `.pre-commit-config.yaml` hooks `trailing-whitespace` and `end-of-file-fixer` would rewrite `docs/formats/examples/` (byte-exact CRLF files). The fix belongs in the templates repo's `base` (an exclude for byte-exact fixture folders), not here | Open: proposed for templates `base` |
+| The base-owned `.pre-commit-config.yaml` hooks `trailing-whitespace` and `end-of-file-fixer` would rewrite `docs/formats/examples/` (byte-exact CRLF files) | Fixed 2026-11-07: both hooks exclude `^docs/formats/examples/` here (the path is pitman's own, as project-water-management excludes its fixture mirror), pinned by `scripts/ci-guards/precommit.test.mjs`. A template sync that drops the excludes fails `pnpm test:tools` |
 | CodeQL ("Analyze") fails: code scanning isn't available on this private repo without GitHub Advanced Security | Open: resolved when the repo goes public (#22 step 2) |
 | The labeler workflow fails with "Resource not accessible by integration" | Open: check repository Actions workflow permissions |
 | Workflow: commit and push straight to `main`, no PRs, while the engine is built (operator, 2026-10-28). The repo is treated as public | Decided; PRs and branch protection return later (#22 steps 10–11) |

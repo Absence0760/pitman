@@ -831,4 +831,4 @@ Each unknown has a best guess and the evidence for it. Later rounds resolve thes
 
 The `legacy/` and `raingauge/` files aren't part of `SY.NET`.
 
-The folder has its own `.gitattributes` (`* -text`) and `.editorconfig`, so git and editors never normalise these bytes: CRLF line endings, padded trailing blanks, one deliberately missing final newline. The root pre-commit hooks `trailing-whitespace` and `end-of-file-fixer` would damage them, so they must exclude `docs/formats/examples/`.
+The folder has its own `.gitattributes` (`* -text`) and `.editorconfig`, so git and editors never normalise these bytes: CRLF line endings, padded trailing blanks, one deliberately missing final newline. The root pre-commit hooks `trailing-whitespace` and `end-of-file-fixer` would damage them, so both exclude `docs/formats/examples/` (`.pre-commit-config.yaml`; `scripts/ci-guards/precommit.test.mjs` fails if an exclude goes).

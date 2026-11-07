@@ -13,8 +13,11 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: ["--maxkb=500"]
+      # docs/formats/examples/ is byte-exact (CLAUDE.md rule 6): WRSM2000 files keep their CRLF and trailing blanks.
       - id: end-of-file-fixer
+        exclude: ^docs/formats/examples/
       - id: trailing-whitespace
         args: ["--markdown-linebreak-ext=md"]
+        exclude: ^docs/formats/examples/
       - id: check-yaml
       - id: check-json
