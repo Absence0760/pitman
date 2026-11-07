@@ -254,15 +254,18 @@ add `dotenv` imports to any module reachable from `lambda.ts`.
 `server.ts` or the synthetic-data writers end up in it.
 
 `lambda.ts` also takes SQS batches: SES bounce and complaint notifications
-(SES configuration set → SNS → SQS) go to `auth/mailEvents.ts`, which logs
-each as `mail.bounce` or `mail.complaint` without the address; anything else
-goes to the Hono app.
+(SES configuration set → SNS → SQS) go to `auth/mailEvents.ts`, which flags
+each permanently bounced or complaining recipient on the user list (auth-kit's
+`recordDeliveryProblem`, at SES's event time) and logs the record as
+`mail.bounce` or `mail.complaint` with counts, never the address. A 409 or a
+store error puts the record in `batchItemFailures`, so SQS redelivers it;
+anything else goes to the Hono app.
 
 ### Sign-in
 
 Issue #28, A-AUTH-0 … 11. The rules (codes, sessions, the user list, the
 store, the operator actions) are the private package `@absence0760/auth-kit`
-(`v0.1.2`, installed from git); `src/auth/` is only pitman's wiring:
+(`v0.2.0`, installed from git); `src/auth/` is only pitman's wiring:
 
 | Module | Does |
 |---|---|
@@ -273,8 +276,7 @@ store, the operator actions) are the private package `@absence0760/auth-kit`
 | `runtime.ts` | Binds auth-kit, mailer and cookie into the one object `createApp({ auth })` takes |
 | `middleware.ts` | The gate: `verifySession` on the cookie, sets `c.var.user`, 401 `{ error }` |
 | `routes.ts` | The routes below |
-| `signals.ts` | Reads auth-kit's v0.2.0 `listed` / `limit` / `capReached` fields to decide `auth.locked` and `auth.send_capped` (listed addresses only); never changes an answer |
-| `mailEvents.ts` | SES bounce and complaint notifications from SQS |
+| `mailEvents.ts` | SES bounce and complaint notifications from SQS: flags the listed user (`recordDeliveryProblem`), fails a record to redeliver on a 409 |
 
 Middleware order in `app.ts`: the CloudFront shared secret → CORS → `csrf()`
 → same-origin writes (`http/sameOrigin.ts`: a non-GET/HEAD/OPTIONS request
@@ -290,10 +292,11 @@ they were added, so everything registered after the gate needs a session.
 | `POST /auth/logout` | no | → 204, revokes the session if it is valid, clears the cookie |
 | `POST /auth/logout-everywhere` | yes | → 204, signs out every session of the user, clears the cookie |
 | `GET /auth/me` | yes | → 200 `{ user: { id, email, isAdmin } }` |
-| `GET /users` | admin | → 200 `{ users: [{ id, email, isAdmin, addedBy, addedAt }] }` |
+| `GET /users` | admin | → 200 `{ users: [{ id, email, isAdmin, addedBy, addedAt, undeliverable }] }`; `undeliverable` is `{ kind: 'bounce' \| 'complaint', at }` or null |
 | `POST /users` | admin | `{ email, isAdmin? }` → 201 `{ user }` |
 | `PATCH /users/:id` | admin | `{ isAdmin }` → 200 `{ user }` |
 | `DELETE /users/:id` | admin | → 204 |
+| `POST /users/:id/clear-delivery-problem` | admin | `{}` → 200 `{ user }` with `undeliverable: null` (auth-kit's `clearDeliveryProblem`, audited as `mail.cleared`; a user with no flag is answered as is) |
 | `GET /audit?limit=N` | admin | → 200 `{ rows: [{ at, actor, action, target?, admin? }] }`, newest first (N from 1 to 1000, default 500) |
 
 auth-kit's refusals keep their status and message as `{ error }`: 400 (bad

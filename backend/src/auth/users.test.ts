@@ -55,15 +55,15 @@ describe('/users and /audit', () => {
 		const created = await api.post('/users', { email: ` ${USER.toUpperCase()} ` });
 		expect(created.status).toBe(201);
 		const { user } = (await created.json()) as { user: { id: string } };
-		expect(user).toEqual({ id: expect.any(String), email: USER, isAdmin: false, addedBy: ADMIN, addedAt: '2026-11-07T08:00:01.000Z' });
+		expect(user).toEqual({ id: expect.any(String), email: USER, isAdmin: false, addedBy: ADMIN, addedAt: '2026-11-07T08:00:01.000Z', undeliverable: null });
 		expect(auditRows(t)).toBe(++rows);
 
 		const list = await api.get('/users');
 		expect(list.status).toBe(200);
 		expect(await list.json()).toEqual({
 			users: [
-				{ id: admin.id, email: ADMIN, isAdmin: true, addedBy: 'operator', addedAt: admin.addedAt },
-				{ id: user.id, email: USER, isAdmin: false, addedBy: ADMIN, addedAt: '2026-11-07T08:00:01.000Z' }
+				{ id: admin.id, email: ADMIN, isAdmin: true, addedBy: 'operator', addedAt: admin.addedAt, undeliverable: null },
+				{ id: user.id, email: USER, isAdmin: false, addedBy: ADMIN, addedAt: '2026-11-07T08:00:01.000Z', undeliverable: null }
 			]
 		});
 
@@ -98,13 +98,42 @@ describe('/users and /audit', () => {
 		const user = await add(t, admin, USER, false);
 		const api = await as(user);
 		const rows = auditRows(t);
-		for (const res of [await api.get('/users'), await api.post('/users', { email: OTHER }), await api.patch(`/users/${admin.id}`, { isAdmin: false }), await api.del(`/users/${admin.id}`), await api.get('/audit')]) {
+		for (const res of [await api.get('/users'), await api.post('/users', { email: OTHER }), await api.patch(`/users/${admin.id}`, { isAdmin: false }), await api.del(`/users/${admin.id}`), await api.get('/audit'), await api.post(`/users/${admin.id}/clear-delivery-problem`, {})]) {
 			expect(res.status).toBe(403);
 			expect(await res.json()).toEqual({ error: 'Only an admin can manage users.' });
 		}
 		expect(auditRows(t)).toBe(rows);
 		// /auth/me still works for them.
 		expect(await (await api.get('/auth/me')).json()).toEqual({ user: { id: user.id, email: USER, isAdmin: false } });
+	});
+
+	it('shows a bounce or complaint on the user until an admin clears it, the clear audited as mail.cleared', async () => {
+		const { t, admin, as } = await setUp();
+		t.clock.advance(1000);
+		const user = await add(t, admin, USER, false);
+		t.clock.advance(60_000);
+		const at = new Date(t.clock.now() - 1000).toISOString();
+		expect(await t.auth.kit.recordDeliveryProblem(USER, 'bounce', at)).toEqual({ ok: true, value: { flagged: true } });
+		const api = await as(admin);
+		const list = (await (await api.get('/users')).json()) as { users: { id: string; undeliverable: unknown }[] };
+		expect(list.users.find((u) => u.id === user.id)!.undeliverable).toEqual({ kind: 'bounce', at });
+		expect(list.users.find((u) => u.id === admin.id)!.undeliverable).toBeNull();
+
+		t.clock.advance(1000);
+		const rows = auditRows(t);
+		const cleared = await api.post(`/users/${user.id}/clear-delivery-problem`, {});
+		expect(cleared.status).toBe(200);
+		expect(cleared.headers.get('cache-control')).toBe('no-store');
+		expect(await cleared.json()).toEqual({ user: expect.objectContaining({ id: user.id, email: USER, undeliverable: null }) });
+		expect(auditRows(t)).toBe(rows + 1);
+		const audit = (await (await api.get('/audit?limit=1')).json()) as { rows: Record<string, unknown>[] };
+		expect(audit.rows[0]).toMatchObject({ actor: ADMIN, action: 'mail.cleared', target: USER });
+		// Nothing to clear: answered as is, nothing recorded.
+		expect((await api.post(`/users/${user.id}/clear-delivery-problem`, {})).status).toBe(200);
+		expect(auditRows(t)).toBe(rows + 1);
+		// Unknown user, and a body that isn't a JSON object.
+		expect((await api.post('/users/no-such-id/clear-delivery-problem', {})).status).toBe(404);
+		expect((await api.post(`/users/${user.id}/clear-delivery-problem`, [])).status).toBe(400);
 	});
 
 	it('surfaces auth-kit’s refusals: yourself (400), unknown (404), taken (409), bad input (400)', async () => {

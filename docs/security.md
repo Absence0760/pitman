@@ -96,7 +96,7 @@ runs it.
 
 Issue #28, decided as A-AUTH-0 … 11 in `docs/decisions.md` (2026-11-07). The
 sign-in, session and user-management code comes from the shared private
-package `Absence0760/auth-kit` at a pinned tag (A-AUTH-0, `v0.1.2`); pitman
+package `Absence0760/auth-kit` at a pinned tag (A-AUTH-0, `v0.2.0`); pitman
 keeps its own routes, gate, mail, cookie, user table, admins, SES sender,
 privacy notice and AWS account. Network files still never leave the browser.
 
@@ -145,16 +145,16 @@ privacy notice and AWS account. Network files still never leave the browser.
   starts on a listed address), `auth.send_capped` (a listed address has just
   spent its daily send budget), `auth.slow_code_request` (a `POST /auth/code`
   ran past the 1 s floor, so its timing could tell a listed address from an
-  unlisted one), `mail.send_failed`, `mail.bounce`, `mail.complaint`,
+  unlisted one), `mail.send_failed`, `mail.bounce` and `mail.complaint` (with counts flagged,
+  unchanged and refused), `mail.record_failed`, `mail.events_unrecorded`,
   `auth.unconfigured`, `cloudfront_secret.unset`, and `unhandled_error` with
   the error's name and code only. Never an address, a code, a token or an
   error message (SES puts the recipient in its messages); every auth test
   file fails if any line it logs holds an address
   (`src/__tests__/logGuard.ts`). The console transport (dev) masks the address.
-  Which address is listed comes from auth-kit v0.2.0 (`listed`, `limit`,
-  `capReached`; `auth/signals.ts`); until pitman takes that tag,
-  `auth.send_capped` never fires and `auth.locked` counts every lock start,
-  as before. The HTTP answer never depends on it.
+  Whether an address is listed comes from auth-kit's `listed` (beside
+  `capReached`, `limit` and `lockStarted`), used for these logs only: the HTTP
+  answer never depends on it (`auth/routes.test.ts` checks every combination).
 - **SES send bounds**: the SES client makes at most 2 attempts, each cut off
   after 1 s (0.5 s to connect), so a throttled or slow SES holds a listed
   address's code request to about 2.5 s at worst instead of the SDK's
@@ -168,8 +168,15 @@ privacy notice and AWS account. Network files still never leave the browser.
   are audited as `operator`. `admin:erase` also clears the address's SES
   suppression itself (§ Erasure), so no command ever carries an address.
 
-Bounced addresses are logged now, and flagged on the Users page once auth-kit
-v0.2.0 lands.
+- **Bounces and complaints are flagged.** A permanent bounce or a spam
+  complaint from SES (SNS → SQS → the Lambda, the only caller) flags the
+  listed user through auth-kit's `recordDeliveryProblem`, at SES's event
+  time, audited as `system`; the Users page shows it until an admin clears it
+  (`POST /users/:id/clear-delivery-problem`, audited as `mail.cleared`). A
+  transient bounce is only logged. Events are ordered by time, so a
+  redelivered or late one changes nothing; a 409 (contention) or a store error
+  fails just that SQS record, which is redelivered and dead-lettered after 5
+  tries (the mail-events DLQ alarm). An unlisted recipient stores nothing.
 
 - **Data residency**: the table and SES live in af-south-1; Terraform refuses
   another region unless `data_outside_south_africa = true` and the privacy
@@ -192,8 +199,8 @@ v0.2.0 lands.
   quieter: anyone can spend an address's daily send budget (5 code requests,
   an hour's wait, 5 more) and the address then gets no code for up to 24 h,
   and again the next day; existing 7-day sessions hide it until they expire.
-  It is logged as `auth.send_capped` (listed addresses only, from auth-kit
-  v0.2.0) for an alarm beside `auth.locked`; the remedy is the same
+  It is logged as `auth.send_capped` (on the send that spends a listed
+  address's day) for an alarm beside `auth.locked`; the remedy is the same
   `pnpm admin:clear-lock`, which deletes the address's send counters as well
   as its lock. The durable fix is in auth-kit: a requester must not be able
   to spend an address's whole daily budget. SES
@@ -212,7 +219,9 @@ A request to erase a person's address (POPIA), in order:
    It removes the user if still listed (refused if they are the last admin),
    deletes the code and lock items, and replaces the address with
    `erased:<hmac>` in every audit row and in other users' "added by". It is
-   audited as `erase`.
+   audited as `erase`. If rows naming the address keep appearing while it
+   works, auth-kit stops after 5 passes and the script says "Not finished":
+   run it again with the same address.
 3. **The same script removes the address from SES's account-level
    suppression list** (SES v2 `DeleteSuppressedDestination` in af-south-1,
    with the operator's profile), using the address it already read, so the

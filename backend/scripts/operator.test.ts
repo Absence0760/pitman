@@ -173,6 +173,18 @@ describe('the operator scripts', () => {
 		expect(again.out()).toContain('the address was not listed');
 	});
 
+	it('erase reports auth-kit’s “rows still appearing” throw by name and asks for a second run, touching no SES', async () => {
+		const { kit } = await seeded();
+		const throwing = { ...kit, eraseAddress: async () => { throw Object.assign(new Error(`rows for ${USER} keep appearing`), { name: 'ScrubIncompleteError' }); } };
+		let asked = false;
+		const run = io([USER, 'ERASE']);
+		expect(await erase(run.io, async () => ({ kit: throwing, where: 'the test store' }), async () => { asked = true; return { remove: null, why: 'unused' }; })).toBe(1);
+		expect(run.out()).toContain('Not finished (ScrubIncompleteError)');
+		expect(run.out()).toContain('again');
+		expect(run.out()).not.toContain(USER);
+		expect(asked).toBe(false);
+	});
+
 	it('erase skips SES against DynamoDB Local, and uses af-south-1 and the pitman profile otherwise', async () => {
 		const local = await sesSuppression({ DYNAMODB_ENDPOINT: 'http://127.0.0.1:8000' });
 		expect(local.remove).toBeNull();

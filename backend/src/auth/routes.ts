@@ -8,7 +8,6 @@ import { Hono, type Context } from 'hono';
 import { sessionCookieFor } from './cookies.js';
 import { NOT_CONFIGURED, type AuthEnv } from './middleware.js';
 import type { AuthRuntime } from './runtime.js';
-import { lockAlarm, sendCapped } from './signals.js';
 
 const logEvent = (fields: Record<string, unknown>) => console.log(JSON.stringify(fields));
 
@@ -29,8 +28,8 @@ async function jsonObject(c: Context): Promise<Record<string, unknown> | null> {
 
 /** The signed-in user as the API shows it. */
 const me = (u: UserRecord) => ({ id: u.id, email: u.email, isAdmin: u.isAdmin });
-/** A user as the Users page lists them. */
-const listed = (u: UserRecord) => ({ id: u.id, email: u.email, isAdmin: u.isAdmin, addedBy: u.addedBy, addedAt: u.addedAt });
+/** A user as the Users page lists them, with the last hard bounce or complaint until an admin clears it. */
+const listed = (u: UserRecord) => ({ id: u.id, email: u.email, isAdmin: u.isAdmin, addedBy: u.addedBy, addedAt: u.addedAt, undeliverable: u.undeliverable ? { kind: u.undeliverable.kind, at: u.undeliverable.at } : null });
 const auditRow = (a: AuditEntry) => ({ at: a.at, actor: a.actor, action: a.action, ...(a.target !== null ? { target: a.target } : {}), ...(a.admin !== undefined ? { admin: a.admin } : {}) });
 
 const retryAfter = (ms: number) => String(Math.max(1, Math.ceil(ms / 1000)));
@@ -71,8 +70,10 @@ export function publicAuthRoutes(auth: AuthRuntime) {
 		// Past the floor, the time a request took can tell a listed address (it sent mail) from an unlisted
 		// one: logged, with no address, for the alarm auth-kit asks for. The answer is unchanged.
 		if (clock.now() - started > auth.latency.minMs) logEvent({ event: 'auth.slow_code_request' });
-		// A listed address just spent its daily send budget: it can't sign in for up to a day (signals.ts).
-		if (sendCapped(r)) logEvent({ event: 'auth.send_capped' });
+		// This send used a listed address's last of the day: it gets no code for up to a day, a lockout nobody
+		// would otherwise notice (docs/security.md § Known risks). Unlisted addresses never count, so strangers'
+		// addresses can't hold the alarm in ALARM. `listed` and `capReached` never reach the answer.
+		if (r.status === 'accepted' && r.capReached && r.listed) logEvent({ event: 'auth.send_capped' });
 		switch (r.status) {
 			case 'accepted':
 				return c.json({}, 202);
@@ -100,8 +101,9 @@ export function publicAuthRoutes(auth: AuthRuntime) {
 		}
 		if (v.status === 'locked') {
 			// The alarm's metric filter counts this line (A-AUTH-7). No address: the lock is keyed by one.
-			// A listed address's lock only, once auth-kit says which (signals.ts); the answer is the same either way.
-			if (lockAlarm(v)) logEvent({ event: 'auth.locked' });
+			// A listed address's lock only, so wrong codes against made-up addresses can't keep the alarm in
+			// ALARM and hide a real lockout. The answer is the same either way.
+			if (v.lockStarted && v.listed) logEvent({ event: 'auth.locked' });
 			c.header('Retry-After', retryAfter(v.retryAfterMs));
 			return c.json({ error: AUTH_MESSAGES.locked }, 429);
 		}
@@ -155,6 +157,15 @@ export function sessionRoutes(auth: AuthRuntime) {
 		const body = await jsonObject(c);
 		if (!body) return c.json({ error: AUTH_MESSAGES.notJson }, 400);
 		const r = await kit().kit.setAdmin(c.var.user, { id: c.req.param('id') }, body.isAdmin);
+		return r.ok ? c.json({ user: listed(r.value) }) : refusal(c, r);
+	});
+
+	// An admin clears a user's bounce or complaint flag once the address is fixed or confirmed (auth-kit's
+	// clearDeliveryProblem, audited as mail.cleared). A POST with a JSON body like every other write.
+	app.post('/users/:id/clear-delivery-problem', async (c) => {
+		const body = await jsonObject(c);
+		if (!body) return c.json({ error: AUTH_MESSAGES.notJson }, 400);
+		const r = await kit().kit.clearDeliveryProblem(c.var.user, { id: c.req.param('id') });
 		return r.ok ? c.json({ user: listed(r.value) }) : refusal(c, r);
 	});
 

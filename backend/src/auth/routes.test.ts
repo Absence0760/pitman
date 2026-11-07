@@ -215,34 +215,67 @@ describe('POST /auth/code and POST /auth/verify', () => {
 	});
 });
 
-describe('the alarm signals (auth-kit v0.2.0 fields, through a fake kit until the bump)', () => {
+describe('the alarm signals (auth-kit listed / capReached / limit: logs only, never the answer)', () => {
 	/** The runtime with some of auth-kit's calls replaced. */
 	const withKit = (t: TestAuth, kit: Partial<TestAuth['auth']['kit']>): { auth: AuthRuntime } => ({ auth: { ...t.auth, kit: { ...t.auth.kit, ...kit } } });
 	const answer = async (res: Response) => ({ status: res.status, retryAfter: res.headers.get('retry-after'), body: await res.json() });
 
-	it('logs auth.send_capped when a listed address reaches its daily cap, and answers exactly as for an unlisted one', async () => {
+	/** Ten sends a day apart enough to pass the 60 s gap and the hourly limit: the day's budget. */
+	async function spendTheDay(t: TestAuth, a: App, email: string) {
+		const answers = [];
+		for (let i = 0; i < 10; i++) {
+			answers.push(await answer(await askCode(a, email)));
+			t.clock.advance(i === 4 ? 60 * 60_000 : 61_000);
+		}
+		t.clock.advance(60 * 60_000);
+		answers.push(await answer(await askCode(a, email)));
+		return answers;
+	}
+
+	it('logs auth.send_capped on the send that spends a listed address’s day, and answers exactly as for an unlisted one', async () => {
 		const t = testAuth();
-		const capped = (listed: boolean) => app(withKit(t, { requestCode: async () => ({ status: 'throttled', retryAfterMs: 78_580_000, limit: 'day', capReached: true, listed }) as never }));
-		const unlisted = await answer(await askCode(capped(false), STRANGER));
+		await bootstrap(t);
+		const a = app(t);
+		const unlisted = await spendTheDay(t, a, STRANGER);
 		expect(eventsLogged()).toEqual([]);
-		const listed = await answer(await askCode(capped(true), ADMIN));
+		const listed = await spendTheDay(t, a, ADMIN);
 		expect(eventsLogged()).toEqual([{ event: 'auth.send_capped' }]);
-		expect(listed).toEqual(unlisted);
-		expect(listed).toEqual({ status: 429, retryAfter: '78580', body: { error: AUTH_MESSAGES.throttled } });
-		// The hourly limit or the 60 s gap is not the daily cap.
-		await askCode(app(withKit(t, { requestCode: async () => ({ status: 'throttled', retryAfterMs: 60_000, limit: 'hour', listed: true }) as never })), ADMIN);
-		expect(eventsLogged()).toHaveLength(1);
+		expect(t.outbox).toHaveLength(10);
+		expect(listed.map((r) => ({ ...r, retryAfter: r.retryAfter && 'set' }))).toEqual(unlisted.map((r) => ({ ...r, retryAfter: r.retryAfter && 'set' })));
+		expect(listed.slice(0, 10).every((r) => r.status === 202)).toBe(true);
+		expect(listed[10]).toMatchObject({ status: 429, body: { error: AUTH_MESSAGES.throttled } });
 	});
 
 	it('logs auth.locked for a listed address’s lock only, and answers the same either way', async () => {
 		const t = testAuth();
-		const locking = (listed: boolean) => app(withKit(t, { verifyCode: async () => ({ status: 'locked', retryAfterMs: 60_000, lockStarted: true, listed }) as never }));
-		const unlisted = await answer(await verify(locking(false), STRANGER, '000000'));
+		await bootstrap(t);
+		const a = app(t);
+		const lock = async (email: string) => {
+			for (let i = 0; i < 4; i++) await verify(a, email, '000000');
+			return answer(await verify(a, email, '000000'));
+		};
+		const unlisted = await lock(STRANGER);
 		expect(eventsLogged()).toEqual([]);
-		const listed = await answer(await verify(locking(true), ADMIN, '000000'));
+		const listed = await lock(ADMIN);
 		expect(eventsLogged()).toEqual([{ event: 'auth.locked' }]);
 		expect(listed).toEqual(unlisted);
 		expect(listed).toEqual({ status: 429, retryAfter: '60', body: { error: AUTH_MESSAGES.locked } });
+	});
+
+	it('never lets listed, capReached or limit change an answer', async () => {
+		const t = testAuth();
+		const codeAnswer = async (r: unknown) => answer(await askCode(app(withKit(t, { requestCode: async () => r as never })), ADMIN));
+		const verifyAnswer = async (r: unknown) => answer(await verify(app(withKit(t, { verifyCode: async () => r as never })), ADMIN, '000000'));
+		const groups = [
+			[{ status: 'accepted', delivery: null, listed: false }, { status: 'accepted', delivery: null, listed: true }, { status: 'accepted', delivery: null, capReached: true, listed: true }, { status: 'accepted', delivery: null, capReached: true, listed: false }].map(codeAnswer),
+			(['interval', 'hour', 'day'] as const).flatMap((limit) => [true, false].map((listed) => codeAnswer({ status: 'throttled', retryAfterMs: 61_000, limit, listed }))),
+			[true, false].map((listed) => codeAnswer({ status: 'locked', retryAfterMs: 61_000, listed })),
+			[true, false].flatMap((listed) => [true, false].map((lockStarted) => verifyAnswer({ status: 'locked', retryAfterMs: 61_000, lockStarted, listed })))
+		];
+		for (const group of groups) {
+			const answers = await Promise.all(group);
+			for (const a of answers) expect(a).toEqual(answers[0]);
+		}
 	});
 
 	it('logs auth.slow_code_request, without the address, when a send runs past the floor, and still answers 202', async () => {

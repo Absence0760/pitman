@@ -52,7 +52,14 @@ export async function main(
 		io.stdout.write('Not confirmed; nothing changed.\n');
 		return 1;
 	}
-	const r = await auth.eraseAddress(email);
+	let r: Awaited<ReturnType<AuthKit['eraseAddress']>>;
+	try {
+		r = await auth.eraseAddress(email);
+	} catch (e) {
+		// auth-kit throws when audit rows keep appearing after its passes (MAX_SCRUB_PASSES). By name only.
+		io.stdout.write(`Not finished (${e instanceof Error ? e.name : 'unknown error'}): rows naming the address were still being written. Run \`pnpm admin:erase\` again with the same address; it carries on where this stopped.\n`);
+		return 1;
+	}
 	if (!r.ok) {
 		io.stdout.write(`Refused (${r.status}): ${r.error}\n`);
 		return 1;
