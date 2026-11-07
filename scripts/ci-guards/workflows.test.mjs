@@ -110,6 +110,13 @@ test('the Claude tooling guard runs on docs-only changes, and the CI gate needs 
 // setup-node (or pnpm/action-setup), no actions/cache, no `pnpm store path` step (docs/deployment.md § Sign-in).
 const installers = workflows.filter((w) => w.text.includes(SECRET));
 
+test('a reusable workflow asks for no broad top-level permissions its callers would have to match', () => {
+	// gitleaks.yml's top-level `read-all` exceeded gitleaks-sweep.yml's grant, so the weekly sweep never started.
+	const reusable = workflows.filter((w) => /^\s+workflow_call:/m.test(w.text));
+	assert.ok(reusable.some((w) => w.name === 'gitleaks.yml'), 'gitleaks.yml is reusable');
+	for (const w of reusable) assert.doesNotMatch(w.text, /^permissions:\s*(read|write)-all\b/m, `${w.name}: top-level permissions must be scoped`);
+});
+
 test('no workflow that installs auth-kit caches the pnpm store', () => {
 	assert.ok(installers.length >= 7, `found ${installers.map((w) => w.name)}`);
 	for (const w of installers) {

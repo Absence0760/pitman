@@ -36,7 +36,12 @@ on:
   # the sweep grants the same three.
   workflow_call:
 
-permissions: read-all
+# Not `read-all`: a called workflow may ask for no more than its caller
+# grants, and gitleaks-sweep.yml grants only the job's three scopes below, so
+# `read-all` made every sweep a startup_failure (it never ran until
+# 2026-11-07). The job sets what it needs.
+permissions:
+  contents: read
 
 jobs:
   scan:
