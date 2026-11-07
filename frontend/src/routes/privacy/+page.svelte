@@ -115,6 +115,19 @@
 			<li>for it not to be processed, by objecting on reasonable grounds.</li>
 		</ul>
 		<p>
+			{#if PRIVACY_CONTACT.email}
+				To ask, email <a href={`mailto:${PRIVACY_CONTACT.email}`}>{PRIVACY_CONTACT.email}</a> from the address your request is about.
+			{:else}
+				To ask, write to the admin who added you, from the address your request is about.
+			{/if}
+			To make sure it is you, we will ask you to reply from that address, and we answer only to it.
+		</p>
+		<p>
+			A request for access is answered free of charge within 30 days, with a copy of everything Pitman keeps under your address: your user record,
+			your sign-in limits and any live code’s expiry, each audit-record entry that names you, and whether Amazon SES has stopped mail to you. Other
+			people’s addresses in those entries are withheld.
+		</p>
+		<p>
 			Deleting your address removes you from the user list and replaces it in the audit record, so you can no longer sign in. It is complete after the
 			35 days of backups above.
 		</p>

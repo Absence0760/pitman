@@ -40,6 +40,10 @@ test.describe('the privacy notice, signed out', () => {
 		await expect(page.getByText(/About 24 months/)).toBeVisible();
 		await expect(page.getByText('Whether mail to you bounced or was reported as spam', { exact: true })).toBeVisible();
 		await expect(page.getByText(/restored for 35 days/)).toBeVisible();
+		// How to ask for access (POPIA s23; docs/security.md § Access requests).
+		await expect(page.getByText(/^To ask, email/)).toBeVisible();
+		await expect(page.getByRole('region', { name: 'Your rights' }).getByRole('link', { name: 'privacy@jaredhoward.com' })).toHaveAttribute('href', 'mailto:privacy@jaredhoward.com');
+		await expect(page.getByText(/A request for access is answered free of charge within 30 days/)).toBeVisible();
 		await expect(page.getByRole('link', { name: 'POPIAComplaints@inforegulator.org.za' })).toHaveAttribute('href', 'mailto:POPIAComplaints@inforegulator.org.za');
 	});
 });
