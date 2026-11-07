@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures.js';
 import { writeBundle } from '../src/lib/network/engine.js';
 import { syntheticBundle } from '../src/lib/network/synthetic.js';
 import { packZip, unpackZip } from '../src/lib/network/zip.js';

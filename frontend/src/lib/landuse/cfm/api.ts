@@ -8,6 +8,7 @@
 
 import type { AreaGeometry, LandUseAnswer, LandUseRequest, QuaternaryCollection } from '@pitman/wrsm';
 import { apiUrl } from '#lib/extend/api.js';
+import { sessionFetch } from '#lib/auth/unauthorized.js';
 import { API_BASE_URL } from '#lib/extend/api-base.js';
 import { fetchQuaternaries } from '#lib/map/api.js';
 
@@ -83,7 +84,8 @@ async function errorMessage(response: Response): Promise<string | undefined> {
 
 /** Fetch an area's fields and dams. Rejects with `LandUseRequestError`, or an `AbortError` when `signal` aborts. */
 export async function fetchLandUse(area: AreaGeometry, options: LandUseClientOptions): Promise<LandUseAnswer> {
-	const doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+	// A 401 sends the user to sign-in (lib/auth/unauthorized.ts); the error below still reaches the screen.
+	const doFetch = sessionFetch(options.fetch);
 	const timeoutMs = options.timeoutMs ?? LAND_USE_TIMEOUT_MS;
 	const controller = new AbortController();
 	let timedOut = false;

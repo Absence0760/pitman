@@ -10,6 +10,61 @@ matters by opening the saved network in WRSM2000.
 Your network stays in your browser. Extending rainfall sends the outline of an
 area to Pitman's data service, and never a network file.
 
+## Sign in
+
+Everyone signs in before using Pitman. There is no sign-up: an admin adds your
+email address first.
+
+1. Type your email address and choose **Send a code**. The screen says the same
+   thing whether or not your address is on the list, so it never tells anyone
+   who is.
+2. Type the 6-digit code from the email and choose **Sign in**. A code works for
+   10 minutes and once; **Send a new code** replaces it (codes can be sent a
+   minute apart, five an hour). After 3 wrong codes the code is spent: send a
+   new one. Too many tries locks the address for a while, and the screen says
+   how long to wait.
+3. **Use a different address** goes back to step 1.
+
+You stay signed in on that browser for up to 7 days. If the session ends while
+you work (it expired, or an admin removed you), Pitman goes to the sign-in page
+and, once you are back in, to where you were. Your working copy is still there:
+the redirect doesn't touch the browser's copy of your network.
+
+The bar at the top shows the address you're signed in with. **Sign out** ends
+this browser's session; **Sign out everywhere** ends it on every browser you've
+used. Signing out doesn't remove the working copy: on a shared computer, use
+**Forget the working copy** first.
+
+The Methods and Privacy pages open without signing in.
+
+## Users (admins)
+
+An admin sees **Users** in the top bar. The page lists everyone who can sign in,
+their role, and who added them when.
+
+- **Add:** type the address and choose **Add**; tick **Admin** to let them
+  manage users too. They can sign in straight away (Pitman doesn't email them:
+  tell them yourself).
+- **Make admin / Remove admin** changes the role.
+- **Remove** asks first. The person is signed out on their next request and
+  can't sign in again.
+- Pitman always keeps at least one admin, and you can't remove yourself or your
+  own admin rights. When the server refuses a change it says why, and the page
+  shows that sentence as it is.
+- **Recent changes and sign-ins** lists the latest 50 entries of the audit log,
+  newest first, in your time zone. Entries are kept for about 24 months.
+
+Keep at least two admins, so that one admin's mailbox being unreachable doesn't
+lock everyone out.
+
+## Privacy
+
+The Privacy page (`/privacy`, linked from the sign-in page and the footer) says
+what Pitman keeps about you (your address, your role, an audit log of sign-ins
+and changes, briefly your IP address for rate limits), why, where (AWS in Cape
+Town), for how long, your rights under POPIA and how to complain to the
+Information Regulator. Network files are never sent anywhere.
+
 ## Load a network
 
 Drop a zip or a folder on the first screen, or choose one. It's the same folder

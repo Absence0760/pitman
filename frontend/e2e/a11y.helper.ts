@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page } from './fixtures.js';
 import { syntheticNetworkZip } from '../src/lib/network/synthetic.js';
 
 // The page in its fullest state, for the accessibility specs. Synthetic data only (rule 2).

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures.js';
 import { syntheticNetworkZip } from '../src/lib/network/synthetic.js';
 
 // The app shell: one page title in every state, the step rail, Save in the

@@ -6,6 +6,7 @@
  */
 
 import type { AreaGeometry, ChirpsMonthly, ChirpsMonthlyRequest } from '@pitman/wrsm';
+import { sessionFetch } from '#lib/auth/unauthorized.js';
 
 /** The route, relative to the API base (decision R4-I4: the base carries any `/api` prefix). */
 export const CHIRPS_MONTHLY_PATH = '/chirps/monthly';
@@ -28,9 +29,9 @@ export class ChirpsRequestError extends Error {
 
 /**
  * The URL of a route under the API base (decision R4-I4). `PUBLIC_API_URL`
- * is `http://localhost:3001` in dev and `/api` in production, where
- * CloudFront serves the API on the site's own origin and strips `/api`
- * (the CSP's `connect-src` is `'self'`, so production must stay relative).
+ * is `/api` in dev and production alike: CloudFront (or Vite's proxy in dev)
+ * serves the API on the site's own origin and strips `/api` (the CSP's
+ * `connect-src` is `'self'`, so it must stay relative; A-AUTH-9).
  */
 export function apiUrl(base: string | undefined, path: string): string {
 	const b = (base ?? '').trim().replace(/\/+$/, '');
@@ -91,7 +92,8 @@ async function errorMessage(response: Response): Promise<string | undefined> {
 
 /** Fetch an area's monthly CHIRPS series. Rejects with `ChirpsRequestError`, or an `AbortError` when `signal` aborts. */
 export async function fetchChirpsMonthly(area: AreaGeometry, options: ChirpsClientOptions): Promise<ChirpsMonthly> {
-	const doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+	// A 401 sends the user to sign-in (lib/auth/unauthorized.ts); the error below still reaches the screen.
+	const doFetch = sessionFetch(options.fetch);
 	const timeoutMs = options.timeoutMs ?? CHIRPS_TIMEOUT_MS;
 	const controller = new AbortController();
 	let timedOut = false;

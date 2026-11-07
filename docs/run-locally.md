@@ -172,10 +172,10 @@ cp scripts/git-hooks/pre-push .git/hooks/pre-push
 ## Common issues
 
 **The app calls the wrong API**
-: `PUBLIC_API_URL` is declared in `frontend/src/env.ts` and set in the committed `frontend/.env.development` (`http://localhost:3001`). A build without it (a local `vite build`, the end-to-end tests) uses production's same-origin `/api` (decision R4-I4).
+: `PUBLIC_API_URL` is declared in `frontend/src/env.ts` and is `/api` everywhere: the committed `frontend/.env.development`, a build without it (a local `vite build`, the end-to-end tests) and production (decision R4-I4). In dev, Vite's dev and preview servers proxy `/api/*` to the Hono server on `http://localhost:3001` with `/api` stripped, as CloudFront does (`frontend/vite.config.ts`, A-AUTH-9), so the session cookie is first-party and the browser never makes a cross-origin call. Set `PITMAN_API_TARGET` to proxy to another address. A 502 on `/api/*` means the backend isn't running.
 
-**CORS errors in the browser**
-: `ALLOWED_ORIGINS` (in `backend/.env.development`, or your `.env.development.local` override) must include `http://localhost:7777`.
+**Origin refused (403) on a POST**
+: The browser's `Origin` is the page's own (`http://localhost:7777`, or `http://127.0.0.1:8888` under `vite preview`), and the backend's `csrf()` and CORS check it against `ALLOWED_ORIGINS` (in `backend/.env.development`, or your `.env.development.local` override).
 
 **Port already in use**
 : Frontend is hardcoded to 7777. Backend respects `PORT` env var (default 3001).

@@ -49,7 +49,9 @@ pitman/
 │       ├── lib/landuse/cfm/  Land use: the /cfm/land-use client (api), its logic (plan), LandUsePanel.svelte with CropStep and DamStep (docs/data.md § Cape Farm Mapper)
 │       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
 │       ├── lib/shell/        The frame around the steps: app bar, landing page, step rail (steps.ts holds its wording), the fold round each optional card, the design-token guards; rules in docs/design/ui-playbook.md
-│       └── routes/           +page.svelte: the app shell; methods/: the Methods page (prerendered, mapped by infra/functions/spa_rewrite.js)
+│       ├── lib/auth/         Sign-in on the frontend (#28 P5): api.ts (the /auth, /users and /audit client), session.svelte.ts (who is signed in, runes; store.ts holds the app's one), next.ts (the public routes and the open-redirect guard on `next`), unauthorized.ts (`sessionFetch`: every API client reports a 401 through it), audit.ts (the audit log in words)
+│       ├── lib/privacy/      contact.ts: the POPIA responsible party's name and contact address, read only by the privacy notice
+│       └── routes/           +layout.svelte: the sign-in gate; +page.svelte: the app shell; methods/, privacy/, sign-in/ and users/ (each prerendered; each needs a PAGES entry in infra/functions/spa_rewrite.js)
 ├── backend/
 │   ├── package.json          Build script runs esbuild → dist/lambda.mjs
 │   ├── tsconfig.json
@@ -80,6 +82,22 @@ pitman/
 SvelteKit with `adapter-static`. Every route can prerender to static HTML.
 The build emits `.html` files per route, uploaded to S3. CloudFront sits in
 front for caching and TLS termination. No server-side rendering at runtime.
+
+**Sign-in (A-AUTH-1, #28 P5).** `/sign-in`, `/privacy` and `/methods` are
+public. Every other route asks `GET /api/auth/me` when it loads
+(`routes/+layout.svelte`) and goes to `/sign-in?next=<path>` on a 401. The
+page renders meanwhile: the gate is for convenience, and the API refuses every
+data call without a session. Every API client fetches through `sessionFetch`
+(`lib/auth/unauthorized.ts`), so a 401 from any of them later does the same;
+`unauthorized.test.ts` refuses a client that builds an API URL without it. The
+redirect navigates inside the app and leaves IndexedDB alone, so the working
+copy (written on every change) is restored after signing in. `next` is followed
+only when it is a path on this site (`lib/auth/next.ts`), so the sign-in page
+can't be used as an open redirect. The session is an HttpOnly cookie on the
+site's own origin: in dev too, through Vite's `/api` proxy (A-AUTH-9). The app
+bar shows the address, **Users** for an admin and **Sign out**; `/users` lists,
+adds, promotes, demotes and removes users and shows the audit log, with the
+API's refusals (403, 409) shown as it words them.
 
 ## App flow: load → validate → store → extend → sub-divide → run → save
 

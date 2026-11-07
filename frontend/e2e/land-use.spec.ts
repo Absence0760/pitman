@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page, type Route } from './fixtures.js';
 import { syntheticNetworkZip } from '../src/lib/network/synthetic.js';
 import { unpackZip } from '../src/lib/network/zip.js';
 

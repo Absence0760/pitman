@@ -14,7 +14,7 @@ export const variables = defineEnvVars({
 		static: true,
 		// Unset (a local `vite build`, the end-to-end tests) means production's same-origin `/api` (decision R4-I4).
 		schema: (value) => value ?? '/api',
-		description: 'Base URL of the backend API: http://localhost:3001 in dev; /api in production (same origin; CloudFront strips /api).'
+		description: 'Base URL of the backend API: /api, same origin, in dev (Vite proxies it to :3001) and production (CloudFront strips /api).'
 	},
 	// The map's tiles (docs/data.md § Basemap and fonts, § DEM). Unset or empty means none: a plain background, nothing fetched.
 	PUBLIC_TILES_URL: {

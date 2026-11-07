@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures.js';
 import { writeBundle } from '../src/lib/network/engine.js';
 import { syntheticBundle, syntheticNetworkZip } from '../src/lib/network/synthetic.js';
 import { packZip } from '../src/lib/network/zip.js';

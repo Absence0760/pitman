@@ -7,6 +7,7 @@
 
 import type { MapGridCells, MapGridCellsRequest, QuaternaryCollection } from '@pitman/wrsm';
 import { apiUrl } from '#lib/extend/api.js';
+import { sessionFetch } from '#lib/auth/unauthorized.js';
 
 export const QUATERNARIES_PATH = '/quaternaries';
 export const MAP_GRID_CELLS_PATH = '/map-grid/cells';
@@ -83,7 +84,8 @@ async function refusal(response: Response): Promise<{ message: string | undefine
 const REFUSAL_KINDS: Readonly<Record<string, MapErrorKind>> = { too_wide: 'too_wide', too_dense: 'too_dense', no_coverage: 'no_coverage' };
 
 async function request(service: string, url: string, init: RequestInit, options: MapClientOptions): Promise<unknown> {
-	const doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+	// A 401 sends the user to sign-in (lib/auth/unauthorized.ts); the error below still reaches the screen.
+	const doFetch = sessionFetch(options.fetch);
 	const timeoutMs = options.timeoutMs ?? MAP_TIMEOUT_MS;
 	const controller = new AbortController();
 	let timedOut = false;
