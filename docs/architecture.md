@@ -26,8 +26,9 @@ URL (`PUBLIC_API_URL`).
 
 ```
 pitman/
-├── package.json              Workspace root scripts (dev/build/check)
-├── pnpm-workspace.yaml       Lists frontend, backend as packages
+├── package.json              Workspace root scripts (dev/build/check/admin)
+├── pnpm-workspace.yaml       Lists frontend, backend as packages; the install-script allowlist (esbuild, auth-kit)
+├── docker-compose.yml        Opt-in local DynamoDB Local + Mailpit for sign-in (`pnpm dev:auth:up`)
 ├── docs/                     Architecture, deployment, run-locally, security
 ├── frontend/
 │   ├── package.json
@@ -56,11 +57,13 @@ pitman/
 │   ├── package.json          Build script runs esbuild → dist/lambda.mjs
 │   ├── tsconfig.json
 │   ├── .env.development      Backend env vars (committed local defaults)
+│   ├── scripts/          Synthetic dev data; the operator's admin:* scripts and dev:auth:seed (§ Sign-in)
 │   └── src/
-│       ├── app.ts            Hono app factory + CORS + route mounting
-│       ├── server.ts         Local dev entry (runs on :3001)
-│       ├── lambda.ts         AWS Lambda entry (wraps app with hono/aws-lambda)
-│       └── routes/           Your API routes go here
+│       ├── app.ts            Hono app factory: CORS, csrf, the sign-in gate, route mounting
+│       ├── server.ts         Local dev entry (runs on :3001; SMTP mail and the dev admin)
+│       ├── lambda.ts         AWS Lambda entry: Function URL requests to the app, SQS mail events to auth/mailEvents.ts
+│       ├── auth/             Sign-in wiring over auth-kit (§ Sign-in)
+│       └── chirps/, mapgrid/, delineation/, quaternaries/, cfm/, …   The data API (§ Data API)
 ├── infra/
 │   ├── main.tf               Providers, state backend
 │   ├── variables.tf
@@ -248,15 +251,63 @@ add `dotenv` imports to any module reachable from `lambda.ts`.
 `src/lambda.test.ts` bundles `lambda.ts` with esbuild and fails if `dotenv`,
 `server.ts` or the synthetic-data writers end up in it.
 
-**Planned: users and sign-in** (issue #28, not built). The data routes will
-sit behind a sign-in gate whose code comes from the shared private package
-`Absence0760/auth-kit` at a pinned tag (A-AUTH-0); the backend keeps only the
-routes and gate wiring. Network files still never leave the browser.
+`lambda.ts` also takes SQS batches: SES bounce and complaint notifications
+(SES configuration set → SNS → SQS) go to `auth/mailEvents.ts`, which logs
+each as `mail.bounce` or `mail.complaint` without the address; anything else
+goes to the Hono app.
+
+### Sign-in
+
+Issue #28, A-AUTH-0 … 11. The rules (codes, sessions, the user list, the
+store, the operator actions) are the private package `@absence0760/auth-kit`
+(`v0.1.2`, installed from git); `src/auth/` is only pitman's wiring:
+
+| Module | Does |
+|---|---|
+| `config.ts` | Reads the environment (`docs/deployment.md` § Lambda environment); on Lambda any gap is a problem, and the gate answers 503 |
+| `store.ts` | auth-kit's memory store (`USER_STORE=memory`, local dev and tests) or its DynamoDB store (`dynamodb`, the Lambda or DynamoDB Local) |
+| `mail.ts` | The email text and the transports: `console` (dev, prints the code), `ses` (SES v2 with the configuration set); `mail.smtp.ts` (nodemailer to Mailpit) is built by `server.ts` only, so it never enters the Lambda bundle |
+| `cookies.ts` | `__Host-pitman_session` from auth-kit; the dev-only plain `pitman_session` |
+| `runtime.ts` | Binds auth-kit, mailer and cookie into the one object `createApp({ auth })` takes |
+| `middleware.ts` | The gate: `verifySession` on the cookie, sets `c.var.user`, 401 `{ error }` |
+| `routes.ts` | The routes below |
+| `mailEvents.ts` | SES bounce and complaint notifications from SQS |
+
+Middleware order in `app.ts`: the CloudFront shared secret → CORS → `csrf()`
+→ `GET /health` → body limit → JSON only (415) → `no-store` and a rate limit
+on `/auth/*`, `/users*`, `/audit` → the public sign-in routes → **the gate**
+→ the session routes and every data route. Hono runs handlers in the order
+they were added, so everything registered after the gate needs a session.
+
+| Route | Session | Body → answer |
+|---|---|---|
+| `POST /auth/code` | no | `{ email }` → 202 `{}` for any well-formed address, listed or not, after a 1 s floor with the email sent inside it; 400; 429 + `Retry-After` (s) when throttled or locked |
+| `POST /auth/verify` | no | `{ email, code }` → 200 `{ user: { id, email, isAdmin } }` + `Set-Cookie`; 400 for a body without both strings; 401 for a wrong, expired or spent code; 429 + `Retry-After` when locked |
+| `POST /auth/logout` | no | → 204, revokes the session if it is valid, clears the cookie |
+| `POST /auth/logout-everywhere` | yes | → 204, signs out every session of the user, clears the cookie |
+| `GET /auth/me` | yes | → 200 `{ user: { id, email, isAdmin } }` |
+| `GET /users` | admin | → 200 `{ users: [{ id, email, isAdmin, addedBy, addedAt }] }` |
+| `POST /users` | admin | `{ email, isAdmin? }` → 201 `{ user }` |
+| `PATCH /users/:id` | admin | `{ isAdmin }` → 200 `{ user }` |
+| `DELETE /users/:id` | admin | → 204 |
+| `GET /audit?limit=N` | admin | → 200 `{ rows: [{ at, actor, action, target?, admin? }] }`, newest first (N from 1 to 1000, default 500) |
+
+auth-kit's refusals keep their status and message as `{ error }`: 400 (bad
+input, or acting on yourself), 403 (not an admin), 404 (not listed), 409 (an
+address already listed, the last admin, or a change that raced another).
+Without a session every route but `/health` and the three public ones answers
+401 `{ error: 'sign in first' }`; with sign-in unconfigured, 503. All of
+`/auth/*`, `/users*` and `/audit` carry `Cache-Control: no-store`.
+
+The operator's scripts (`backend/scripts/`, root `admin:*`) call auth-kit's
+`bootstrapAdmin`, `recoverAdmin`, `clearLock` and `eraseAddress` directly
+against the table; `docs/deployment.md` § Sign-in and `docs/security.md`
+§ Erasure.
 
 ### Data API
 
 Stateless: it receives only an area (GeoJSON) or a box and answers numbers,
-never network files. CloudFront strips `/api` before the Lambda (R4-I4), so the
+never network files. Every route but `/health` needs a session (§ Sign-in). CloudFront strips `/api` before the Lambda (R4-I4), so the
 routes are mounted unprefixed (`/chirps/monthly` here is `/api/chirps/monthly`
 in the browser).
 

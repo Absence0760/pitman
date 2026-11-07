@@ -8,6 +8,12 @@
 		"//-- dev --": "Local dev servers: frontend on 7777, backend on 3001 (docs/STACK.md). The backend reads a local synthetic CHIRPS copy, MAP grid and DEM from backend/.local/ (gitignored): run `dev:data:synthetic` once first (docs/run-locally.md § Backend data).",
 		"dev": "pnpm --filter @pitman/frontend --filter @pitman/backend --parallel run dev",
 		"dev:data:synthetic": "pnpm -C backend exec tsx scripts/gen-synthetic-data.ts",
+		"//-- dev: sign-in --": "Opt-in local services for sign-in (docs/run-locally.md § Sign-in): DynamoDB Local on 127.0.0.1:8000 and Mailpit (SMTP 1025, UI http://localhost:8025), from docker-compose.yml. `pnpm dev` needs neither: by default the user list is in memory with admin@example.test as the dev admin, and codes print to the backend terminal. `dev:auth:seed` makes the table and the dev admin in DynamoDB Local.",
+		"dev:auth:up": "docker compose up -d --wait dynamodb mailpit",
+		"dev:auth:down": "docker compose down",
+		"dev:auth:status": "docker compose ps",
+		"dev:auth:logs": "docker compose logs -f dynamodb mailpit",
+		"dev:auth:seed": "pnpm -C backend exec tsx scripts/seed-local-users.ts",
 		"//-- build --": "Build every workspace that has a build script (packages/* are consumed as TypeScript source and have none).",
 		"build": "pnpm -r run build",
 		"//-- check --": "Typecheck. `check` runs every workspace (--no-bail: one failure does not hide the rest); `check:<surface>` runs one.",
@@ -21,6 +27,11 @@
 		"test:frontend:e2e": "pnpm --filter @pitman/frontend run test:e2e",
 		"test:coverage": "pnpm -r --no-bail run test:coverage && node scripts/coverage-report/summary.mjs",
 		"test:tools": "node --test scripts/coverage-report/*.test.mjs infra/scripts/*.test.mjs",
+		"//-- admin --": "Operator actions on the production user table, run by hand with the operator's AWS profile (AWS_PROFILE, default pitman); each reads the address from stdin, never argv, and is audited. The table and code key are read from the Lambda's environment. docs/deployment.md § Sign-in; erasure: docs/security.md § Erasure.",
+		"admin:bootstrap": "pnpm -C backend exec tsx scripts/bootstrap-admin.ts",
+		"admin:recover": "pnpm -C backend exec tsx scripts/recover-admin.ts",
+		"admin:clear-lock": "pnpm -C backend exec tsx scripts/clear-lock.ts",
+		"admin:erase": "pnpm -C backend exec tsx scripts/erase-address.ts",
 		"//-- workspaces --": "Run any script in one workspace: `pnpm frontend <script>`, `pnpm wrsm <script>`; `pnpm wrsm-cli wrsm run <dir>` runs the CLI under tsx.",
 		"frontend": "pnpm --filter @pitman/frontend",
 		"backend": "pnpm --filter @pitman/backend",
@@ -29,5 +40,6 @@
 	},
 	"engines": {
 		"node": ">=22.17"
-	}
+	},
+	"packageManager": "pnpm@10.34.9"
 }

@@ -2,8 +2,12 @@
 
 ## Prerequisites
 
-- **Node.js 20 or later** — check with `node --version`
-- **pnpm 9 or later** — install with `npm install -g pnpm`
+- **Node.js 22.17 or later** (the Lambda runs 24) — check with `node --version`
+- **pnpm 10** — the root `package.json` pins `pnpm@10.34.9` (`packageManager`);
+  `corepack enable` picks it up, or run `npx pnpm@10.34.9 …`
+- **Read access to the private `Absence0760/auth-kit`** — the backend installs
+  it from git over SSH, so your GitHub SSH key must be able to read it
+- **Docker** — only for the opt-in sign-in services (§ Sign-in)
 
 ## One-time setup
 
@@ -123,6 +127,56 @@ Clicks to try on the synthetic DEM, with their answers:
 | 21.115551, −33.8001191 | `Z02A` | 76.54 km², 643 km² (89 %) dropped upstream, the 20 % warning |
 | 21.24, −33.62 | `Z01A` | refused, `off_channel` |
 
+## Sign-in (local-first)
+
+Every API route but `/health` needs a session (`docs/architecture.md`
+§ Sign-in), and `pnpm dev` signs you in with **no docker and no setup**:
+`backend/.env.development` sets an in-memory user list (`USER_STORE=memory`),
+console mail (`MAIL_TRANSPORT=console`), dev-only signing keys, and
+`DEV_ADMIN_EMAIL=admin@example.test`, whom the dev server makes the first
+admin at startup (the in-memory list is empty on every restart).
+
+1. Sign in as `admin@example.test`.
+2. The code is printed in the backend's terminal, with the address masked:
+   `[mail:console] Pitman sign-in code 123456 for a…@example.test`.
+3. Add more users on the Users page; they live until the backend restarts.
+
+The browser must reach the API same-origin (the frontend's Vite proxy sends
+`/api/*` to the backend, as CloudFront does in production), so the session
+cookie is sent without CORS credentials. Over http://localhost the cookie is
+a plain `pitman_session` without `Secure` (`AUTH_DEV_COOKIE=true`); production
+always uses `__Host-pitman_session`.
+
+### With DynamoDB Local and Mailpit
+
+To run against the same store as production and see the emails:
+
+```bash
+pnpm dev:auth:up        # DynamoDB Local on 127.0.0.1:8000, Mailpit on 1025 (SMTP) and http://localhost:8025 (UI)
+pnpm dev:auth:seed      # makes the table pitman-users-local and the dev admin; safe to re-run
+```
+
+Then put these in `backend/.env.development.local` and restart `pnpm dev`:
+
+```bash
+USER_STORE=dynamodb
+USERS_TABLE=pitman-users-local
+DYNAMODB_ENDPOINT=http://127.0.0.1:8000
+MAIL_TRANSPORT=smtp
+```
+
+Codes now arrive in Mailpit. `pnpm dev:auth:status` and `pnpm dev:auth:logs`
+show the containers; `pnpm dev:auth:down` stops them, and DynamoDB Local runs
+in memory, so the table goes with it (seed again after the next `up`).
+auth-kit's own `pnpm dynamo:up` uses port 8000 too: run one at a time.
+
+The backend's DynamoDB tests (`src/auth/dynamo.test.ts`, the sign-in races)
+run when `DYNAMODB_ENDPOINT` is set and skip, saying so, when it isn't:
+
+```bash
+pnpm dev:auth:up && DYNAMODB_ENDPOINT=http://127.0.0.1:8000 pnpm backend test
+```
+
 ## Land use
 
 Local-first, with nothing to generate. `POST /cfm/land-use` answers from invented
@@ -176,6 +230,9 @@ cp scripts/git-hooks/pre-push .git/hooks/pre-push
 
 **Origin refused (403) on a POST**
 : The browser's `Origin` is the page's own (`http://localhost:7777`, or `http://127.0.0.1:8888` under `vite preview`), and the backend's `csrf()` and CORS check it against `ALLOWED_ORIGINS` (in `backend/.env.development`, or your `.env.development.local` override).
+
+**Every API call answers 401**
+: Sign in first (§ Sign-in). With the in-memory store a backend restart (`tsx watch` reloads on every save) empties the user list and ends every session: sign in again. A 503 `sign-in is not configured on this server` means a key or setting is missing; the backend prints `{"event":"auth.unconfigured","problem":…}` at startup naming it.
 
 **Port already in use**
 : Frontend is hardcoded to 7777. Backend respects `PORT` env var (default 3001).

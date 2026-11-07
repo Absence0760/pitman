@@ -7,8 +7,8 @@ export default defineConfig({
 		// no test reaches (docs/STACK.md § Commands).
 		coverage: {
 			provider: 'v8',
-			include: ['src/**/*.ts'],
-			exclude: ['src/**/*.test.ts', 'src/**/*.d.ts', 'src/__tests__/**'],
+			include: ['src/**/*.ts', 'scripts/**/*.ts'],
+			exclude: ['src/**/*.test.ts', 'scripts/**/*.test.ts', 'src/**/*.d.ts', 'src/__tests__/**'],
 			reporter: ['text-summary', 'json-summary', 'html']
 		},
 		environment: 'node',
@@ -17,6 +17,6 @@ export default defineConfig({
 		setupFiles: ['./src/__tests__/setup.ts'],
 		// Don't pick up the dist/ folder from previous builds.
 		exclude: ['node_modules/**', 'dist/**'],
-		include: ['src/**/*.test.ts']
+		include: ['src/**/*.test.ts', 'scripts/**/*.test.ts']
 	}
 });

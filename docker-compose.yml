@@ -1,0 +1,36 @@
+# Local services for sign-in (docs/run-locally.md § Sign-in). Opt-in: `pnpm dev` needs neither (the
+# in-memory user list and console mail are the defaults in backend/.env.development).
+#   pnpm dev:auth:up      start both, wait until healthy
+#   pnpm dev:auth:seed    make the user table and the dev admin (admin@example.test)
+#   pnpm dev:auth:down    stop and remove them (DynamoDB Local is in memory: the table goes too)
+# Both images are pinned by digest and bumped by hand (Dependabot doesn't watch this file).
+services:
+  # auth-kit's own test image and flags. On 127.0.0.1:8000, the port auth-kit's `pnpm dynamo:up` also
+  # uses: run one at a time.
+  dynamodb:
+    image: amazon/dynamodb-local:3.3.2@sha256:6ada631ec7aa5fc83446855eb17233e3dad184fec47477e8140c6c569cfe0c86
+    container_name: pitman-dynamodb
+    command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8000 || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  # Catches every sign-in email (MAIL_TRANSPORT=smtp). Nothing leaves the laptop. UI: http://localhost:8025.
+  # From GHCR, where Mailpit publishes the same image as on Docker Hub (no anonymous pull limit).
+  mailpit:
+    image: ghcr.io/axllent/mailpit:v1.33.0@sha256:9b3a463be15354c0f0eba91697d80e3e0d8a5623ef0e627cacc836bc17fd5231
+    container_name: pitman-mailpit
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    environment:
+      MP_MAX_MESSAGES: 500
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
