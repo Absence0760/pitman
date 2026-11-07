@@ -72,6 +72,8 @@ export function asSignedIn(app: Requester, cookie: string): Requester {
 		request: (path, init = {}) => {
 			const headers = new Headers(init.headers);
 			if (!headers.has('cookie')) headers.set('cookie', cookie);
+			// A browser on the site sends its Origin with every POST (http/sameOrigin.ts).
+			if (!headers.has('origin')) headers.set('origin', TEST_ORIGIN);
 			return app.request(path, { ...init, headers });
 		}
 	};

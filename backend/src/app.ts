@@ -16,6 +16,7 @@ import { DemSource, demLocationFromEnv } from './delineation/source.js';
 import { MAX_BODY_BYTES } from './http/area.js';
 import { jsonOnly } from './http/jsonOnly.js';
 import { rateLimit } from './http/rateLimit.js';
+import { CROSS_ORIGIN_REFUSED, sameOriginWrites } from './http/sameOrigin.js';
 import { mapGridRoutes } from './mapgrid/routes.js';
 import { MapGridCatalog, mapGridSourcesFromEnv } from './mapgrid/source.js';
 import { quaternaryRoutes } from './quaternaries/routes.js';
@@ -113,6 +114,9 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	// A cross-origin form-like body (form, multipart, text/plain) is refused with 403 (A-AUTH-9). Cross-origin
 	// JSON is stopped by the CORS preflight and the session cookie's SameSite=Strict.
 	app.use('*', csrf({ origin: allowedOrigins }));
+	// And any state-changing request, whatever its type, must come from the site itself (http/sameOrigin.ts):
+	// Sec-Fetch-Site: same-origin or an allowed Origin, so the browser's preflight isn't the only check.
+	app.use('*', sameOriginWrites(allowedOrigins));
 
 	app.get('/health', (c) => c.json({ ok: true }));
 
@@ -164,7 +168,7 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 
 	app.onError((err, c) => {
 		// csrf() throws a 403.
-		if (err instanceof HTTPException && err.status === 403) return c.json({ error: 'cross-origin request refused' }, 403);
+		if (err instanceof HTTPException && err.status === 403) return c.json({ error: CROSS_ORIGIN_REFUSED }, 403);
 		console.error('Unhandled error', err);
 		return c.json({ error: 'Internal server error' }, 500);
 	});

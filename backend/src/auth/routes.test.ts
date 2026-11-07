@@ -334,6 +334,43 @@ describe('request checks', () => {
 		expect(t.outbox).toEqual([]);
 	});
 
+	it('refuses every state-changing request, JSON included, unless it comes from the site (Origin or Sec-Fetch-Site)', async () => {
+		const t = testAuth();
+		await bootstrap(t);
+		const a = app(t);
+		const cookie = await signIn(t, a);
+		const evil = 'https://evil.example';
+		const refusals = [
+			// The review's probe: a valid cookie, JSON, from another origin. Stopped today by the preflight and
+			// SameSite=Strict in a browser; refused here whatever the browser does.
+			await call(a, 'POST', '/users', { cookie, origin: evil, body: { email: 'new@example.test' } }),
+			await call(a, 'POST', '/auth/logout-everywhere', { cookie, origin: evil }),
+			await call(a, 'POST', '/auth/logout', { cookie, origin: evil }),
+			await call(a, 'PATCH', '/users/x', { cookie, origin: evil, body: { isAdmin: true } }),
+			await call(a, 'DELETE', '/users/x', { cookie, origin: evil }),
+			await call(a, 'POST', '/auth/code', { origin: evil, body: { email: ADMIN } }),
+			// No Origin and no Sec-Fetch-Site (not a browser on the site), and a sibling subdomain.
+			await call(a, 'POST', '/users', { cookie, origin: null, body: { email: 'new@example.test' } }),
+			await call(a, 'POST', '/users', { cookie, origin: null, headers: { 'sec-fetch-site': 'same-site' }, body: { email: 'new@example.test' } }),
+			await call(a, 'POST', '/users', { cookie, origin: null, headers: { 'sec-fetch-site': 'none' }, body: { email: 'new@example.test' } }),
+			await call(a, 'POST', '/users', { cookie, origin: 'https://other.jaredhoward.com', headers: { 'sec-fetch-site': 'same-site' }, body: { email: 'new@example.test' } })
+		];
+		for (const res of refusals) {
+			expect(res.status).toBe(403);
+			expect(await res.json()).toEqual({ error: 'cross-origin request refused' });
+		}
+		expect((await t.store.listUsers()).map((u) => u.email)).toEqual([ADMIN]);
+		expect(t.outbox).toHaveLength(1);
+
+		// From the site: an allowed Origin, or Sec-Fetch-Site: same-origin without one (the dev proxy on another port).
+		expect((await call(a, 'POST', '/users', { cookie, body: { email: 'one@example.test' } })).status).toBe(201);
+		expect((await call(a, 'POST', '/users', { cookie, origin: null, headers: { 'sec-fetch-site': 'same-origin' }, body: { email: 'two@example.test' } })).status).toBe(201);
+		expect((await call(a, 'POST', '/users', { cookie, origin: 'http://127.0.0.1:7777', headers: { 'sec-fetch-site': 'same-origin' }, body: { email: 'three@example.test' } })).status).toBe(201);
+		// Reads need neither.
+		expect((await call(a, 'GET', '/users', { cookie, origin: null })).status).toBe(200);
+		expect((await call(a, 'GET', '/health', { origin: evil })).status).toBe(200);
+	});
+
 	it('marks every sign-in, user and audit answer no-store, refusals included', async () => {
 		const t = testAuth();
 		await bootstrap(t);

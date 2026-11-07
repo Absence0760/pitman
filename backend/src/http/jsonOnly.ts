@@ -1,6 +1,7 @@
 // JSON bodies only (A-AUTH-9): a POST, PUT, PATCH or DELETE that carries a body must say it is
-// application/json, or it gets 415. With csrf() in front (which refuses a cross-origin form-like body),
-// a cross-site form or text/plain POST can never reach a route, and a same-site one can't either.
+// application/json, or it gets 415. With csrf() and sameOriginWrites() in front (which refuse a
+// cross-origin form-like body, and any write not from the site), a cross-site form or text/plain POST can
+// never reach a route, and a same-site one can't either.
 import { createMiddleware } from 'hono/factory';
 
 const WITH_BODY = /^(POST|PUT|PATCH|DELETE)$/;

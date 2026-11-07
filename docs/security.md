@@ -28,7 +28,13 @@ middleware. Only listed origins receive `access-control-allow-origin` headers,
 and never `access-control-allow-credentials`: the browser calls the API
 same-origin, so the session cookie never needs CORS. Hono `csrf()` refuses an
 unsafe request with a form-like body from any other origin (403), and every
-body must be JSON (415).
+body must be JSON (415). On top of both, every request other than GET, HEAD
+and OPTIONS, whatever its content type, must say it comes from the site:
+`Sec-Fetch-Site: same-origin`, or an `Origin` in `ALLOWED_ORIGINS`; anything
+else, a request with neither header included, is 403
+(`backend/src/http/sameOrigin.ts`). So cross-origin JSON doesn't depend on the
+browser's preflight and the cookie's `SameSite=Strict` alone, and a sibling
+`*.jaredhoward.com` (`Sec-Fetch-Site: same-site`) can't write.
 
 ## Infrastructure
 
@@ -121,7 +127,9 @@ privacy notice and AWS account. Network files still never leave the browser.
   demoting each other, or the same third; a double bootstrap) run against
   DynamoDB Local in CI (`auth/dynamo.test.ts`).
 - **Request checks**: Hono `csrf()` on `ALLOWED_ORIGINS` (a cross-origin form,
-  multipart or text/plain body is 403); JSON bodies only (415); CORS without
+  multipart or text/plain body is 403); every state-changing request must
+  carry `Sec-Fetch-Site: same-origin` or an allowed `Origin`, JSON included
+  (403, § CORS and cross-site requests); JSON bodies only (415); CORS without
   credentials (the browser calls the API same-origin, through CloudFront or
   the dev proxy); `Cache-Control: no-store` on `/auth/*`, `/users*` and
   `/audit`; a per-instance limit of 60 requests per 10 minutes per client on

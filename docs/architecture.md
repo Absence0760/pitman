@@ -276,7 +276,8 @@ store, the operator actions) are the private package `@absence0760/auth-kit`
 | `mailEvents.ts` | SES bounce and complaint notifications from SQS |
 
 Middleware order in `app.ts`: the CloudFront shared secret → CORS → `csrf()`
-→ `GET /health` → body limit → JSON only (415) → `no-store` and a rate limit
+→ same-origin writes (`http/sameOrigin.ts`: a non-GET/HEAD/OPTIONS request
+needs `Sec-Fetch-Site: same-origin` or an allowed `Origin`) → `GET /health` → body limit → JSON only (415) → `no-store` and a rate limit
 on `/auth/*`, `/users*`, `/audit` → the public sign-in routes → **the gate**
 → the session routes and every data route. Hono runs handlers in the order
 they were added, so everything registered after the gate needs a session.
