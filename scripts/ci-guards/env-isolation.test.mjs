@@ -67,6 +67,7 @@ const backendOk = [
 	'#   DYNAMODB_ENDPOINT=http://127.0.0.1:8000',
 	'USER_STORE=memory',
 	'MAIL_TRANSPORT=console',
+	'MAIL_QUEUE=inline',
 	'MAIL_FROM="Pitman <no-reply@localhost>"',
 	'SMTP_HOST=127.0.0.1',
 	'SMTP_PORT=1025',
@@ -127,6 +128,9 @@ test('sign-in stays on the laptop', () => {
 	assert.match(rules('backend/.env.development', 'USER_STORE=ddb'), /USER_STORE must be memory or dynamodb/);
 	assert.match(rules('backend/.env.development', 'USERS_TABLE=pitman-users'), /-local table/);
 	assert.match(rules('backend/.env.development', 'MAIL_TRANSPORT=ses'), /SES sends real mail/);
+	assert.match(rules('backend/.env.development', 'MAIL_QUEUE=sqs'), /MAIL_QUEUE must be inline/);
+	assert.match(rules('backend/.env.development', 'MAIL_QUEUE_URL=https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-send'), /MAIL_QUEUE_URL must not be set/);
+	assert.deepEqual(checkEnvFile('backend/.env.development', 'MAIL_QUEUE=inline\nMAIL_QUEUE_URL=\n'), []);
 });
 
 test('frontend env files hold PUBLIC_* keys only, with the API on same-origin /api', () => {

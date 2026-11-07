@@ -8,8 +8,8 @@ import { createApp } from '../app.js';
 import { eventsLogged, guardLogs } from '../__tests__/logGuard.js';
 import { ADMIN, bootstrap, cookieFor, TEST_ORIGIN, testAuth, type TestAuth } from '../__tests__/session.js';
 import { NOT_CONFIGURED } from './middleware.js';
-import { SES_SEND_WORST_CASE_MS } from './mail.js';
-import { authRuntimeFromEnv, CODE_REQUEST_MIN_LATENCY_MS, type AuthRuntime } from './runtime.js';
+import { sqsMailQueue } from './mailQueue.js';
+import { authRuntimeFromEnv, CODE_REQUEST_MIN_LATENCY_MS, createAuthRuntime, type AuthRuntime } from './runtime.js';
 import { AUTH_MESSAGES } from './routes.js';
 
 guardLogs();
@@ -113,6 +113,19 @@ describe('POST /auth/code and POST /auth/verify', () => {
 		// Each was padded to the whole floor (the test clock doesn't move during the work), and only the listed one was mailed.
 		expect(t.sleeps).toEqual([CODE_REQUEST_MIN_LATENCY_MS, CODE_REQUEST_MIN_LATENCY_MS]);
 		expect(t.outbox.map((m) => m.to)).toEqual([ADMIN]);
+		// Both enqueued exactly one sealed message, of the same length and shape: the listed one its code,
+		// the unlisted one a decoy, and neither body shows an address or the code.
+		expect(t.queued).toHaveLength(2);
+		const [real, decoy] = t.queued.map((b) => JSON.parse(b) as Record<string, unknown>);
+		expect(t.queued[1]!.length).toBe(t.queued[0]!.length);
+		expect(Object.keys(decoy!)).toEqual(Object.keys(real!));
+		expect(String(decoy!.box).length).toBe(String(real!.box).length);
+		expect(t.auth.sealer.open(t.queued[0]!)).toMatchObject({ kind: 'mail', mail: { to: ADMIN, code: t.outbox[0]!.code } });
+		expect(t.auth.sealer.open(t.queued[1]!)).toEqual({ kind: 'decoy' });
+		for (const b of t.queued) {
+			expect(b).not.toContain('@');
+			expect(b).not.toContain(t.outbox[0]!.code);
+		}
 		// The stranger's address is stored nowhere in clear.
 		expect(JSON.stringify(store.dump())).not.toContain(STRANGER);
 	});
@@ -279,8 +292,8 @@ describe('the alarm signals (auth-kit listed / capReached / limit: logs only, ne
 		}
 	});
 
-	it('logs auth.slow_code_request, without the address, when a send runs past the floor, and still answers 202', async () => {
-		const t = testAuth({ mailDelayMs: CODE_REQUEST_MIN_LATENCY_MS + 1 });
+	it('logs auth.slow_code_request, without the address, when the enqueue runs past the floor, and still answers 202', async () => {
+		const t = testAuth({ queueDelayMs: CODE_REQUEST_MIN_LATENCY_MS + 1 });
 		await bootstrap(t);
 		const a = app(t);
 		const res = await askCode(a, ADMIN);
@@ -291,28 +304,71 @@ describe('the alarm signals (auth-kit listed / capReached / limit: logs only, ne
 		expect(eventsLogged()).toEqual([{ event: 'auth.slow_code_request' }]);
 	});
 
-	it('logs nothing when the send fits inside the floor', async () => {
-		const t = testAuth({ mailDelayMs: 400 });
+	it('logs nothing when the enqueue fits inside the floor', async () => {
+		const t = testAuth({ queueDelayMs: 400 });
 		await bootstrap(t);
 		expect((await askCode(app(t), ADMIN)).status).toBe(202);
 		expect(t.sleeps).toEqual([CODE_REQUEST_MIN_LATENCY_MS - 400]);
 		expect(eventsLogged()).toEqual([]);
 	});
 
-	it('pads even an SES send at its worst case to the floor, so the answer comes no later than an unlisted one', async () => {
-		// The review's case: a send at 2.5 s ran past auth-kit's 1 s floor. A send can now take up to
-		// SES_SEND_WORST_CASE_MS (then sesMailer stops it); the default floor sits above that.
-		const t = testAuth({ mailDelayMs: SES_SEND_WORST_CASE_MS });
+	it('still answers 202 when the enqueue fails, listed or not, and logs mail.enqueue_failed by name only', async () => {
+		const t = testAuth({ queueFails: true });
+		const admin = await bootstrap(t);
+		const a = app(t);
+		expect((await askCode(a, ADMIN)).status).toBe(202);
+		expect((await askCode(a, STRANGER)).status).toBe(202);
+		expect(eventsLogged()).toEqual([
+			{ event: 'mail.enqueue_failed', userId: admin.id, error: 'QueueDoesNotExist' },
+			{ event: 'mail.enqueue_failed', error: 'QueueDoesNotExist' }
+		]);
+		expect(t.sleeps).toEqual([CODE_REQUEST_MIN_LATENCY_MS, CODE_REQUEST_MIN_LATENCY_MS]);
+		expect(t.outbox).toEqual([]);
+	});
+
+	it('on SQS, sends one SendMessage of the same size for a listed and an unlisted address, and no mail inside the request', async () => {
+		// The Lambda's wiring (MAIL_QUEUE=sqs), with an SQS client that records each command and a mailer
+		// that must never run during a request: the floor no longer has to cover SES.
+		const sent: { QueueUrl?: string; MessageBody?: string }[] = [];
+		const client = { send: async (c: { input: { QueueUrl?: string; MessageBody?: string } }) => void sent.push(c.input) } as never;
+		const queueUrl = 'https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-send';
+		const mailed: unknown[] = [];
+		const base = testAuth();
+		const runtime = createAuthRuntime({
+			store: base.store,
+			codeKey: 'q'.repeat(40),
+			sessionKey: 's'.repeat(40),
+			mail: async (m) => void mailed.push(m),
+			queue: (sealer) => sqsMailQueue({ queueUrl, sealer, client }),
+			clock: base.clock,
+			sleep: async (ms) => void base.sleeps.push(ms)
+		});
+		if (!runtime.ready) throw new Error(runtime.problem);
+		await runtime.kit.bootstrapAdmin(ADMIN);
+		const a = app({ auth: runtime });
+		expect((await askCode(a, ADMIN)).status).toBe(202);
+		expect((await askCode(a, STRANGER)).status).toBe(202);
+		expect(mailed).toEqual([]);
+		expect(base.sleeps).toEqual([CODE_REQUEST_MIN_LATENCY_MS, CODE_REQUEST_MIN_LATENCY_MS]);
+		expect(sent.map((c) => Object.keys(c).sort())).toEqual([
+			['MessageBody', 'QueueUrl'],
+			['MessageBody', 'QueueUrl']
+		]);
+		expect(sent.map((c) => c.QueueUrl)).toEqual([queueUrl, queueUrl]);
+		expect(sent[1]!.MessageBody!.length).toBe(sent[0]!.MessageBody!.length);
+		expect(runtime.sealer.open(sent[0]!.MessageBody!)).toMatchObject({ kind: 'mail', mail: { to: ADMIN } });
+		expect(runtime.sealer.open(sent[1]!.MessageBody!)).toEqual({ kind: 'decoy' });
+	});
+
+	it('enqueues nothing, for anyone, when the request is throttled', async () => {
+		const t = testAuth();
 		await bootstrap(t);
-		const started = t.clock.now();
-		expect((await askCode(app(t), ADMIN)).status).toBe(202);
-		const listed = t.clock.now() - started;
-		const u = testAuth();
-		const s = u.clock.now();
-		expect((await askCode(app(u), STRANGER)).status).toBe(202);
-		expect(listed).toBe(u.clock.now() - s);
-		expect(listed).toBe(CODE_REQUEST_MIN_LATENCY_MS);
-		expect(eventsLogged()).toEqual([]);
+		const a = app(t);
+		await askCode(a, ADMIN);
+		await askCode(a, STRANGER);
+		expect((await askCode(a, ADMIN)).status).toBe(429);
+		expect((await askCode(a, STRANGER)).status).toBe(429);
+		expect(t.queued).toHaveLength(2);
 	});
 
 	it('logs an unexpected error by name and code, never its message, which may hold an address', async () => {
@@ -421,15 +477,16 @@ describe('the gate', () => {
 	});
 
 	it('fails closed on Lambda when a key or the table is missing', async () => {
-		const lambda = { AWS_LAMBDA_FUNCTION_NAME: 'pitman-backend', USER_STORE: 'dynamodb', USERS_TABLE: 'pitman-users', MAIL_TRANSPORT: 'ses', MAIL_FROM: 'Pitman <no-reply@example.test>', SES_CONFIGURATION_SET: 'pitman', AUTH_CODE_KEY: 'c'.repeat(32), AUTH_SESSION_KEY: 's'.repeat(32) };
-		for (const gap of [{ AUTH_CODE_KEY: undefined }, { AUTH_SESSION_KEY: 's'.repeat(31) }, { USERS_TABLE: undefined }, { USER_STORE: undefined }]) {
+		const lambda = { AWS_LAMBDA_FUNCTION_NAME: 'pitman-backend', USER_STORE: 'dynamodb', USERS_TABLE: 'pitman-users', MAIL_TRANSPORT: 'ses', MAIL_FROM: 'Pitman <no-reply@example.test>', SES_CONFIGURATION_SET: 'pitman', MAIL_QUEUE: 'sqs', MAIL_QUEUE_URL: 'https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-send', AUTH_CODE_KEY: 'c'.repeat(32), AUTH_SESSION_KEY: 's'.repeat(32) };
+		expect(authRuntimeFromEnv(lambda).ready).toBe(true);
+		for (const gap of [{ AUTH_CODE_KEY: undefined }, { AUTH_SESSION_KEY: 's'.repeat(31) }, { USERS_TABLE: undefined }, { USER_STORE: undefined }, { MAIL_QUEUE: undefined }, { MAIL_QUEUE_URL: undefined }]) {
 			const runtime = authRuntimeFromEnv({ ...lambda, ...gap });
 			expect(runtime.ready).toBe(false);
 			const a = app({ auth: runtime });
 			expect((await call(a, 'POST', '/chirps/monthly', { body: {} })).status).toBe(503);
 			expect((await askCode(a, ADMIN)).status).toBe(503);
 		}
-		expect(eventsLogged().map((e) => e.event)).toEqual(['auth.unconfigured', 'auth.unconfigured', 'auth.unconfigured', 'auth.unconfigured']);
+		expect(eventsLogged().map((e) => e.event)).toEqual(Array(6).fill('auth.unconfigured'));
 	});
 });
 

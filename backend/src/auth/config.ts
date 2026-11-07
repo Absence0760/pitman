@@ -6,6 +6,7 @@ import { MIN_SECRET_LENGTH } from '@absence0760/auth-kit';
 
 export type UserStoreKind = 'memory' | 'dynamodb';
 export type MailTransportKind = 'console' | 'smtp' | 'ses';
+export type MailQueueKind = 'inline' | 'sqs';
 
 export interface AuthConfig {
 	store: { kind: 'memory' } | { kind: 'dynamodb'; table: string; endpoint?: string };
@@ -15,6 +16,8 @@ export interface AuthConfig {
 		| { kind: 'console'; from: string }
 		| { kind: 'smtp'; from: string; host: string; port: number }
 		| { kind: 'ses'; from: string; configurationSet: string };
+	/** Where POST /auth/code puts the email (auth/mailQueue.ts): in-process in local dev, SQS on the Lambda. */
+	queue: { kind: 'inline' } | { kind: 'sqs'; url: string };
 	/**
 	 * Local dev over plain http only: a non-Secure `pitman_session` cookie instead of `__Host-pitman_session`,
 	 * for browsers that refuse a Secure cookie from http://localhost. Never on Lambda (refused below).
@@ -30,6 +33,9 @@ type Env = Record<string, string | undefined>;
 export const onLambda = (env: Env) => !!env.AWS_LAMBDA_FUNCTION_NAME;
 
 const DEV_FROM = 'Pitman <no-reply@localhost>';
+
+/** A regional SQS queue URL, as Terraform's aws_sqs_queue.url gives it. */
+const SQS_QUEUE_URL = /^https:\/\/sqs\.[a-z0-9-]+\.amazonaws\.com\/\d{12}\/[A-Za-z0-9_-]{1,80}$/;
 
 /** The settings, or what is wrong with them. A problem names the variable, never its value. */
 export function readAuthConfig(env: Env): AuthConfigResult {
@@ -79,8 +85,23 @@ export function readAuthConfig(env: Env): AuthConfigResult {
 		return problem(mailKind ? 'MAIL_TRANSPORT must be console, smtp or ses' : 'MAIL_TRANSPORT is not set (the Lambda needs ses)');
 	}
 
+	const queueKind = env.MAIL_QUEUE || (lambda ? '' : 'inline');
+	let queue: AuthConfig['queue'];
+	if (queueKind === 'inline') {
+		// The Lambda freezes once it has answered, so a send deferred past the answer could be lost.
+		if (lambda) return problem('MAIL_QUEUE=inline is for local dev; the Lambda needs MAIL_QUEUE=sqs');
+		queue = { kind: 'inline' };
+	} else if (queueKind === 'sqs') {
+		const url = env.MAIL_QUEUE_URL ?? '';
+		if (!url) return problem('MAIL_QUEUE_URL is not set');
+		if (!SQS_QUEUE_URL.test(url)) return problem('MAIL_QUEUE_URL is not an SQS queue URL (https://sqs.<region>.amazonaws.com/<account>/<name>)');
+		queue = { kind: 'sqs', url };
+	} else {
+		return problem(queueKind ? 'MAIL_QUEUE must be inline or sqs' : 'MAIL_QUEUE is not set (the Lambda needs sqs)');
+	}
+
 	const devCookie = env.AUTH_DEV_COOKIE === 'true';
 	if (devCookie && lambda) return problem('AUTH_DEV_COOKIE is for local dev over http; the Lambda always uses the __Host- cookie');
 
-	return { ok: true, config: { store, codeKey, sessionKey, mail, devCookie } };
+	return { ok: true, config: { store, codeKey, sessionKey, mail, queue, devCookie } };
 }

@@ -1,8 +1,13 @@
 // Sign-in for tests: auth-kit's memory store, throwaway keys, a clock the test moves and a sleep that moves
 // it (never a real wait), and an outbox instead of mail. Synthetic addresses only (example.test).
+//
+// The mail queue records every sealed body POST /auth/code enqueues (`queued`, decoys included), then opens
+// and delivers it at once through the real deliverSealed, so `outbox` holds the codes straight after a
+// request. A slow or failing queue moves the test clock or throws, as SQS would.
 import { cryptoRandom, memoryStore, randomSecret, type MemoryStore, type UserRecord } from '@absence0760/auth-kit';
 import { createAuthRuntime, type AuthReady } from '../auth/runtime.js';
 import type { SignInMail } from '../auth/mail.js';
+import { deliverSealed } from '../auth/mailQueue.js';
 
 export const TEST_ORIGIN = 'http://localhost:7777';
 export const ADMIN = 'admin@example.test';
@@ -16,6 +21,8 @@ export interface TestAuth {
 	auth: AuthReady;
 	store: MemoryStore;
 	outbox: SignInMail[];
+	/** Every sealed message enqueued, in order: one per accepted code request, listed or not. */
+	queued: string[];
 	clock: TestClock;
 	/** Every pad withMinimumLatency asked for, in ms. */
 	sleeps: number[];
@@ -26,21 +33,31 @@ export function testClock(start = Date.parse('2026-11-07T08:00:00Z')): TestClock
 	return { now: () => t, advance: (ms) => void (t += ms) };
 }
 
-export function testAuth(options: { devCookie?: boolean; mailFails?: boolean; mailDelayMs?: number; store?: MemoryStore; minLatencyMs?: number } = {}): TestAuth {
+export function testAuth(options: { devCookie?: boolean; mailFails?: boolean; queueFails?: boolean; queueDelayMs?: number; store?: MemoryStore; minLatencyMs?: number } = {}): TestAuth {
 	const store = options.store ?? memoryStore();
 	const outbox: SignInMail[] = [];
+	const queued: string[] = [];
 	const clock = testClock();
 	const sleeps: number[] = [];
+	const mail = async (m: SignInMail) => {
+		if (options.mailFails) throw Object.assign(new Error(`could not deliver to ${m.to}`), { name: 'MessageRejected' });
+		outbox.push(m);
+	};
 	const auth = createAuthRuntime({
 		store,
 		codeKey: randomSecret(cryptoRandom),
 		sessionKey: randomSecret(cryptoRandom),
-		mail: async (m) => {
-			// A slow send (SES throttling, a retry): moves the test clock, never a real wait.
-			if (options.mailDelayMs) clock.advance(options.mailDelayMs);
-			if (options.mailFails) throw Object.assign(new Error(`could not deliver to ${m.to}`), { name: 'MessageRejected' });
-			outbox.push(m);
-		},
+		mail,
+		queue: (sealer) => ({
+			async enqueue(m) {
+				// A slow SendMessage: moves the test clock, never a real wait.
+				if (options.queueDelayMs) clock.advance(options.queueDelayMs);
+				if (options.queueFails) throw Object.assign(new Error(`could not enqueue for ${m?.to ?? 'nobody'}`), { name: 'QueueDoesNotExist' });
+				const body = sealer.seal(m);
+				queued.push(body);
+				await deliverSealed(body, { sealer, mail, clock });
+			}
+		}),
 		devCookie: options.devCookie ?? false,
 		clock,
 		sleep: async (ms) => {
@@ -50,7 +67,7 @@ export function testAuth(options: { devCookie?: boolean; mailFails?: boolean; ma
 		...(options.minLatencyMs !== undefined ? { minLatencyMs: options.minLatencyMs } : {})
 	});
 	if (!auth.ready) throw new Error(auth.problem);
-	return { auth, store, outbox, clock, sleeps };
+	return { auth, store, outbox, queued, clock, sleeps };
 }
 
 /** Bootstraps ADMIN (once) and returns them. */

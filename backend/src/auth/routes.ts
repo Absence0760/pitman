@@ -5,6 +5,7 @@
 // Logs carry an event name and at most a user id: never an address, a code or a token (A-AUTH-11).
 import { SESSION_TTL_SECONDS, withMinimumLatency, type AuditEntry, type Result, type UserRecord } from '@absence0760/auth-kit';
 import { Hono, type Context } from 'hono';
+import { errorSummary } from '../http/logError.js';
 import { sessionCookieFor } from './cookies.js';
 import { NOT_CONFIGURED, type AuthEnv } from './middleware.js';
 import type { AuthRuntime } from './runtime.js';
@@ -50,25 +51,27 @@ export function publicAuthRoutes(auth: AuthRuntime) {
 		if (!body) return c.json({ error: AUTH_MESSAGES.notJson }, 400);
 		const clock = auth.latency.clock ?? { now: () => Date.now() };
 		const started = clock.now();
-		// One floor for everything a listed address costs more than an unlisted one: the code and the email.
+		// The floor covers auth-kit's store work and the enqueue. No mail is sent here (issue #30): a listed
+		// address enqueues its code, an unlisted one a decoy of the same size, so both do the same work.
 		const r = await withMinimumLatency(
 			auth.latency.minMs,
 			async () => {
 				const r = await auth.kit.requestCode(body.email);
-				if (r.status === 'accepted' && r.delivery) {
+				if (r.status === 'accepted') {
+					const d = r.delivery;
 					try {
-						await auth.mail({ to: r.delivery.to, code: r.delivery.code });
+						await auth.queue.enqueue(d ? { to: d.to, code: d.code, expiresAt: d.expiresAt, userId: d.user.id } : null);
 					} catch (e) {
-						// The error's name only: SES puts the recipient in its messages.
-						logEvent({ event: 'mail.send_failed', userId: r.delivery.user.id, error: e instanceof Error ? e.name : 'unknown' });
+						// By name and code only, never the message. The user waits for a code that never comes.
+						logEvent({ event: 'mail.enqueue_failed', ...(d ? { userId: d.user.id } : {}), ...errorSummary(e) });
 					}
 				}
 				return r;
 			},
 			auth.latency
 		);
-		// Past the floor, the time a request took can tell a listed address (it sent mail) from an unlisted
-		// one: logged, with no address, for the alarm auth-kit asks for. The answer is unchanged.
+		// Past the floor the answer is late, for a listed and an unlisted address alike (a slow store or SQS):
+		// logged, with no address, for the alarm auth-kit asks for. The answer is unchanged.
 		if (clock.now() - started > auth.latency.minMs) logEvent({ event: 'auth.slow_code_request' });
 		// This send used a listed address's last of the day: it gets no code for up to a day, a lockout nobody
 		// would otherwise notice (docs/security.md § Known risks). Unlisted addresses never count, so strangers'
