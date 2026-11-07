@@ -65,4 +65,11 @@ describe('rateLimit', () => {
 		expect(await key('130.176.0.7', EDGE)).toBe('130.176.0.7');
 		expect(await key('203.0.113.5')).toBe('203.0.113.5');
 	});
+
+	it('ignores a CloudFront-Viewer-Address the client sends itself', async () => {
+		const a = new Hono();
+		a.get('/', (c) => c.text(clientKey(c)));
+		const r = await a.request('/', { headers: { 'cloudfront-viewer-address': '1.2.3.4:443', 'x-forwarded-for': '203.0.113.5' } });
+		expect(await r.text()).toBe('203.0.113.5');
+	});
 });

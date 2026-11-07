@@ -21,11 +21,11 @@ export interface RateLimitOptions {
  * connected to it (the CloudFront edge) is not documented, so entries equal to that connecting address
  * (the Lambda event's `requestContext.http.sourceIp`) are dropped from the right first: the key is the
  * viewer either way, never the edge that many unrelated viewers share. Locally there is no header:
- * every request shares one bucket.
+ * every request shares one bucket. `CloudFront-Viewer-Address` is deliberately not read: the origin
+ * request policy (AllViewerExceptHostHeader) doesn't ask CloudFront to add it, so a client could send
+ * its own and choose its key.
  */
 export function clientKey(c: Context): string {
-	const viewer = c.req.header('cloudfront-viewer-address');
-	if (viewer) return viewer.replace(/:\d+$/, '');
 	const entries = (c.req.header('x-forwarded-for') ?? '')
 		.split(',')
 		.map((e) => e.trim())
