@@ -86,7 +86,7 @@ jobs:
           DYNAMODB_ENDPOINT: http://127.0.0.1:8000
         run: pnpm test
 
-      - name: Run repo tool tests (coverage summary, CSP check, CloudFront functions)
+      - name: Run repo tool tests (root-scripts guard, CI guards, coverage summary, CSP check, CloudFront functions)
         run: pnpm test:tools
 
   e2e:
@@ -159,6 +159,31 @@ jobs:
       - name: Check every relative markdown link resolves
         run: node scripts/ci-guards/check_doc_links.mjs
 
+  # The committed .env.development files stay local-only: local hosts, reserved mail domains, dev-only- keys,
+  # local data sources, PUBLIC_* in the frontend, no sops / tfvars / other env file tracked
+  # (scripts/ci-guards/env-isolation.mjs, docs/security.md § Secrets management). Needs no install, so no
+  # auth-kit token. It never prints a value, only the file, line and rule.
+  env-isolation:
+    name: Env isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Guard unit tests
+        run: node --test scripts/ci-guards/env-isolation.test.mjs
+
+      - name: Check the committed env files (pnpm check:env)
+        run: node scripts/ci-guards/env-isolation.mjs
+
   # Single required status check for branch protection (docs/USING.md
   # "The CI gate"). It fans in on every job above via `needs` + always(),
   # failing the merge if any upstream job did not succeed (a skipped job
@@ -172,7 +197,7 @@ jobs:
     name: CI gate
     runs-on: ubuntu-latest
     if: always()
-    needs: [test, e2e, doc-links]
+    needs: [test, e2e, doc-links, env-isolation]
     steps:
       - name: Require every upstream job to have passed
         env:

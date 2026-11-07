@@ -16,6 +16,10 @@ the source under `backend/src/{mirror,feeds,geo,delineation}` and
 unless they start with `packages/` or name Pitman. Pitman never writes to
 IC-WBT and is not wired into it (issue #3).
 
+A change that makes the code call a host this page (or `docs/security.md`)
+doesn't name gets a compliance-drift annotation (`docs/security.md`
+§ Compliance drift): a new data source is recorded here in the same change.
+
 ## Summary
 
 | Dataset | Pitman uses it for | Where it lives | Format | Licence | In IC-WBT production? |

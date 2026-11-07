@@ -19,9 +19,12 @@ pnpm build                   # build all workspaces
 pnpm check                   # typecheck all
 pnpm check:doc-links         # every relative markdown link resolves (file + heading slug)
 pnpm test                    # vitest run across workspaces
+pnpm check:env               # the committed .env.development files stay local-only (no values printed)
+pnpm check:compliance        # advisory: this branch vs origin/main, privacy/data docs moved with new hosts, SDKs, personal data
 pnpm test:frontend:e2e       # Playwright against the built site (first: pnpm --filter @pitman/frontend exec playwright install chromium)
 pnpm test:coverage           # the same with v8 coverage + a table of what no test reaches (a report, never a gate)
-pnpm test:tools              # node:test suites for scripts/ and infra/scripts/ (coverage summary, workflow guards, CSP check)
+pnpm test:tools              # test:scripts, then node:test suites for scripts/ and infra/scripts/ (coverage summary, CI guards, CSP check)
+pnpm test:scripts            # root-scripts guard: every root script target resolves, the //-- groups hold
 pnpm frontend <script>       # run a script in one workspace
 pnpm backend <script>
 ```
@@ -67,7 +70,7 @@ Production deploy (after first-time setup): see `infra/README.md § First-time s
 - `docs/security.md` — risk register, mitigations, incident playbook
 - `docs/design/ui-playbook.md` — the look, the design tokens and how screens are checked
 - `infra/README.md` — Terraform module specifics
-- `.github/workflows/` — `ci.yml` (PR + push typecheck/test), two deploy workflows (frontend, backend), `claude.yml` Claude Code automation, `audit.yml` (weekly `pnpm audit`), `dependabot-lockfile.yml` (syncs root `pnpm-lock.yaml` on Dependabot PRs), `gitleaks-sweep.yml` (weekly full-history secret scan, opens a `secret-scan` issue on failure), `coverage.yml` (weekly coverage report), `terraform.yml` (`infra/` fmt + validate + Trivy, credential-free; Terraform version in `infra/.terraform-version`), `pr-mergeable.yml` (flags a conflicted PR that CI never ran on), `fresh-clone.yml` (clean checkout → `pnpm install` → `pnpm dev:data:synthetic` → `pnpm dev`, asserts :3001 and :7777 answer; on setup-path changes, weekly and by hand). Dependabot config in `.github/dependabot.yml`.
+- `.github/workflows/` — `ci.yml` (PR + push typecheck/test, Playwright, the `doc-links` and `env-isolation` jobs; all fan into the `CI gate` check), two deploy workflows (frontend, backend), `claude.yml` Claude Code automation, `audit.yml` (weekly `pnpm audit`), `dependabot-lockfile.yml` (syncs root `pnpm-lock.yaml` on Dependabot PRs), `gitleaks-sweep.yml` (weekly full-history secret scan, opens a `secret-scan` issue on failure), `coverage.yml` (weekly coverage report), `terraform.yml` (`infra/` fmt + validate + Trivy, credential-free; Terraform version in `infra/.terraform-version`), `pr-mergeable.yml` (flags a conflicted PR that CI never ran on), `fresh-clone.yml` (clean checkout → `pnpm install` → `pnpm dev:data:synthetic` → `pnpm dev`, asserts :3001 and :7777 answer; on setup-path changes, weekly and by hand), `compliance-drift.yml` (advisory on PR and push to main: a new outside host, analytics SDK, sign-in personal-data field or auth-kit bump without `docs/security.md` / `docs/data.md`; warns, never fails). Dependabot config in `.github/dependabot.yml`.
 
 Prefer reading these over guessing. Update them when behavior changes.
 

@@ -1,0 +1,84 @@
+name: Compliance drift
+
+# Advisory guard against a change quietly invalidating the privacy (POPIA) and data docs (estate standard:
+# project-water-management's, threkir's and feohledger's compliance-drift.yml). Source that starts calling
+# a new outside host, a new analytics/telemetry SDK in a package.json, a new personal-data field in the
+# sign-in code (backend/src/auth, backend/scripts, infra/users.tf) or an auth-kit pin bump should move
+# docs/security.md (and docs/data.md for a new data source) with it. Rules and their tests:
+# scripts/ci-guards/compliance-drift.mjs (`pnpm check:compliance`).
+#
+# `warn` mode: it annotates and writes a job summary but never fails, and it is not in ci.yml's CI gate.
+# Flip COMPLIANCE_DRIFT_MODE to `fail` once the signal has proven low-noise.
+#
+# Measured at introduction (2026-11-07, main at 614ecec, 260 commits): over the 211 non-merge commits, 2 findings,
+# both explainable: auth-kit-bump on 7c3c4fb (auth-kit's first install; § Users and sign-in followed in
+# later #28 commits) and outbound-host on 91d4fe0 (the privacy notice's link to the Information Regulator,
+# a link rather than a data flow). Over the 125 first-parent steps of main (push granularity): 1, the same
+# link. With each commit's docs/security.md change left out it also fires on 516fbe5, the auth-kit v0.2.0
+# bump, which did update the doc; leaving out docs/data.md changes nothing, because pitman's data sources
+# take their hosts from the environment rather than from source. pii-field never fired: every
+# personal-data identifier the sign-in code has gained (email) was already in docs/security.md.
+#
+# Runs on push to main as well as PRs, because the operator pushes to main directly during early
+# development (CLAUDE.md "Working alongside other Claude sessions"); there is no PR to hang it on.
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/**'
+      - 'backend/scripts/**'
+      - 'frontend/src/**'
+      - 'packages/*/src/**'
+      - '**/package.json'
+      - 'infra/users.tf'
+      - 'docs/security.md'
+      - 'docs/data.md'
+      - 'scripts/ci-guards/compliance-drift*.mjs'
+      - '.github/workflows/compliance-drift.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/**'
+      - 'backend/scripts/**'
+      - 'frontend/src/**'
+      - 'packages/*/src/**'
+      - '**/package.json'
+      - 'infra/users.tf'
+      - 'docs/security.md'
+      - 'docs/data.md'
+      - 'scripts/ci-guards/compliance-drift*.mjs'
+      - '.github/workflows/compliance-drift.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  compliance-drift:
+    name: Compliance drift advisory
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The detector diffs against the PR base / the push's `before`.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Detector unit tests
+        run: |
+          if ! node --test scripts/ci-guards/compliance-drift.test.mjs; then
+            echo "::error::The compliance-drift detector's own tests failed, so whatever it says about this diff cannot be trusted. This is not a compliance finding."
+            exit 1
+          fi
+
+      - name: Run compliance-drift detector (pnpm check:compliance)
+        env:
+          COMPLIANCE_DRIFT_MODE: warn
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/ci-guards/compliance-drift.mjs

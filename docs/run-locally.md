@@ -46,6 +46,8 @@ pnpm backend dev          # backend only
 pnpm check                # all workspaces
 pnpm frontend check       # svelte-check on frontend
 pnpm backend check        # tsc --noEmit on backend
+pnpm check:env            # the committed .env.development files stay local-only
+pnpm check:compliance     # advisory: this branch vs origin/main, privacy/data docs kept in step
 ```
 
 `pnpm check:doc-links` checks that every relative link in the tracked markdown resolves, to the file and to the GitHub heading slug (`scripts/ci-guards/check_doc_links.mjs`; the byte-exact `docs/formats/examples/` is skipped). Rewording a heading breaks every link to it; the failure names the slug to write when the heading is numbered.
@@ -64,6 +66,7 @@ pnpm backend build        # esbuild bundle for Lambda
 pnpm test                 # all workspaces
 pnpm backend test         # backend only
 pnpm frontend test        # frontend only
+pnpm test:tools           # repo scripts + CI guards (scripts/ci-guards/), root-scripts guard first
 ```
 
 ## Using the app locally

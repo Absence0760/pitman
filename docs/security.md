@@ -16,8 +16,21 @@ Cross-cutting security considerations for this project.
 - **Plaintext secrets are gitignored.** `.gitignore` covers `.env`,
   `.env.*.local`, and `*.tfvars`. The committed `.env.development` is the
   exception — it holds only non-sensitive local defaults (localhost URLs,
-  ports), never real secrets; those stay SOPS-encrypted (`*.sops`) or in a
-  gitignored `.env.development.local`.
+  ports), never real secrets; those stay SOPS-encrypted in `infra-secrets` or
+  in a gitignored `.env.development.local`.
+- **The committed env files are guarded** (`pnpm check:env`,
+  `scripts/ci-guards/env-isolation.mjs`, CI job `env-isolation` in the CI
+  gate). The only tracked env files are `*.env.development` and
+  `*.env.example`; no `*.tfvars` or sops file is tracked. In the dev defaults
+  every host is local, every email address is on a reserved domain
+  (`example.test`, `localhost`), a key named `*_KEY` / `*_SECRET` / `*_TOKEN` /
+  `*_PASSWORD` is empty or `dev-only-…`, no AWS credential or profile is set,
+  every data `*_SOURCE` is `local` with its `*_LOCAL_FILE` / `*_LOCAL_DIR`
+  inside the workspace, the user store is memory or DynamoDB Local
+  (`*-local` table) and mail goes to the console or Mailpit. Frontend env
+  files hold `PUBLIC_*` keys only, with `PUBLIC_API_URL=/api`. It reports
+  file, line and rule, never a value. gitleaks catches credential shapes;
+  this catches a real value of a harmless-looking shape.
 - **No decrypted secret is written to disk** — Terraform's `carlpett/sops` provider decrypts `infra-secrets`' files in-memory at plan/apply.
 - **CI/CD uses GitHub OIDC** — no long-lived AWS access keys in GitHub secrets.
 
@@ -310,6 +323,30 @@ A request to erase a person's address (POPIA), in order:
 4. **Record it**: the date, and that steps 1 to 3 are done (not the
    address). Erasure is complete 35 days later, when point-in-time recovery
    no longer holds the deleted items.
+
+## Compliance drift
+
+`.github/workflows/compliance-drift.yml` (`pnpm check:compliance`,
+`scripts/ci-guards/compliance-drift.mjs`) runs on every pull request and every
+push to `main` and annotates a change that should have moved this page or
+`docs/data.md` and didn't:
+
+- **outbound-host**: `backend/src`, `frontend/src` or `packages/*/src` gains
+  a URL to a host that isn't local, reserved, AWS or the site, and that
+  neither this page nor `docs/data.md` names. A data source goes in
+  `docs/data.md`; a host that receives personal data is a sub-processor and
+  goes here.
+- **sdk-dependency**: a `package.json` gains an analytics, telemetry or
+  other third-party SDK this page doesn't name.
+- **pii-field**: the sign-in code (`backend/src/auth`, `backend/scripts`,
+  `infra/users.tf`) gains a personal-data-shaped identifier (a phone number,
+  a display name, a user agent, …) this page doesn't name.
+- **auth-kit-bump**: the `@absence0760/auth-kit` pin moves. auth-kit owns the
+  user record and the audit rows, so check its changelog for new stored or
+  logged personal data and update § Users and sign-in.
+
+It warns and never fails, and isn't in the CI gate; the workflow's header
+records what it found over the history when it was introduced.
 
 ## Incident playbook
 
