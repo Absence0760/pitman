@@ -31,7 +31,7 @@ export function actionText(row: AuditRow): string {
 			return `cleared the sign-in lock on ${target}`;
 		case 'erase':
 			return `erased ${target} from the log`;
-		// Written by `pnpm admin:export` (backend/scripts/export-address.ts); not yet one of auth-kit's actions.
+		// Written by auth-kit's exportAddress, which `pnpm admin:export` runs (backend/scripts/export-address.ts).
 		case 'export':
 			return `exported what Pitman holds about ${target} (access request)`;
 		case 'mail.bounce':

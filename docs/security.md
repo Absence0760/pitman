@@ -169,7 +169,7 @@ runs it.
 
 Issue #28, decided as A-AUTH-0 … 11 in `docs/decisions.md` (2026-11-07). The
 sign-in, session and user-management code comes from the shared private
-package `Absence0760/auth-kit` at a pinned tag (A-AUTH-0, `v0.2.0`); pitman
+package `Absence0760/auth-kit` at a pinned tag (A-AUTH-0, `v0.3.0`); pitman
 keeps its own routes, gate, mail, cookie, user table, admins, SES sender,
 privacy notice and AWS account. Network files still never leave the browser.
 
@@ -199,8 +199,10 @@ privacy notice and AWS account. Network files still never leave the browser.
 - **Sessions**: `__Host-pitman_session` (`Secure; HttpOnly; SameSite=Strict;
   Path=/`, no `Domain`), HS256 with `jti` and `kid`, 7 days, re-checked
   against the user record and revocations on every request, so a removal or
-  demotion bites on the next request. "Sign out" revokes the `jti`; "sign out
-  everywhere" moves the user's watermark. Local dev over http may use a plain
+  demotion bites on the next request. "Sign out" revokes the `jti` (kept
+  until the token would have expired, with an entry in the user's session
+  index since auth-kit v0.3.0, so erasure and an access request find it);
+  "sign out everywhere" moves the user's watermark. Local dev over http may use a plain
   `pitman_session` without `Secure` (`AUTH_DEV_COOKIE=true`), which the config
   refuses on Lambda.
 - **Admin rules**: admins only (403); nobody removes or demotes themself
@@ -348,9 +350,11 @@ information about someone, and for a copy of it. There is no self-serve
    is on record and appears in the export itself. The profile needs auth-kit's
    `DYNAMODB_IAM_ACTIONS` on the table, `lambda:GetFunctionConfiguration`
    and `ses:GetSuppressedDestination`; without the last it still writes the
-   export, with SES marked "not checked", says so and exits 1. The export is
-   JSON, one section per kind of record in
-   `backend/scripts/personal-records.ts`, each with what it is in words and
+   export, with SES marked "not checked", says so and exits 1. The table's
+   part comes from auth-kit's `exportAddress` (v0.3.0), which writes the
+   `export` row and gathers one section per kind in its `PERSONAL_RECORDS`,
+   the same list its `eraseAddress` works from; the script adds the SES
+   section. The export is JSON, each section with what it is in words and
    how many were found; times are UTC ISO 8601 and audit actions are in words:
 
    | Section | What it holds |
@@ -359,19 +363,24 @@ information about someone, and for a copy of it. There is no self-serve
    | `address` | The address index item (address → user id) |
    | `code` | A live sign-in code's expiry and wrong tries (never its hash) |
    | `throttle` | Codes sent in the last 24 h, wrong codes in a row, the last wrong code, any lock |
+   | `revokedSessions` | Sessions they signed out of (session id, refused until), from the user's session index while they are listed |
    | `auditActor` | Audit rows where they acted: sign-ins, wrong codes, user-list changes, under their address or as `unlisted:<hmac>` / `erased:<hmac>` |
    | `auditTarget` | Audit rows about them: added, made or unmade admin, removed, mail bounced or complained, flag cleared, lock cleared, an earlier export |
    | `addedBy` | Users they added (when, and whether as admin); those users' addresses withheld |
    | `sesSuppression` | SES's suppression entry: reason (`BOUNCE` / `COMPLAINT`) and when, or none |
 
    Another person's address in any of these (the admin who added them, a
-   user they added) reads "another person (withheld)"; `operator` and
-   `system` stay as they are. The export also lists what is *not* held:
-   network files (they never leave the browser), log lines (no address),
-   signed-out session ids (user id only, 7 days), and point-in-time recovery
-   (35 days). Its coverage is the erasure's: `personal-records.test.ts` runs
-   `admin:erase` over a store holding every kind and fails if erasure touches
-   any record the export doesn't report.
+   user they added) reads "another person (withheld)"; `operator` reads "the
+   operator" and `system` "mail delivery (Amazon SES)". The export also
+   lists what is *not* held: network files (they never leave the browser),
+   log lines (no address), signed-out sessions of someone already removed
+   from the list (a session id and a user id that no longer leads to the
+   address, at most 7 days), and point-in-time recovery (35 days). auth-kit
+   owns the record list and its coverage: its contract suite runs a real
+   erasure over a table holding every kind and fails if erasure touches
+   anything the export doesn't return. Pitman's
+   `backend/scripts/export-address.test.ts` checks that every one of
+   auth-kit's kinds reaches the file, then SES.
 4. **Check what sits outside the table.** Nothing here should name the
    address; a hit is a bug (A-AUTH-11) to fix, and to mention in the answer.
    Read the address into a variable so it never lands in shell history:
@@ -412,7 +421,8 @@ A request to erase a person's address (POPIA), in order:
    no longer listed.
 2. **The operator runs `pnpm admin:erase`** and types the address when asked.
    It removes the user if still listed (refused if they are the last admin),
-   deletes the code and lock items, and replaces the address with
+   deletes the code and lock items and the user's signed-out sessions, and
+   replaces the address with
    `erased:<hmac>` in every audit row and in other users' "added by". It is
    audited as `erase`. If rows naming the address keep appearing while it
    works, auth-kit stops after 5 passes and the script says "Not finished":

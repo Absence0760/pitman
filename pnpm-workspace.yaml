@@ -11,7 +11,7 @@ packages:
 #   without a reviewed change here.
 onlyBuiltDependencies:
   - esbuild
-  - "@absence0760/auth-kit@git+ssh://git@github.com/Absence0760/auth-kit.git#1a739cd8b4ae8614892d70d22b9d0f0c8c945481"
+  - "@absence0760/auth-kit@git+ssh://git@github.com/Absence0760/auth-kit.git#7eb4cb6548ba7428b0520a24500492edf3af9f0c"
 allowBuilds:
   esbuild: true
-  "@absence0760/auth-kit@git+ssh://git@github.com/Absence0760/auth-kit.git#1a739cd8b4ae8614892d70d22b9d0f0c8c945481": true
+  "@absence0760/auth-kit@git+ssh://git@github.com/Absence0760/auth-kit.git#7eb4cb6548ba7428b0520a24500492edf3af9f0c": true

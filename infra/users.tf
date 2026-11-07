@@ -5,6 +5,7 @@
 #   USER#<id>, EMAIL#<email>, META#admins    the list and its invariants
 #   CODE#<hmac>, THROTTLE#<hmac>             sign-in codes and send limits (TTL)
 #   REVOKED#<jti>                            signed-out sessions (TTL)
+#   SESSIONS#<userId>                        their index by user (TTL; v0.3.0)
 #   AUDIT#...                                every change and sign-in (TTL,
 #                                            var.audit_retention_months)
 #

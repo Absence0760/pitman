@@ -265,7 +265,7 @@ anything else goes to the Hono app.
 
 Issue #28, A-AUTH-0 … 11. The rules (codes, sessions, the user list, the
 store, the operator actions) are the private package `@absence0760/auth-kit`
-(`v0.2.0`, installed from git); `src/auth/` is only pitman's wiring:
+(`v0.3.0`, installed from git); `src/auth/` is only pitman's wiring:
 
 | Module | Does |
 |---|---|

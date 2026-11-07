@@ -14,7 +14,7 @@
 		"start": "node dist/server.js"
 	},
 	"dependencies": {
-		"@absence0760/auth-kit": "github:Absence0760/auth-kit#v0.2.0",
+		"@absence0760/auth-kit": "github:Absence0760/auth-kit#v0.3.0",
 		"@aws-sdk/client-dynamodb": "3.1161.0",
 		"@aws-sdk/client-s3": "3.1161.0",
 		"@aws-sdk/client-sesv2": "3.1161.0",

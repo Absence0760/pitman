@@ -1,6 +1,6 @@
 // `pnpm admin:erase`: steps 2 and 3 of the erasure procedure (docs/security.md § Erasure). auth-kit's
 // eraseAddress removes the user if still listed (refused if they are the last admin), deletes the address's
-// code and lock, and replaces the address with `erased:<hmac>` in every audit row and in other users'
+// code and lock and the user's signed-out sessions, and replaces the address with `erased:<hmac>` in every audit row and in other users'
 // "added by". Then the script removes the address from SES's account-level suppression list itself
 // (SES v2 DeleteSuppressedDestination, af-south-1, the operator's own profile), with the address it already
 // read from stdin, so the address is never typed into a shell command and never lands in shell history.
@@ -63,7 +63,7 @@ export async function main(
 		return 1;
 	}
 	io.stdout.write(
-		`Done: ${r.value.removedUser ? 'the user was removed' : 'the address was not listed'}; ${r.value.rewritten} audit or "added by" entries now hold the erased:<hmac> pseudonym. Audited as "erase".\n`
+		`Done: ${r.value.removedUser ? 'the user was removed' : 'the address was not listed'}; ${r.value.rewritten} audit or "added by" entries now hold the erased:<hmac> pseudonym; ${r.value.revokedSessions} signed-out sessions deleted. Audited as "erase".\n`
 	);
 
 	// Step 3, with the address read above (auth-kit accepted it, so it normalises).
