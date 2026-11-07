@@ -196,7 +196,7 @@ nobody handles them:
 - `AUTH_SESSION_KEY`: rotate with `AWS_PROFILE=pitman terraform -chdir=infra apply -replace=random_password.auth_session_key`, which signs everyone out (A-AUTH-8);
 - `AUTH_CODE_KEY`: rotate with `AWS_PROFILE=pitman terraform -chdir=infra apply -replace=random_password.auth_code_key`, which voids codes in flight and resets the per-address send counters.
 
-Removing an address from SES's suppression list is the operator's, by hand (`aws sesv2 delete-suppressed-destination --email-address <address> --region af-south-1 --profile pitman`); the Lambda has no permission to do it (A-AUTH-7).
+Removing an address from SES's suppression list is the operator's; the Lambda has no permission to do it (A-AUTH-7). For an erasure, `pnpm admin:erase` does it with the address it read from stdin (`docs/security.md` § Erasure; the `pitman` profile needs `ses:DeleteSuppressedDestination`). Outside an erasure (an address that bounced and is now fixed), keep the address out of shell history by reading it into a variable: `read -r A && aws sesv2 delete-suppressed-destination --email-address "$A" --region af-south-1 --profile pitman`.
 
 CI's one secret is `AUTH_KIT_READ_TOKEN` (§ Sign-in), a read-only token for the private auth-kit repo, held as an Actions and a Dependabot secret (auth-kit#2).
 

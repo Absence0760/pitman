@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { guardLogs } from '../src/__tests__/logGuard.js';
 import { main as bootstrap } from './bootstrap-admin.js';
 import { main as clearLock } from './clear-lock.js';
-import { main as erase, SES_STEP } from './erase-address.js';
+import { main as erase, sesSuppression, sesSuppressionRemover, type Suppression } from './erase-address.js';
 import { OperatorError } from './operator.js';
 import { main as recover } from './recover-admin.js';
 
@@ -101,19 +101,76 @@ describe('the operator scripts', () => {
 		expect(run.out()).not.toContain(USER);
 	});
 
-	it('erase asks for confirmation, leaves no copy of the address, and prints the SES step without it', async () => {
+	it('erase asks for confirmation, leaves no copy of the address, and clears its SES suppression itself', async () => {
 		const { store, getKit } = await seeded();
+		const removed: string[] = [];
+		const ses = async (): Promise<Suppression> => ({ remove: async (e) => (removed.push(e), 'removed'), where: 'the test SES' });
 		const unconfirmed = io([USER, 'yes']);
-		expect(await erase(unconfirmed.io, getKit)).toBe(1);
+		expect(await erase(unconfirmed.io, getKit, ses)).toBe(1);
 		expect(JSON.stringify(store.dump())).toContain(USER);
+		expect(removed).toEqual([]);
 
-		const run = io([USER, 'ERASE']);
-		expect(await erase(run.io, getKit)).toBe(0);
+		// Typed with spaces and capitals: SES gets the address auth-kit erased, read once from stdin.
+		const run = io([' User@Example.test ', 'ERASE']);
+		expect(await erase(run.io, getKit, ses)).toBe(0);
 		expect(JSON.stringify(store.dump())).not.toContain(USER);
 		expect(audit(store)).toContain('erase');
-		expect(run.out()).toContain(SES_STEP);
+		expect(removed).toEqual([USER]);
+		expect(run.out()).toContain('SES suppression list (the test SES): the address was removed.');
+		// No command to type the address into, and no copy of it.
+		expect(run.out()).not.toMatch(/aws sesv2|ADDRESS/);
+		expect(run.out().toLowerCase()).not.toContain(USER);
+	});
+
+	it('erase treats a NotFoundException as never suppressed', async () => {
+		const { getKit } = await seeded();
+		const sent: unknown[] = [];
+		const client = { send: async (cmd: unknown) => { sent.push(cmd); throw Object.assign(new Error(`${USER} is not on the suppression list`), { name: 'NotFoundException' }); } };
+		const run = io([USER, 'ERASE']);
+		expect(await erase(run.io, getKit, async () => ({ remove: sesSuppressionRemover(client as never), where: 'the test SES' }))).toBe(0);
+		expect(sent).toHaveLength(1);
+		expect((sent[0] as { constructor: { name: string }; input: unknown }).constructor.name).toBe('DeleteSuppressedDestinationCommand');
+		expect((sent[0] as { input: unknown }).input).toEqual({ EmailAddress: USER });
+		expect(run.out()).toContain('the address was not on it');
 		expect(run.out()).not.toContain(USER);
-		expect(SES_STEP).toBe('aws sesv2 delete-suppressed-destination --email-address ADDRESS --profile pitman --region af-south-1');
+	});
+
+	it('erase reports an SES failure by name only and exits 1, the database part done and safe to repeat', async () => {
+		const { store, getKit } = await seeded();
+		const denied = async (): Promise<Suppression> => ({
+			remove: sesSuppressionRemover({ send: async () => { throw Object.assign(new Error(`User is not authorized to delete ${USER}`), { name: 'AccessDeniedException' }); } } as never),
+			where: 'the test SES'
+		});
+		const run = io([USER, 'ERASE']);
+		expect(await erase(run.io, getKit, denied)).toBe(1);
+		expect(JSON.stringify(store.dump())).not.toContain(USER);
+		expect(run.out()).toContain('failed (AccessDeniedException)');
+		expect(run.out()).toContain('ses:DeleteSuppressedDestination');
+		expect(run.out()).not.toContain(USER);
+		// Again, once the grant is fixed: nothing left to rewrite, and SES is cleared.
+		const again = io([USER, 'ERASE']);
+		expect(await erase(again.io, getKit, async () => ({ remove: async () => 'removed', where: 'the test SES' }))).toBe(0);
+		expect(again.out()).toContain('the address was not listed');
+	});
+
+	it('erase skips SES against DynamoDB Local, and uses af-south-1 and the pitman profile otherwise', async () => {
+		const local = await sesSuppression({ DYNAMODB_ENDPOINT: 'http://127.0.0.1:8000' });
+		expect(local.remove).toBeNull();
+		const { getKit } = await seeded();
+		const run = io([USER, 'ERASE']);
+		expect(await erase(run.io, getKit, async () => local)).toBe(0);
+		expect(run.out()).toContain('SES suppression list: skipped, DynamoDB Local');
+
+		const profile = process.env.AWS_PROFILE;
+		try {
+			delete process.env.AWS_PROFILE;
+			const real = await sesSuppression({});
+			expect(real.remove).toBeTypeOf('function');
+			expect('where' in real && real.where).toBe('SES in af-south-1 (profile pitman)');
+		} finally {
+			if (profile === undefined) delete process.env.AWS_PROFILE;
+			else process.env.AWS_PROFILE = profile;
+		}
 	});
 
 	it('erase refuses the last admin', async () => {

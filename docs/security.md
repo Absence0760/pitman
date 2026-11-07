@@ -150,7 +150,8 @@ privacy notice and AWS account. Network files still never leave the browser.
   `admin:clear-lock`, `admin:erase`) run with the operator's AWS profile, read
   the address from stdin (never argv, so never shell history), read the code
   key from the Lambda's environment rather than having anyone type it, and
-  are audited as `operator`.
+  are audited as `operator`. `admin:erase` also clears the address's SES
+  suppression itself (§ Erasure), so no command ever carries an address.
 
 Bounced addresses are logged now, and flagged on the Users page once auth-kit
 v0.2.0 lands.
@@ -189,11 +190,17 @@ A request to erase a person's address (POPIA), in order:
    deletes the code and lock items, and replaces the address with
    `erased:<hmac>` in every audit row and in other users' "added by". It is
    audited as `erase`.
-3. **The operator removes the address from SES's account-level suppression
-   list**, typing it into the command the script prints (a
-   `NotFoundException` means it was never suppressed):
-   `aws sesv2 delete-suppressed-destination --email-address ADDRESS --profile pitman --region af-south-1`.
-   The Lambda has no permission to do this.
+3. **The same script removes the address from SES's account-level
+   suppression list** (SES v2 `DeleteSuppressedDestination` in af-south-1,
+   with the operator's profile), using the address it already read, so the
+   address is never typed into a shell command or kept in shell history. It
+   prints whether the address was removed or was never on the list
+   (`NotFoundException`). If SES refuses (the profile needs
+   `ses:DeleteSuppressedDestination`), it says so by error name and exits 1;
+   run it again with the same address once fixed (step 2 is safe to repeat).
+   The Lambda has no permission to do this. Not yet checked (no account,
+   #22): whether CloudTrail records the address as the call's request
+   parameter; check it at the first erasure and note the answer here.
 4. **Record it**: the date, and that steps 1 to 3 are done (not the
    address). Erasure is complete 35 days later, when point-in-time recovery
    no longer holds the deleted items.
