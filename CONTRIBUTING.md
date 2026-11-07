@@ -41,13 +41,16 @@ Per the rule in `CLAUDE.md`: every PR that touches code also touches tests and d
 ## Running the checks locally
 
 ```
-pnpm install               # bootstrap (or the stack's equivalent)
+pnpm install               # bootstrap; also sets core.hooksPath to .githooks/
 pnpm check                 # typecheck across workspaces
 pnpm test                  # unit / integration tests
+pnpm check:terms           # no client name in any tracked file or path
 pre-commit run --all-files # gitleaks + the other hygiene hooks
 ```
 
 Or, if Claude Code is available: `/check` runs all of the above in sequence and reports.
+
+The repo's git hooks need no separate install: `pnpm install` points `core.hooksPath` at `.githooks/`, whose `pre-commit` and `commit-msg` run the client terms guard (and the pre-commit framework, if installed) and whose `pre-push` runs `pnpm check && pnpm test`. Don't bypass them with `--no-verify`. The guard reads its term list from outside the repo and is a no-op without it; see [`docs/security.md` § Public repo hygiene](docs/security.md#public-repo-hygiene).
 
 ## Opening a PR
 

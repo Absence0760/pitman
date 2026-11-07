@@ -217,11 +217,12 @@ licences: [`data.md` § Basemap and fonts](./data.md#basemap-and-fonts).
 
 ## Pushing straight to `main` (for now)
 
-Until PRs return (issue #22 steps 10–11), work is committed and pushed straight to `main`. Install the local gate once per clone; it runs `pnpm check && pnpm test` before any push that touches code:
+Until PRs return (issue #22 steps 10–11), work is committed and pushed straight to `main`. The local gate needs no install: `pnpm install` sets `core.hooksPath` to `.githooks/` (the root `prepare` script, `scripts/git-hooks/install.mjs`), shared by every worktree of the clone. Then:
 
-```bash
-cp scripts/git-hooks/pre-push .git/hooks/pre-push
-```
+- `pre-commit` and `commit-msg` run the client terms guard on the staged changes and the message (a no-op until `../infra-secrets/pitman/client-terms.txt` exists; [`security.md` § Public repo hygiene](./security.md#public-repo-hygiene)), then the pre-commit framework's hooks (gitleaks and the file checks) if `pre-commit` is installed.
+- `pre-push` runs `pnpm check && pnpm test` before any push that touches more than docs, markdown or `.claude/`.
+
+If you once copied the old `pre-push` into `.git/hooks/`, it is now ignored and can be deleted. If you keep your own hooks in `core.hooksPath`, the install leaves it alone and warns; this repo's hooks then don't run.
 
 ## Common issues
 

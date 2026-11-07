@@ -1,0 +1,12 @@
+#!/bin/sh
+# No client term in the commit message; then, if the pre-commit framework is
+# installed, its commit-msg stage. See .githooks/pre-commit.
+set -e
+if ! command -v node >/dev/null 2>&1; then
+	echo "commit-msg: node is not on PATH, so the client terms guard can't run; fix PATH and commit again." >&2
+	exit 1
+fi
+node scripts/ci-guards/check_client_terms.mjs --message "$1"
+if command -v pre-commit >/dev/null 2>&1 && [ -f .pre-commit-config.yaml ]; then
+	SKIP="client-terms,client-terms-message${SKIP:+,$SKIP}" exec pre-commit run --hook-stage commit-msg --commit-msg-filename "$1"
+fi

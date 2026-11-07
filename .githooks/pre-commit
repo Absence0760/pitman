@@ -1,0 +1,20 @@
+#!/bin/sh
+# The repo's own git hooks: `pnpm install` points core.hooksPath here
+# (scripts/git-hooks/install.mjs), so they run in every checkout and worktree,
+# for every commit, a Claude session's included, with nothing else to install.
+# docs/security.md § Public repo hygiene.
+#
+# 1. No client term in the staged changes (fails closed: a missing node blocks
+#    the commit rather than skipping the check).
+# 2. If the pre-commit framework is installed, the rest of .pre-commit-config.yaml
+#    (gitleaks and the file checks); its client-terms hooks are skipped since
+#    step 1 already ran them.
+set -e
+if ! command -v node >/dev/null 2>&1; then
+	echo "pre-commit: node is not on PATH, so the client terms guard can't run; fix PATH and commit again." >&2
+	exit 1
+fi
+node scripts/ci-guards/check_client_terms.mjs --staged
+if command -v pre-commit >/dev/null 2>&1 && [ -f .pre-commit-config.yaml ]; then
+	SKIP="client-terms,client-terms-message${SKIP:+,$SKIP}" exec pre-commit run --hook-stage pre-commit
+fi

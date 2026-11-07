@@ -1,4 +1,6 @@
-# Install once with: pre-commit install
+# No `pre-commit install`: `pnpm install` sets core.hooksPath to .githooks/ (which
+# `pre-commit install` refuses), and .githooks/pre-commit and commit-msg run these
+# hooks whenever the pre-commit framework is installed.
 # Manual run: pre-commit run --all-files
 repos:
   - repo: https://github.com/gitleaks/gitleaks
@@ -21,3 +23,23 @@ repos:
         exclude: ^docs/formats/examples/
       - id: check-yaml
       - id: check-json
+
+  # No farm, client or place name of a client study enters the repo (CLAUDE.md
+  # rule 2). The term list lives outside it (../infra-secrets/pitman/client-terms.txt);
+  # without it these hooks are no-ops. .githooks/ runs the guard itself first and
+  # skips these two, so they matter for a bare `pre-commit run`.
+  # docs/security.md § Public repo hygiene.
+  - repo: local
+    hooks:
+      - id: client-terms
+        name: client terms (staged changes)
+        entry: node scripts/ci-guards/check_client_terms.mjs --staged
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: client-terms-message
+        name: client terms (commit message)
+        entry: node scripts/ci-guards/check_client_terms.mjs --message
+        language: system
+        stages: [commit-msg]
