@@ -21,6 +21,7 @@ pnpm test                    # vitest run across workspaces
 pnpm test:frontend:e2e       # Playwright against the built site (first: pnpm --filter @pitman/frontend exec playwright install chromium)
 pnpm test:coverage           # the same with v8 coverage + a table of what no test reaches (a report, never a gate)
 pnpm test:tools              # node:test suites for scripts/ and infra/scripts/ (coverage summary, workflow guards, CSP check)
+pnpm check:claude            # .claude/ agents, commands and skills cite only real paths and no template placeholders (.claude/README.md)
 pnpm frontend <script>       # run a script in one workspace
 pnpm backend <script>
 ```
@@ -66,7 +67,7 @@ Production deploy (after first-time setup): see `infra/README.md § First-time s
 - `docs/security.md` — risk register, mitigations, incident playbook
 - `docs/design/ui-playbook.md` — the look, the design tokens and how screens are checked
 - `infra/README.md` — Terraform module specifics
-- `.github/workflows/` — `ci.yml` (PR + push typecheck/test), two deploy workflows (frontend, backend), `claude.yml` Claude Code automation, `audit.yml` (weekly `pnpm audit`), `dependabot-lockfile.yml` (syncs root `pnpm-lock.yaml` on Dependabot PRs), `gitleaks-sweep.yml` (weekly full-history secret scan, opens a `secret-scan` issue on failure), `coverage.yml` (weekly coverage report), `terraform.yml` (`infra/` fmt + validate + Trivy, credential-free; Terraform version in `infra/.terraform-version`), `pr-mergeable.yml` (flags a conflicted PR that CI never ran on). Dependabot config in `.github/dependabot.yml`.
+- `.github/workflows/` — `ci.yml` (PR + push: typecheck, unit tests, `test:tools`, Playwright e2e, and the `claude-tooling` guard; a `changes` job skips the heavy jobs on a docs-only PR (`docs/`, `.claude/`, `*.md`) while `claude-tooling` still runs, and the `CI gate` job waits on all of them), two deploy workflows (frontend, backend), `claude.yml` Claude Code automation, `audit.yml` (weekly `pnpm audit`), `dependabot-lockfile.yml` (syncs root `pnpm-lock.yaml` on Dependabot PRs), `gitleaks-sweep.yml` (weekly full-history secret scan, opens a `secret-scan` issue on failure), `coverage.yml` (weekly coverage report), `terraform.yml` (`infra/` fmt + validate + Trivy, credential-free; Terraform version in `infra/.terraform-version`), `pr-mergeable.yml` (flags a conflicted PR that CI never ran on). Dependabot config in `.github/dependabot.yml`.
 
 Prefer reading these over guessing. Update them when behavior changes.
 

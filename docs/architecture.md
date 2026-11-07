@@ -70,11 +70,11 @@ pitman/
 │   ├── outputs.tf
 │   ├── s3_cloudfront.tf      Bucket + OAC + cert + CloudFront + Route 53
 │   ├── lambda.tf             Function + exec role + log group + Function URL
-│   ├── github_oidc.tf        GitHub OIDC provider + CI role + scoped policy
+│   ├── oidc.tf               Deploy policy on the estate bootstrap's GitHub OIDC role
 │   └── terraform.tfvars.example
 └── .github/
     └── workflows/
-        ├── ci.yml                CI: typecheck + test on PR/push
+        ├── ci.yml                CI: typecheck, tests, e2e, Claude tooling guard; CI gate
         ├── deploy-frontend.yml   Build + sync to S3 + CloudFront invalidation
         ├── deploy-backend.yml    esbuild bundle + zip + update Lambda
         └── claude.yml            Claude Code issue/PR automation

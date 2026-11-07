@@ -1,4 +1,4 @@
-// Guards on .github/workflows (node:test, `pnpm test:tools`): the private auth-kit's read token reaches git
+// Guards on .github/workflows (node:test, `pnpm test:tools`). ci.yml's docs-only split keeps the Claude tooling guard running and the CI gate waiting on every job (bottom). And the private auth-kit's read token reaches git
 // only for the step that installs, as environment-only config, and is never written to a git config file
 // that every later step (tests, builds, deploys) could read (the #28 sign-in review, docs/deployment.md § CI).
 import assert from 'node:assert/strict';
@@ -77,4 +77,30 @@ test('every pnpm install that fetches auth-kit is preceded by the empty-secret c
 			);
 		});
 	}
+});
+
+// ci.yml's docs-only split: no paths filter skips the whole workflow (so the required "CI gate" always
+// reports), the `changes` job skips only the heavy jobs, the Claude tooling guard runs on every change,
+// and the gate waits on every job.
+const ci = workflows.find((w) => w.name === 'ci.yml')?.text ?? '';
+/** Job ids under `jobs:`, each with the text of its block. */
+const ciJobs = new Map(
+	(ci.split(/^jobs:\n/m)[1] ?? '')
+		.split(/^(?= {2}[\w-]+:\n)/m)
+		.map((block) => [/^ {2}([\w-]+):/.exec(block)?.[1], block])
+		.filter(([id]) => id)
+);
+
+test('ci.yml runs on every pull request: no paths filter, and no ci-gate-docs.yml to stand in for it', () => {
+	assert.ok(ciJobs.size >= 4, `found jobs ${[...ciJobs.keys()]}`);
+	assert.doesNotMatch(ci.split(/^jobs:/m)[0], /^\s+paths(-ignore)?:/m);
+	assert.ok(!workflows.some((w) => w.name === 'ci-gate-docs.yml'));
+});
+
+test('the Claude tooling guard runs on docs-only changes, and the CI gate needs every job', () => {
+	const claude = ciJobs.get('claude-tooling') ?? '';
+	assert.match(claude, /run: node scripts\/ci-guards\/check_claude_tooling\.mjs/);
+	assert.doesNotMatch(claude, /^ {4}if:/m, 'claude-tooling must not be skipped by the changes job');
+	const needs = /^ {4}needs: \[([^\]]*)\]/m.exec(ciJobs.get('ci-gate') ?? '')?.[1].split(',').map((s) => s.trim()) ?? [];
+	assert.deepEqual([...needs].sort(), [...ciJobs.keys()].filter((id) => id !== 'ci-gate').sort());
 });

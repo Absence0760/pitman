@@ -49,7 +49,7 @@ More than one Claude session may run in **this one checkout at the same time** �
 - **Group `src/lib` (and equivalents) by topic, not by type.** Loose modules piling up at the `lib/` root is a smell — once there are more than a handful, move them into topical subfolders (`auth/`, `billing/`, `<domain>/`, …). Keep only generated/shared type files (`database.types.ts`, `types.ts`) at the root. **Co-locate each module's test beside it**; cross-cutting guard tests may stay at the root.
 - **No preemptive abstraction.** Don't extract a shared helper or component on the *second* use — wait for the *third* caller, then extract. Three similar lines beat a premature wrapper, and a "bug fix" PR should not smuggle in a refactor.
 - **Consolidating duplicated UI is a refactor, not a feature — pin it first.** When you fold repeated markup into a shared component, add an e2e test that pins the *rendered* behaviour **before** the extraction, so before/after is provably identical, then extract.
-- **Group `.claude/agents/`, `.claude/commands/`, and `docs/` into topical subfolders** once each grows past a flat handful (e.g. `agents/auditors/`, `docs/features/`).
+- **Group `.claude/agents/`, `.claude/commands/`, and `docs/` into topical subfolders** once each grows past a flat handful (e.g. `agents/audit/`, `docs/theory/`).
 - If the project keeps a structure guard (a test asserting "no loose modules at the lib root", "the unit-test glob recurses", etc.), keep it green — it's the thing that stops the organization eroding. Such a guard is stack-specific (test runner + paths), so write it against your own setup rather than copying one.
 
 ## Root package.json scripts — one format, estate-wide
@@ -60,7 +60,7 @@ When the repo has a root `package.json`, its `scripts` block is the single entry
 - **Namespaced, verb-first, colon-separated names**: `setup[:*]` (one-time bootstrap), `dev:*` (orchestrators like `dev:core`/`dev:full`, then `dev:db:*`, `dev:run:<app>`, per-service groups), `build:<surface>`, `check:<surface>`, `test:<surface>[:unit|:e2e]`, `gen:<what>`. Long-running services reuse the same lifecycle verbs: `up` / `down` / `status` / `logs`.
 - **JSON holds one-liners only.** Anything longer delegates to a script under `bin/` or `scripts/`; workspace delegation goes through `pnpm -C apps/<x> <script>`.
 - **New scripts join an existing group** (or add a new `//--` divider in the right place) — never append ungrouped entries at the bottom.
-- **Keep a `test:scripts` guard** that validates the root script targets (referenced files exist, delegated workspace scripts resolve). project-running's `scripts/check_root_scripts.mjs` is the reference implementation; it's layout-specific, so write yours against your own tree rather than copying it verbatim.
+- **Keep a `test:scripts` guard** that validates the root script targets (referenced files exist, delegated workspace scripts resolve). `project-running/scripts/check_root_scripts.mjs` is the reference implementation; it's layout-specific, so write yours against your own tree rather than copying it verbatim.
 
 Treat a root scripts block that drifts from this format like any other structure-guard violation: fix the format in the same change that touches it.
 
@@ -103,12 +103,11 @@ Don't spin up the dev server to visually verify UI/frontend changes before repor
 
 Run these as slash-commands. Each delegates to a specialised agent (`.claude/agents/`).
 
-- `/check` — typecheck + tests + format + lint in one pass.
+- `/check` — pre-commit gate: `code-reviewer` + `test-gap-checker` + `doc-hygiene-checker` in parallel on the working diff (advisory).
 - `/safe-edit` — workflow for security-sensitive or load-bearing changes.
-- `/safe-migration` — DB-schema-change workflow (apply locally, verify RLS, sync types, propose smoke tests).
 - `/polish-ui` — typography / layout polish on a target frontend surface.
-- `/release-readiness` — go/no-go checklist before tagging.
-- `/audit/all` — runs every audit in `audit/`; `/audit/<area>` for a single sweep. Areas: `secrets`, `infra`, `deps`, `xss`, `cost-controls`, `auth`, `accessibility`, `gdpr`, `data-export-completeness`, `account-deletion-completeness`, `cookie-consent`, `third-party-data-flows`.
+- `/release-readiness` — go/no-go checklist before pushing to `main` or approving a waiting production deploy.
+- `/audit/all` — runs the security, deps, infra and cost audits in parallel; `/audit/<area>` for a single sweep. Areas: `secrets`, `infra`, `deps`, `xss`, `cost-controls`, `auth`, `accessibility`, `popia`, `data-export-completeness`, `account-deletion-completeness`, `cookie-consent`, `third-party-data-flows`.
 - `/persona` — runs the bug-hunting persona auditors (`.claude/agents/personas/persona-*.md`): real-world points of view (new user, power user, admin, international user, accessibility, integrator, adversary, data subject) that find logic / UX / domain bugs a code review misses. Each writes a living report to `reviews/<persona>.md` (git-ignored). Protocol + how to add domain personas: `.claude/personas/README.md`.
 
 Pitman's own additions (listed in `.claude/README.md` § Pitman additions):
@@ -118,7 +117,7 @@ Pitman's own additions (listed in `.claude/README.md` § Pitman additions):
 - Agents: `wrsm-engine-reviewer` (run it on every `packages/wrsm` change), `persona-hydrologist`, `za-legal-researcher`, `infra-auditor`, `ui-designer`.
 - Hook: `.claude/hooks/security-patterns.sh` flags engine-purity, float32-rounding, private-env, S3-region and machine-path patterns after each edit (never blocks).
 
-These ship with placeholder examples and need per-project adaptation — see `.claude/README.md`.
+These are adapted to Pitman; `pnpm check:claude` fails on a template placeholder or a cited path that does not exist (see `.claude/README.md`).
 
 ## Where to look
 
