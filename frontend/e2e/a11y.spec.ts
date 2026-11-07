@@ -94,7 +94,7 @@ test('asked for less motion, the page moves nothing and the map jumps', async ({
 	await map.scrollIntoViewIfNeeded();
 	await expect(map).toHaveAttribute('data-status', 'ready');
 	expect(await page.getByLabel('Quaternary', { exact: true }).evaluate(() => getComputedStyle(document.createElement('button')).transitionDuration)).toMatch(/^(0s)?$/);
-	await expect(map).toHaveAttribute('data-view', /./);
+	await expect(map).toHaveAttribute('data-settled', 'true');
 	const before = await map.getAttribute('data-view');
 	await panel.getByLabel('Quaternary', { exact: true }).selectOption('Z01A');
 	// With no animation the frame lands at once: the first change of view is the last.

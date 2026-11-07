@@ -126,6 +126,15 @@ with them.
 - **Test under the real CSP.** `vite preview` sends no CloudFront header, so
   `e2e/map.spec.ts` adds `infra/csp.json`'s. That is how MapLibre's `data:` icons
   and SvelteKit's announcer style were caught; neither shows without it.
+- **Wait for `data-settled`, not for the view to stop changing.** Before a test
+  points, clicks or hovers on the map it waits for `data-settled="true"` on
+  `.map-wrap`: set from MapLibre's `idle` (no camera move under way, every
+  source's data drawn), cleared by `movestart`, new source data and a restyle.
+  `data-view` (west,south,east,north) changes only on `moveend`, so polling it
+  until two reads match passes while a frame is still about to start, and says
+  nothing about a source whose `setData` is still being tiled: a hover then hit
+  the quaternary under a crop field that wasn't drawn yet. Read `data-view`
+  once settled to turn a place into pixels.
 
 - **A long flow lists its steps at the top, each state in words.** The
   sub-division's five steps stay on the page, so a list of links says where

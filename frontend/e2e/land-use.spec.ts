@@ -103,16 +103,10 @@ test('the fields are drawn as fields, not as a proposal, and the key says what e
 	await expect(map).toHaveAttribute('data-status', 'ready');
 	await expect(map).toHaveAttribute('data-fields', '4');
 
-	// The pointer on the irrigated field: its crop and state, in words (the frame's move ended when the view stops changing).
-	await expect(map).toHaveAttribute('data-view', /./);
-	let view = '';
-	await expect
-		.poll(async () => {
-			const before = view;
-			view = (await map.getAttribute('data-view')) ?? '';
-			return view === before;
-		})
-		.toBe(true);
+	// The pointer on the irrigated field: its crop and state, in words. `data-settled` is MapLibre's `idle`: the
+	// frame onto the fields has ended and their source is drawn, so the field is under the pointer and hit-testable.
+	await expect(map).toHaveAttribute('data-settled', 'true');
+	const view = (await map.getAttribute('data-view'))!;
 	const [w, s, e, n] = view.split(',').map(Number) as [number, number, number, number];
 	const area = (await panel.getByTestId('map').boundingBox())!;
 	const lng = west + 0.03;

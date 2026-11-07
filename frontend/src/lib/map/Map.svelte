@@ -64,8 +64,15 @@
 
 	let el = $state<HTMLDivElement>();
 	let status = $state<'loading' | 'ready' | 'failed'>('loading');
-	/** The view (west,south,east,north) after the last move: a settled-map signal for tests. */
+	/** The view (west,south,east,north) after the last move; read it once `settled` says the move is over. */
 	let view = $state('');
+	/**
+	 * The map has drawn everything it was last asked to: no camera move under way, every source's data tiled
+	 * and rendered (MapLibre's `idle`). Cleared by every camera move (a frame, a pan, a zoom: `movestart`) and
+	 * by each change this component makes (new source data, a restyle), so `true` means what is drawn is
+	 * hit-testable at `view`: the readiness signal for tests, `data-settled`.
+	 */
+	let settled = $state(false);
 	let dark = $state(false);
 	let palette: Palette | null = null;
 	let lib: Lib | null = null;
@@ -130,6 +137,7 @@
 	/** Hand one GeoJSON source its data; MapLibre re-tiles the whole source in its worker, so only a source whose input changed is sent. */
 	function setSource(id: string, data: () => unknown) {
 		if (!map || status !== 'ready') return;
+		settled = false;
 		(map.getSource(id) as { setData?: (d: unknown) => void } | undefined)?.setData?.(data());
 	}
 
@@ -254,6 +262,7 @@
 				const onScheme = () => {
 					dark = scheme.matches;
 					palette = readPalette(node);
+					settled = false;
 					m.setStyle(styleNow(palette) as never);
 				};
 				scheme.addEventListener('change', onScheme);
@@ -265,6 +274,9 @@
 					onview?.(v);
 				};
 				m.on('moveend', reportView);
+				// Fires after the last `moveend` and once every source has loaded; a later change clears it again.
+				m.on('movestart', () => (settled = false));
+				m.on('idle', () => (settled = status === 'ready'));
 				m.on('zoom', () => (zoomedOut = m.getZoom() < LABEL_MIN_ZOOM));
 				m.on('load', () => {
 					zoomedOut = m.getZoom() < LABEL_MIN_ZOOM;
@@ -447,7 +459,7 @@
 	const chip = $derived(hover ?? (selected ? `Selected: ${selected}` : null));
 </script>
 
-<div class="map-wrap" class:labels-off={zoomedOut} data-status={status} data-view={view || undefined} data-tool={tool} data-fields={fields.length} data-theme-drawn={dark ? 'dark' : 'light'}>
+<div class="map-wrap" class:labels-off={zoomedOut} data-status={status} data-view={view || undefined} data-settled={settled} data-tool={tool} data-fields={fields.length} data-theme-drawn={dark ? 'dark' : 'light'}>
 	<div class="map" role="group" aria-label="Map" bind:this={el} data-testid="map">
 		{#if crosshair}
 			<!-- Where Enter acts: the map's middle; the arrow keys move the map under it. -->
