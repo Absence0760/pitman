@@ -16,8 +16,21 @@ Cross-cutting security considerations for this project.
 - **Plaintext secrets are gitignored.** `.gitignore` covers `.env`,
   `.env.*.local`, and `*.tfvars`. The committed `.env.development` is the
   exception — it holds only non-sensitive local defaults (localhost URLs,
-  ports), never real secrets; those stay SOPS-encrypted (`*.sops`) or in a
-  gitignored `.env.development.local`.
+  ports), never real secrets; those stay SOPS-encrypted in `infra-secrets` or
+  in a gitignored `.env.development.local`.
+- **The committed env files are guarded** (`pnpm check:env`,
+  `scripts/ci-guards/env-isolation.mjs`, CI job `env-isolation` in the CI
+  gate). The only tracked env files are `*.env.development` and
+  `*.env.example`; no `*.tfvars` or sops file is tracked. In the dev defaults
+  every host is local, every email address is on a reserved domain
+  (`example.test`, `localhost`), a key named `*_KEY` / `*_SECRET` / `*_TOKEN` /
+  `*_PASSWORD` is empty or `dev-only-…`, no AWS credential or profile is set,
+  every data `*_SOURCE` is `local` with its `*_LOCAL_FILE` / `*_LOCAL_DIR`
+  inside the workspace, the user store is memory or DynamoDB Local
+  (`*-local` table) and mail goes to the console or Mailpit. Frontend env
+  files hold `PUBLIC_*` keys only, with `PUBLIC_API_URL=/api`. It reports
+  file, line and rule, never a value. gitleaks catches credential shapes;
+  this catches a real value of a harmless-looking shape.
 - **No decrypted secret is written to disk** — Terraform's `carlpett/sops` provider decrypts `infra-secrets`' files in-memory at plan/apply.
 - **CI/CD uses GitHub OIDC** — no long-lived AWS access keys in GitHub secrets.
 

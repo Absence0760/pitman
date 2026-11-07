@@ -46,6 +46,7 @@ pnpm backend dev          # backend only
 pnpm check                # all workspaces
 pnpm frontend check       # svelte-check on frontend
 pnpm backend check        # tsc --noEmit on backend
+pnpm check:env            # the committed .env.development files stay local-only
 ```
 
 ## Building

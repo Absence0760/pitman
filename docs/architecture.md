@@ -74,7 +74,7 @@ pitman/
 │   └── terraform.tfvars.example
 └── .github/
     └── workflows/
-        ├── ci.yml                CI: typecheck + test on PR/push
+        ├── ci.yml                CI: typecheck + test + e2e + env isolation on PR/push
         ├── deploy-frontend.yml   Build + sync to S3 + CloudFront invalidation
         ├── deploy-backend.yml    esbuild bundle + zip + update Lambda
         └── claude.yml            Claude Code issue/PR automation
