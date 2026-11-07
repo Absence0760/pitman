@@ -712,6 +712,16 @@ run "auth_alarms" {
     condition     = aws_cloudwatch_metric_alarm.auth_unconfigured.metric_name == aws_cloudwatch_log_metric_filter.auth_unconfigured.metric_transformation[0].name && aws_cloudwatch_metric_alarm.auth_unconfigured.threshold == 1 && aws_cloudwatch_metric_alarm.auth_unconfigured.comparison_operator == "GreaterThanOrEqualToThreshold" && aws_cloudwatch_metric_alarm.auth_unconfigured.period == 300
     error_message = "One auth.unconfigured in 5 minutes alarms."
   }
+
+  assert {
+    condition     = aws_cloudwatch_log_metric_filter.auth_slow_code_request.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.auth_slow_code_request.pattern == "\"auth.slow_code_request\"" && aws_cloudwatch_metric_alarm.auth_slow_code_request.metric_name == aws_cloudwatch_log_metric_filter.auth_slow_code_request.metric_transformation[0].name && aws_cloudwatch_metric_alarm.auth_slow_code_request.threshold == 3 && aws_cloudwatch_metric_alarm.auth_slow_code_request.period == 900 && aws_cloudwatch_metric_alarm.auth_slow_code_request.alarm_actions == toset([aws_sns_topic.alerts.arn])
+    error_message = "Three auth.slow_code_request lines in 15 minutes alarm, counted from the API Lambda's log group."
+  }
+
+  assert {
+    condition     = aws_cloudwatch_log_metric_filter.cloudfront_secret_unset.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.cloudfront_secret_unset.pattern == "\"cloudfront_secret.unset\"" && aws_cloudwatch_metric_alarm.cloudfront_secret_unset.metric_name == aws_cloudwatch_log_metric_filter.cloudfront_secret_unset.metric_transformation[0].name && aws_cloudwatch_metric_alarm.cloudfront_secret_unset.threshold == 1 && aws_cloudwatch_metric_alarm.cloudfront_secret_unset.period == 300 && aws_cloudwatch_metric_alarm.cloudfront_secret_unset.alarm_actions == toset([aws_sns_topic.alerts.arn])
+    error_message = "One cloudfront_secret.unset in 5 minutes alarms."
+  }
   assert {
     condition     = aws_cloudwatch_log_metric_filter.auth_send_capped.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.auth_send_capped.pattern == "\"auth.send_capped\""
     error_message = "auth.send_capped (a listed address reached its daily code-send cap) is counted from the API Lambda's log group."

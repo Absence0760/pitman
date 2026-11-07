@@ -519,3 +519,67 @@ resource "aws_cloudwatch_metric_alarm" "mail_events_dlq" {
     QueueName = aws_sqs_queue.mail_events_dlq.name
   }
 }
+
+# auth.slow_code_request: a /auth/code request ran past its minimum-latency
+# floor (backend/src/auth/routes.ts), almost always because SES was slow or
+# throttling. Past the floor, a listed address (which sends mail) answers later
+# than an unlisted one, so a run of these is both a mail problem and a timing
+# signal. A single slow request is noise; three in 15 minutes is not.
+resource "aws_cloudwatch_log_metric_filter" "auth_slow_code_request" {
+  name           = "${local.project}-auth-slow-code-request"
+  log_group_name = aws_cloudwatch_log_group.lambda.name
+  pattern        = "\"auth.slow_code_request\""
+
+  metric_transformation {
+    name          = "AuthSlowCodeRequest"
+    namespace     = "${local.project}/Auth"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "auth_slow_code_request" {
+  alarm_name          = "${local.project}-auth-slow-code-request"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.auth_slow_code_request.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.auth_slow_code_request.metric_transformation[0].namespace
+  period              = 900
+  statistic           = "Sum"
+  threshold           = 3
+  alarm_description   = "Sign-in code requests are running past their minimum-latency floor, usually SES slowness or throttling. Past the floor, listed and unlisted addresses no longer take the same time. Check SES sending in af-south-1 and the mail-send-failed alarm."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
+
+# cloudfront_secret.unset: the Lambda has no CloudFront shared secret, so it
+# answers 503 to everything (backend/src/app.ts fails closed). Terraform always
+# sets it, so this means the function's environment was changed by hand.
+resource "aws_cloudwatch_log_metric_filter" "cloudfront_secret_unset" {
+  name           = "${local.project}-cloudfront-secret-unset"
+  log_group_name = aws_cloudwatch_log_group.lambda.name
+  pattern        = "\"cloudfront_secret.unset\""
+
+  metric_transformation {
+    name          = "CloudFrontSecretUnset"
+    namespace     = "${local.project}/Auth"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "cloudfront_secret_unset" {
+  alarm_name          = "${local.project}-cloudfront-secret-unset"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.cloudfront_secret_unset.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.cloudfront_secret_unset.metric_transformation[0].namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "The API Lambda has no CLOUDFRONT_SHARED_SECRET and answers 503 to every request. Re-apply infra/ (terraform apply) to restore its environment."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
