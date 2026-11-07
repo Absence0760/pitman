@@ -231,20 +231,21 @@ resource "aws_lambda_function" "backend" {
 }
 
 # The browser never calls the Function URL: it calls the site's own /api/*,
-# and CloudFront proxies here with the shared-secret header (s3_cloudfront.tf),
-# so there is no `cors` block (Hono's cors() is the only CORS layer, and every
-# request is same-origin anyway).
+# and CloudFront proxies here (s3_cloudfront.tf), so there is no `cors` block
+# (Hono's cors() is the only CORS layer, and every request is same-origin).
 #
-# A NONE-auth URL still needs a resource policy letting the public invoke it;
-# since Oct 2025 AWS requires both lambda:InvokeFunctionUrl and
-# lambda:InvokeFunction (the latter only via the URL). The AWS provider (6.28+)
-# adds both statements itself when it creates a NONE URL, so they are not
-# declared here: an aws_lambda_permission with the same statement id fails the
-# apply with a 409 (IC-WBT's first apply, 2026-10-04). The provider adds them
-# only on create; if one is removed by hand,
-# `terraform apply -replace=aws_lambda_function_url.backend` restores both.
-# The app's shared-secret check is what rejects callers that skip CloudFront.
+# AWS_IAM (issue #33, decision R4-I6): only SigV4-signed requests get in, and
+# the only signer allowed is CloudFront's origin access control for this
+# distribution (aws_cloudfront_origin_access_control.api and the two
+# aws_lambda_permission statements, all in s3_cloudfront.tf). A call that
+# skips CloudFront is refused by Lambda's front end with 403 before the
+# function runs: never billed, never past the WAF. The app's shared-secret
+# check stays behind it as a second layer.
+#
+# The provider adds public-invoke statements only when it *creates* a NONE
+# URL; an AWS_IAM URL gets none, and changing the type in place removes none
+# (docs/deployment.md § Lambda origin access control).
 resource "aws_lambda_function_url" "backend" {
   function_name      = aws_lambda_function.backend.function_name
-  authorization_type = "NONE"
+  authorization_type = "AWS_IAM"
 }

@@ -156,16 +156,24 @@ resource "aws_cloudfront_function" "api_strip_prefix" {
 # ----------------------------------------------------------------------------
 # Origin Access Control + distribution
 #
-# Two origins:
-#   s3-frontend: the site bucket via OAC (SigV4)                -> default
-#   lambda-api:  the Function URL, with the shared secret header -> /api/*
+# Two origins, each behind its own OAC (SigV4):
+#   s3-frontend: the site bucket                                    -> default
+#   lambda-api:  the Function URL (AWS_IAM), plus the shared secret -> /api/*
 #
-# CloudFront stamps every /api/* request with X-CloudFront-Shared-Secret
-# (random_password below, also in the Lambda's env) and the app rejects any
-# request without it (backend/src/app.ts), so a direct hit on the publicly
-# reachable Function URL gets 403 and the WAF + rate limits here really
-# cover the API. (Not OAC for Lambda: it needs the viewer to send the SHA-256
-# of every POST body, and the data API is mostly POSTs.)
+# The API has two locks (issue #33, decision R4-I6):
+#   1. OAC. The Function URL is AWS_IAM (lambda.tf) and admits only requests
+#      CloudFront signs for this distribution (the two permissions below), so
+#      a direct hit is refused by Lambda's front end with 403 before the
+#      function runs: never billed, and the WAF + rate limits really cover
+#      the API. The price: CloudFront signs the body hash the viewer states,
+#      so the frontend sends x-amz-content-sha256 on every POST/PUT/PATCH/
+#      DELETE (frontend/src/lib/api/content-hash.ts); one without it is 403.
+#   2. The shared secret. CloudFront stamps every /api/* request with
+#      X-CloudFront-Shared-Secret (random_password below, also in the
+#      Lambda's env) and the app refuses any request without it
+#      (backend/src/app.ts). Kept as a second layer: it still holds if the
+#      OAC is ever detached or set to `never` sign, or the URL goes back to
+#      NONE, by mistake or during an incident, and it costs nothing.
 # ----------------------------------------------------------------------------
 
 resource "aws_cloudfront_origin_access_control" "frontend" {
@@ -174,6 +182,42 @@ resource "aws_cloudfront_origin_access_control" "frontend" {
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
+}
+
+# `always`, never `no-override`: the API reads no viewer Authorization header
+# (the session is a cookie), so CloudFront's signature always replaces one.
+resource "aws_cloudfront_origin_access_control" "api" {
+  name                              = "${local.project}-api-oac"
+  description                       = "OAC for the ${local.project} API Lambda Function URL"
+  origin_access_control_origin_type = "lambda"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
+# The Function URL's resource policy: CloudFront, on behalf of this
+# distribution only (source_arn), may invoke it. Since October 2025 a
+# Function URL needs both actions (AWS CloudFront Developer Guide,
+# "Restrict access to an AWS Lambda function URL origin", whose two
+# add-permission commands these mirror; Lambda Developer Guide, "Control
+# access to Lambda function URLs"). lambda:InvokedViaFunctionUrl is not set
+# on the second: the CloudFront guide's command leaves it out, and the grant
+# is already narrowed to one caller (this distribution), which reaches the
+# function only through its origin.
+resource "aws_lambda_permission" "cloudfront_invoke_url" {
+  statement_id           = "AllowCloudFrontServicePrincipal"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.backend.function_name
+  principal              = "cloudfront.amazonaws.com"
+  source_arn             = aws_cloudfront_distribution.frontend.arn
+  function_url_auth_type = "AWS_IAM"
+}
+
+resource "aws_lambda_permission" "cloudfront_invoke_function" {
+  statement_id  = "AllowCloudFrontServicePrincipalInvokeFunction"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.backend.function_name
+  principal     = "cloudfront.amazonaws.com"
+  source_arn    = aws_cloudfront_distribution.frontend.arn
 }
 
 # Generated once; feeds the origin's custom_header and the Lambda env. It is
@@ -208,8 +252,10 @@ resource "aws_cloudfront_distribution" "frontend" {
 
   origin {
     # url_id is the Function URL's stable id: https://<url_id>.lambda-url.<region>.on.aws/
-    domain_name = "${aws_lambda_function_url.backend.url_id}.lambda-url.${var.aws_region}.on.aws"
-    origin_id   = "lambda-api"
+    domain_name              = "${aws_lambda_function_url.backend.url_id}.lambda-url.${var.aws_region}.on.aws"
+    origin_id                = "lambda-api"
+    origin_access_control_id = aws_cloudfront_origin_access_control.api.id
+    # https-only is required for a Lambda OAC.
     custom_origin_config {
       http_port              = 80
       https_port             = 443
@@ -247,6 +293,10 @@ resource "aws_cloudfront_distribution" "frontend" {
   # sign-in needs (the __Host-pitman_session cookie, csrf() on Origin; A-AUTH-3,
   # A-AUTH-9); with caching disabled nothing is keyed on them, so one user's
   # answer is never served to another (a terraform test pins both).
+  # Not forwarding Host is also what the OAC signature needs: CloudFront signs
+  # for the Function URL's host, and a viewer Host passed through would not
+  # match it (403). The viewer's x-amz-content-sha256 is forwarded with the
+  # rest, and is the payload hash CloudFront signs.
   # https-only: an http:// API call is refused, not redirected (a redirect would turn a POST into a GET).
   ordered_cache_behavior {
     path_pattern               = "/api/*"

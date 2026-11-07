@@ -61,8 +61,10 @@ override_resource {
 override_resource {
   target          = aws_cloudfront_distribution.frontend
   override_during = plan
+  # The ARN too: the Lambda permissions' source_arn must parse as one (#33).
   values = {
-    id = "EDFDVBD6EXAMPLE"
+    id  = "EDFDVBD6EXAMPLE"
+    arn = "arn:aws:cloudfront::111111111111:distribution/EDFDVBD6EXAMPLE"
   }
 }
 

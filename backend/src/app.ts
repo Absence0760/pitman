@@ -78,10 +78,12 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 
 	// CloudFront-stamped shared secret. In prod, CloudFront stamps every
 	// /api/* request with X-CloudFront-Shared-Secret via the origin's
-	// custom_header block (see infra/s3_cloudfront.tf). Direct hits to the
-	// Function URL — which is publicly reachable by AWS design — are
-	// rejected here. Without this check, the bare Function URL bypasses
-	// the WAF + per-IP rate limit attached to the CloudFront distribution.
+	// custom_header block (see infra/s3_cloudfront.tf). The first lock is in
+	// front of this one: the Function URL is AWS_IAM behind CloudFront's
+	// origin access control (issue #33, R4-I6), so a direct hit is refused by
+	// Lambda before it gets here. This check is the second layer: it still
+	// refuses a direct hit if the URL is ever back on NONE or the OAC stops
+	// signing, so the bare URL never bypasses the WAF + per-IP rate limit.
 	//
 	// Local dev leaves CLOUDFRONT_SHARED_SECRET unset → the check no-ops,
 	// because the Hono dev server (port 3001) is reached directly by the

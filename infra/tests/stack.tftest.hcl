@@ -258,6 +258,79 @@ run "api_behaviour" {
   }
 }
 
+# Issue #33 (R4-I6): the Function URL admits only CloudFront's signed
+# requests for this distribution, so a direct call is refused before it runs.
+run "api_origin_access_control" {
+  command = plan
+
+  # Known at plan, so the wiring between them can be compared.
+  override_resource {
+    target          = aws_cloudfront_distribution.frontend
+    override_during = plan
+    values = {
+      arn = "arn:aws:cloudfront::111111111111:distribution/E2EXAMPLE"
+    }
+  }
+  override_resource {
+    target          = aws_cloudfront_origin_access_control.api
+    override_during = plan
+    values = {
+      id = "E3APIOAC"
+    }
+  }
+
+  assert {
+    condition     = aws_lambda_function_url.backend.authorization_type == "AWS_IAM"
+    error_message = "The Function URL must be AWS_IAM: NONE lets a caller that skips CloudFront run (and bill) the function."
+  }
+  assert {
+    condition     = aws_cloudfront_origin_access_control.api.origin_access_control_origin_type == "lambda"
+    error_message = "The API's OAC must be of origin type lambda."
+  }
+  assert {
+    condition     = aws_cloudfront_origin_access_control.api.signing_behavior == "always" && aws_cloudfront_origin_access_control.api.signing_protocol == "sigv4"
+    error_message = "The API's OAC must always sign (sigv4): never would leave CloudFront unable to reach an AWS_IAM URL, no-override would pass a viewer's Authorization through."
+  }
+  assert {
+    condition     = one([for o in aws_cloudfront_distribution.frontend.origin : o.origin_access_control_id if o.origin_id == "lambda-api"]) == "E3APIOAC"
+    error_message = "The lambda-api origin must use the API's OAC."
+  }
+  assert {
+    condition     = one([for o in aws_cloudfront_distribution.frontend.origin : o.custom_origin_config[0].origin_protocol_policy if o.origin_id == "lambda-api"]) == "https-only"
+    error_message = "A Lambda OAC origin must be https-only."
+  }
+  assert {
+    condition     = one([for o in aws_cloudfront_distribution.frontend.origin : length([for h in o.custom_header : h if h.name == "X-CloudFront-Shared-Secret"]) if o.origin_id == "lambda-api"]) == 1
+    error_message = "The shared-secret header stays as the second layer behind the OAC."
+  }
+  assert {
+    condition     = one([for b in aws_cloudfront_distribution.frontend.ordered_cache_behavior : b.origin_request_policy_id if b.path_pattern == "/api/*"]) == "b689b0a8-53d0-40ab-baf2-68738e2966ac"
+    error_message = "/api/* must use Managed-AllViewerExceptHostHeader: a forwarded viewer Host breaks the OAC signature."
+  }
+  # Both actions, CloudFront's service principal, this distribution only.
+  assert {
+    condition = (
+      aws_lambda_permission.cloudfront_invoke_url.action == "lambda:InvokeFunctionUrl"
+      && aws_lambda_permission.cloudfront_invoke_url.principal == "cloudfront.amazonaws.com"
+      && aws_lambda_permission.cloudfront_invoke_url.function_url_auth_type == "AWS_IAM"
+      && aws_lambda_permission.cloudfront_invoke_url.function_name == aws_lambda_function.backend.function_name
+    )
+    error_message = "CloudFront needs lambda:InvokeFunctionUrl on the backend, for an AWS_IAM URL."
+  }
+  assert {
+    condition = (
+      aws_lambda_permission.cloudfront_invoke_function.action == "lambda:InvokeFunction"
+      && aws_lambda_permission.cloudfront_invoke_function.principal == "cloudfront.amazonaws.com"
+      && aws_lambda_permission.cloudfront_invoke_function.function_name == aws_lambda_function.backend.function_name
+    )
+    error_message = "Since October 2025 a Function URL also needs lambda:InvokeFunction for CloudFront."
+  }
+  assert {
+    condition     = aws_lambda_permission.cloudfront_invoke_url.source_arn == "arn:aws:cloudfront::111111111111:distribution/E2EXAMPLE" && aws_lambda_permission.cloudfront_invoke_function.source_arn == "arn:aws:cloudfront::111111111111:distribution/E2EXAMPLE"
+    error_message = "Both permissions must be scoped to this distribution (source_arn), or any distribution could invoke the URL."
+  }
+}
+
 run "waf_rate_limits_api" {
   command = plan
 
