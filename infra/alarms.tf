@@ -228,15 +228,17 @@ resource "aws_cloudwatch_metric_alarm" "waf_blocked" {
   alarm_actions       = [aws_sns_topic.alerts_us_east_1.arn]
   treat_missing_data  = "notBreaching"
 
+  # WAF's WebACL dimension is the ACL's metric name, not its resource name.
   dimensions = {
-    WebACL = aws_wafv2_web_acl.frontend.name
+    WebACL = aws_wafv2_web_acl.frontend.visibility_config[0].metric_name
     Rule   = "ALL"
   }
 }
 
 # The auth WAF rule's blocks (us-east-1: CLOUDFRONT-scope WAF metrics live
-# there). Any block means one IP passed auth_waf_rate_limit_per_ip sign-in
-# calls in 5 minutes, far past a person signing in.
+# there). Any block means one IP made more than auth_waf_rate_limit_per_ip
+# sign-in calls (code, verify, logout; /api/auth/me is exempt, waf.tf) in 5
+# minutes, far more than a person signing in makes.
 resource "aws_cloudwatch_metric_alarm" "waf_auth_blocked" {
   provider            = aws.us_east_1
   alarm_name          = "${local.project}-waf-auth-blocked"
@@ -247,13 +249,14 @@ resource "aws_cloudwatch_metric_alarm" "waf_auth_blocked" {
   period              = 300
   statistic           = "Sum"
   threshold           = 0
-  alarm_description   = "The WAF's /api/auth/ rule blocked requests: one IP made more than auth_waf_rate_limit_per_ip sign-in calls in 5 minutes (code guessing or lockout spraying). See the rule's sampled requests in the WAF console."
+  alarm_description   = "The WAF's /api/auth/ rule blocked requests: one IP made more than auth_waf_rate_limit_per_ip sign-in calls in 5 minutes (code guessing or lockout spraying; /api/auth/me is not counted). Sampled requests are off (waf.tf), so look for auth.locked alarms and the audit rows on the Users page."
   alarm_actions       = [aws_sns_topic.alerts_us_east_1.arn]
   treat_missing_data  = "notBreaching"
 
+  # Both dimensions are metric names from the ACL's visibility configs.
   dimensions = {
-    WebACL = aws_wafv2_web_acl.frontend.name
-    Rule   = local.waf_auth_rule_metric
+    WebACL = aws_wafv2_web_acl.frontend.visibility_config[0].metric_name
+    Rule   = one([for r in aws_wafv2_web_acl.frontend.rule : r.visibility_config[0].metric_name if r.name == "RateLimitAuthPerIP"])
   }
 }
 
@@ -272,7 +275,7 @@ resource "aws_cloudwatch_metric_alarm" "ses_bounce_rate" {
   period              = 3600
   statistic           = "Maximum"
   threshold           = 0.025
-  alarm_description   = "SES bounce rate above 2.5 % (AWS reviews the account at 5 % and may pause sending, which stops sign-in). Check the Users page for flagged addresses; remove a listed address that no longer exists."
+  alarm_description   = "SES bounce rate above 2.5 % (AWS reviews the account at 5 % and may pause sending, which stops sign-in). Bounces are logged as mail.bounce in the API Lambda's log group (no address; flagging on the Users page comes with auth-kit v0.2.0); `aws sesv2 list-suppressed-destinations` names the addresses. Remove a listed user whose address no longer exists."
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
 }
@@ -286,7 +289,7 @@ resource "aws_cloudwatch_metric_alarm" "ses_complaint_rate" {
   period              = 3600
   statistic           = "Maximum"
   threshold           = 0.0005
-  alarm_description   = "SES complaint rate above 0.05 % (AWS reviews the account at 0.1 %). Someone marked a sign-in code as spam: check the Users page."
+  alarm_description   = "SES complaint rate above 0.05 % (AWS reviews the account at 0.1 %). Someone marked a sign-in code as spam: `aws sesv2 list-suppressed-destinations --reasons COMPLAINT` names the address (it is logged as mail.complaint, without the address)."
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
 }
@@ -393,8 +396,112 @@ resource "aws_cloudwatch_metric_alarm" "auth_locked" {
   treat_missing_data  = "notBreaching"
 }
 
-# A dead-lettered bounce or complaint: the Lambda failed 5 times to record it,
-# so the address isn't flagged on the Users page (SES has still suppressed it).
+# mail.send_failed: SES refused a sign-in code. /auth/code still answers 202
+# (so a listed address can't be told from an unlisted one) and the error is
+# caught, so neither the Lambda error alarm nor the SES reputation alarms see
+# it. One may mean every sign-in is failing silently: the account is in the
+# SES sandbox or paused, DKIM fell back to pending, the configuration set is
+# disabled, or the IAM grant's ses:FromAddress no longer matches MAIL_FROM.
+# Same quoted-term pattern as auth.locked; the line carries the user's id and
+# the SES error name only (routes.ts).
+resource "aws_cloudwatch_log_metric_filter" "mail_send_failed" {
+  name           = "${local.project}-mail-send-failed"
+  log_group_name = aws_cloudwatch_log_group.lambda.name
+  pattern        = "\"mail.send_failed\""
+
+  metric_transformation {
+    name          = "MailSendFailed"
+    namespace     = "${local.project}/Auth"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "mail_send_failed" {
+  alarm_name          = "${local.project}-mail-send-failed"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.mail_send_failed.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.mail_send_failed.metric_transformation[0].namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "SES refused to send a sign-in code: the user sees 'check your email' and gets nothing. The log line's error names the cause, e.g. MessageRejected (SES sandbox or an unverified identity), AccessDenied (the IAM grant or MAIL_FROM), AccountSuspended or SendingPausedException (reputation). Check `aws sesv2 get-account` and the identity's DKIM status."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
+
+# auth.unconfigured: the Lambda's sign-in configuration is unusable (a key
+# missing or short, the keys equal, no table, a transport other than SES), so
+# every gated route answers 503 (runtime.ts logs it). Without this only the
+# CloudFront 5xx alarm notices, at 1 % of all requests, static hits included.
+resource "aws_cloudwatch_log_metric_filter" "auth_unconfigured" {
+  name           = "${local.project}-auth-unconfigured"
+  log_group_name = aws_cloudwatch_log_group.lambda.name
+  pattern        = "\"auth.unconfigured\""
+
+  metric_transformation {
+    name          = "AuthUnconfigured"
+    namespace     = "${local.project}/Auth"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "auth_unconfigured" {
+  alarm_name          = "${local.project}-auth-unconfigured"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.auth_unconfigured.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.auth_unconfigured.metric_transformation[0].namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "Sign-in is unconfigured on the API Lambda, so every gated route answers 503. The log line's problem field names what is wrong (backend/src/auth/config.ts); check the function's environment against docs/deployment.md § Lambda environment."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
+
+# auth.send_capped: a listed address reached its daily cap of sign-in code
+# sends. A person asks for a code two or three times; reaching the cap means
+# someone is requesting codes for that address over and over (mail bombing a
+# user, or burning SES reputation). Same quoted-term pattern as auth.locked;
+# the line carries the event name only. A 15-minute window: the cap is daily,
+# so one per window is plenty of signal without re-alarming on every request.
+resource "aws_cloudwatch_log_metric_filter" "auth_send_capped" {
+  name           = "${local.project}-auth-send-capped"
+  log_group_name = aws_cloudwatch_log_group.lambda.name
+  pattern        = "\"auth.send_capped\""
+
+  metric_transformation {
+    name          = "AuthSendCapped"
+    namespace     = "${local.project}/Auth"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "auth_send_capped" {
+  alarm_name          = "${local.project}-auth-send-capped"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.auth_send_capped.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.auth_send_capped.metric_transformation[0].namespace
+  period              = 900
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "A listed address reached its daily cap of sign-in code sends: someone is requesting codes for it repeatedly (mail bombing, or a user stuck in a loop). The user can sign in again tomorrow; check the audit rows on the Users page and the WAF block alarms."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
+
+# A dead-lettered bounce or complaint: the Lambda didn't take it in 5 receives
+# (SES has still suppressed the address). The handler only logs today and
+# never reports a record as failed, so this means a crash, a timeout or a
+# throttle (a flood holding every reserved copy busy, ses.tf), not bad input.
 resource "aws_cloudwatch_metric_alarm" "mail_events_dlq" {
   alarm_name          = "${local.project}-mail-events-dlq"
   comparison_operator = "GreaterThanThreshold"
@@ -404,7 +511,7 @@ resource "aws_cloudwatch_metric_alarm" "mail_events_dlq" {
   period              = 300
   statistic           = "Maximum"
   threshold           = 0
-  alarm_description   = "An SES bounce or complaint is in the mail-events DLQ: the Lambda failed 5 times to record it. Read the Lambda's errors, fix, then redrive the DLQ (SQS console, Start DLQ redrive)."
+  alarm_description   = "An SES bounce or complaint is in the mail-events DLQ: the Lambda didn't take it in 5 receives (a crash, timeout or throttle). Read the Lambda's errors and throttles, fix, then redrive the DLQ (SQS console, Start DLQ redrive)."
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
 

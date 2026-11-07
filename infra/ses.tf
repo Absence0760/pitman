@@ -19,9 +19,11 @@
 #
 # NOT done here, by hand, once (docs/deployment.md § First deploy):
 #   - asking AWS for production access (leaving the sandbox; a support review
-#     that can take a day or more). Until then SES delivers only to verified
-#     addresses, and the IAM grant below (the domain identity only) refuses a
-#     sandbox send outright, so sign-in mail works only after production access.
+#     that can take a day or more). In the SES sandbox a send to an
+#     unverified recipient is refused (MessageRejected), and the users are
+#     unverified addresses, so sign-in mail works only after production
+#     access. The backend logs each refusal as `mail.send_failed`, which
+#     alarms (alarms.tf).
 #   - checking the identity has verified (DKIM SUCCESS) once the CNAMEs resolve.
 # ----------------------------------------------------------------------------
 
@@ -47,12 +49,22 @@ locals {
     "aspf=r",
   ]))
 
-  # Six times the Lambda timeout, AWS's guidance for an SQS event source, so
-  # a message isn't redelivered while a slow batch is still running.
-  mail_events_visibility_seconds = 6 * var.lambda_timeout_seconds
+  # The event source mapping waits up to this long to fill a batch.
+  mail_events_batching_window_seconds = 5
+
+  # AWS's guidance for an SQS event source (Lambda DG, "Using Lambda with
+  # Amazon SQS"): six times the function timeout plus the batching window,
+  # so a message isn't redelivered while a slow batch is still running.
+  mail_events_visibility_seconds = 6 * var.lambda_timeout_seconds + local.mail_events_batching_window_seconds
 }
 
-# --- Configuration set: TLS, suppression, reputation, event metrics --------
+# --- Configuration set: TLS, suppression, reputation metrics ---------------
+#
+# No CloudWatch event destination: per-event SES metrics are billed as custom
+# CloudWatch metrics (about $2/month for the seven event types) and no alarm
+# would use them. The reputation alarms (alarms.tf) read the account-level
+# Reputation.* metrics, which are free, and bounces and complaints reach the
+# app through SNS (below).
 
 resource "aws_sesv2_configuration_set" "main" {
   configuration_set_name = local.project
@@ -76,26 +88,6 @@ resource "aws_sesv2_configuration_set" "main" {
   # (ses:DeleteSuppressedDestination) is the operator's job, not the Lambda's.
   suppression_options {
     suppressed_reasons = ["BOUNCE", "COMPLAINT"]
-  }
-}
-
-# Per-event counts into CloudWatch (namespace AWS/SES, dimension
-# ses:configuration-set). Free; the account-level rate alarms are in alarms.tf.
-resource "aws_sesv2_configuration_set_event_destination" "cloudwatch" {
-  configuration_set_name = aws_sesv2_configuration_set.main.configuration_set_name
-  event_destination_name = "cloudwatch"
-
-  event_destination {
-    enabled              = true
-    matching_event_types = ["SEND", "DELIVERY", "BOUNCE", "COMPLAINT", "REJECT", "RENDERING_FAILURE", "DELIVERY_DELAY"]
-
-    cloud_watch_destination {
-      dimension_configuration {
-        dimension_name          = "ses:configuration-set"
-        dimension_value_source  = "MESSAGE_TAG"
-        default_dimension_value = local.project
-      }
-    }
   }
 }
 
@@ -159,12 +151,11 @@ resource "aws_route53_record" "dmarc" {
 # --- IAM: the API Lambda may send, as no-reply@ only -----------------------
 # SES v2 SendEmail authorises against the sending identity and the
 # configuration set the message uses. Exactly those two ARNs, and only with
-# From = no-reply@<domain>. In the SES sandbox SendEmail also authorises
-# against each recipient's verified identity, which this grant doesn't name,
-# so sandbox sends are refused (AccessDenied on identity/<recipient>): the
-# first real sign-in waits for production access (WM widens to identity/* for
-# sandbox testing; A-AUTH-7 chose the identity only). Never granted:
-# ses:DeleteSuppressedDestination (the operator's job, A-AUTH-7).
+# From = no-reply@<domain>. In the SES sandbox a send to an unverified
+# recipient is refused, so the first real sign-in waits for production access
+# (WM widens its grant to identity/* for sandbox testing; A-AUTH-7 chose the
+# identity only). Never granted: ses:DeleteSuppressedDestination (the
+# operator's job, A-AUTH-7).
 resource "aws_iam_role_policy" "lambda_ses_send" {
   name = "${local.project}-backend-ses-send"
   role = aws_iam_role.lambda.id
@@ -188,7 +179,9 @@ resource "aws_iam_role_policy" "lambda_ses_send" {
 # --- Bounces and complaints -> the app ---------------------------------------
 # The suppression list keeps SES from mailing a bounced or complaining address
 # again, but on its own the app never knows. So both events are published to
-# the API Lambda as well, which flags the address on the Users page:
+# the API Lambda as well. Today it logs each one (`mail.bounce`,
+# `mail.complaint`, no address); flagging the address on the Users page comes
+# with auth-kit v0.2.0:
 #
 #   configuration set --BOUNCE, COMPLAINT--> SNS `pitman-ses-events`
 #     --raw message delivery--> SQS `pitman-mail-events` (DLQ after 5 tries)
@@ -316,12 +309,16 @@ resource "aws_iam_role_policy" "lambda_mail_events" {
 
 # The same function as the API (lambda.ts dispatches an SQS batch to the
 # bounce handler). At most 2 concurrent batches, counted inside the
-# function's reserved concurrency; only failed records are retried.
+# function's reserved concurrency (at least 5, variables.tf, so the mapping
+# is never throttled by its own cap); only failed records are retried. A
+# flood that holds every reserved copy busy throttles these polls too, and
+# after 5 receives an event dead-letters (the DLQ alarm says how to redrive);
+# the durable fix, if that ever bites, is a separate small function.
 resource "aws_lambda_event_source_mapping" "mail_events" {
   event_source_arn                   = aws_sqs_queue.mail_events.arn
   function_name                      = aws_lambda_function.backend.arn
   batch_size                         = 10
-  maximum_batching_window_in_seconds = 5
+  maximum_batching_window_in_seconds = local.mail_events_batching_window_seconds
   function_response_types            = ["ReportBatchItemFailures"]
 
   scaling_config {

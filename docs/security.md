@@ -51,10 +51,19 @@ runs it.
   Terraform-generated 48-character value) and the app answers 403 to any
   request without it, so the WAF and its rate limits cover the API. Not
   Lambda OAC: it would need the viewer to sign every POST body's hash.
-- **WAF** (us-east-1): per-IP rate limits, 300 per 5 minutes on `/api/*`
-  (path URL-decoded, normalised and lower-cased before matching) and 2 000 on
-  every path. No managed rule groups (their 8 KB body limit would block
-  polygon POSTs); the API checks its own input sizes.
+- **WAF** (us-east-1): per-IP rate limits, 100 per 5 minutes on
+  `/api/auth/*` except `/api/auth/me` (which every page load calls), 300 on
+  `/api/*` and 2 000 on every path. Before matching, the path is URL-decoded,
+  backslashes are turned into slashes and the path normalised
+  (`NORMALIZE_PATH_WIN`: the app routes `/auth\code` as `/auth/code`), then
+  lower-cased. No managed rule groups (their 8 KB body limit would block
+  polygon POSTs); the API checks its own input sizes. **Sampled requests are
+  off** on the ACL and every rule (metrics stay on): a sample keeps the
+  request's headers, the session cookie among them, and the client IP in
+  us-east-1 for about 3 hours, can't be redacted, and would put personal data
+  outside af-south-1. The cost is that a WAF block can't be inspected request
+  by request; the alarms and the backend's `auth.locked` / audit rows are the
+  trail.
 - **Strict CSP**, from CloudFront: `default-src 'self'`, `connect-src 'self'`,
   `object-src 'none'`, `frame-ancestors 'none'`, `base-uri 'none'`, no
   `'unsafe-eval'`, and no style `'unsafe-inline'` (the two inline styles,
@@ -132,7 +141,10 @@ privacy notice and AWS account. Network files still never leave the browser.
   route answers 503 (`auth/config.ts`).
 - **Logs**: an event name and at most a user id: `auth.locked` (when a lock
   starts), `mail.send_failed`, `mail.bounce`, `mail.complaint`,
-  `auth.unconfigured`. Never an address, a code or a token; every auth test
+  `auth.unconfigured`, `auth.send_capped`. `auth.locked`, `mail.send_failed`
+  (SES refused a code, which the user can't see: `/auth/code` still answers
+  202), `auth.unconfigured` and `auth.send_capped` each raise an alarm
+  (`infra/alarms.tf`). Never an address, a code or a token; every auth test
   file fails if any line it logs holds an address
   (`src/__tests__/logGuard.ts`). The console transport (dev) masks the address.
 - **Operator actions** (`pnpm admin:bootstrap`, `admin:recover`,
@@ -214,6 +226,19 @@ A request to erase a person's address (POPIA), in order:
   state (both in-account, encrypted at rest), not Secrets Manager. Anyone who
   can read the function's configuration can mint a session (A-AUTH-8 accepts
   this; the account is the root of trust).
+- **Read-only access to the Lambda is admin access.** Anyone who can call
+  `lambda:GetFunctionConfiguration` on the API function, which AWS's
+  `ReadOnlyAccess` and `ViewOnlyAccess`-style policies include, reads
+  `AUTH_SESSION_KEY` and can mint an admin session. Treat every read-only
+  permission set in the pitman account as admin-equivalent; the same accepted
+  gap as A-AUTH-8. The durable fix, if the account ever gains read-only
+  users, is SSM SecureString or Secrets Manager under a CMK (a cold-start
+  fetch, about $0.40-$1/month).
+- A flood spread over many IPs that holds every reserved Lambda copy busy
+  also throttles the mail-events queue's polls; after 5 receives a bounce or
+  complaint dead-letters (SES has still suppressed the address) and the DLQ
+  alarm fires. Redrive after the flood. The durable fix, if it ever bites, is
+  a separate small function for mail events.
 - Dependency scanning is weekly, not per change: `.github/workflows/audit.yml`
   runs `pnpm audit --audit-level=moderate` every Monday and opens a
   `dependency-audit` issue (closed by the next clean run), and Dependabot

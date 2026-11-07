@@ -17,7 +17,7 @@ bootstrap_slug = "pitman"
 # --- API Lambda --------------------------------------------------------------
 lambda_memory_mb            = 1024
 lambda_timeout_seconds      = 30
-lambda_reserved_concurrency = 10 # needs the account's concurrency quota >= 20
+lambda_reserved_concurrency = 10 # 5-50 (>= 5 for the SQS trigger); needs the account's concurrency quota >= this + 10
 lambda_log_retention_days   = 30
 
 # --- IC-WBT's buckets (leave empty until Round 4.1's grants are merged) ------

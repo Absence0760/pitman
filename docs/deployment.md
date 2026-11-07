@@ -147,14 +147,17 @@ order. `pitman` is the SSO profile created in step 3.
 
 Start step 23 as soon as step 14 has applied: AWS reviews it by hand and it
 can take a day or more. Until it's granted the account is in the SES sandbox,
-and the Lambda's grant (the domain identity only, A-AUTH-7) refuses every
-sandbox send, so no sign-in code goes out before production access.
+where a send to an unverified recipient is refused (`MessageRejected`); the
+users are unverified addresses, so sign-in mail works only after production
+access. Each refusal is logged as `mail.send_failed` and raises the
+`pitman-mail-send-failed` alarm. After production access, sign in once for
+real and check that alarm stays OK.
 
-23. Ask for SES production access in af-south-1 (transactional mail, low volume): `aws sesv2 put-account-details --production-access-enabled --mail-type TRANSACTIONAL --website-url https://pitman.jaredhoward.com --contact-language EN --use-case-description "Sign-in codes for an invite-only tool with a handful of users listed by an admin. No marketing mail. Bounces and complaints are suppressed by the configuration set and flagged to the admin." --region af-south-1 --profile pitman`.
+23. Ask for SES production access in af-south-1 (transactional mail, low volume): `aws sesv2 put-account-details --production-access-enabled --mail-type TRANSACTIONAL --website-url https://pitman.jaredhoward.com --contact-language EN --use-case-description "Sign-in codes for an invite-only tool with a handful of users listed by an admin. No marketing mail. Bounces and complaints are suppressed by the configuration set and logged for the admin." --region af-south-1 --profile pitman`.
 24. Check the domain identity has verified (the DKIM CNAMEs, MAIL FROM MX and SPF are in the zone from step 14; DNS can take up to an hour): `aws sesv2 get-email-identity --email-identity pitman.jaredhoward.com --region af-south-1 --profile pitman --query '{sending:VerifiedForSendingStatus,dkim:DkimAttributes.Status,mailFrom:MailFromAttributes.MailFromDomainStatus}'` → `true`, `SUCCESS`, `SUCCESS`.
 25. Check DMARC is published: `dig +short TXT _dmarc.pitman.jaredhoward.com` → `"v=DMARC1; p=none; adkim=r; aspf=r"`.
 26. Once AWS answers, check production access: `aws sesv2 get-account --region af-south-1 --profile pitman --query '{production:ProductionAccessEnabled,sending:SendingEnabled}'` → both `true`.
-27. Confirm the new alarms exist (bounce/complaint rate, user table, `auth.locked`, mail DLQ, auth WAF blocks): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region af-south-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
+27. Confirm the new alarms exist (bounce/complaint rate, user table, `auth.locked`, `mail.send_failed`, `auth.unconfigured`, `auth.send_capped`, mail DLQ, auth WAF blocks): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region af-south-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
 
 The first admin is added later with `pnpm admin:bootstrap` (A-AUTH-5), never
 through Terraform.

@@ -7,10 +7,13 @@
 # app rejects requests that skip CloudFront.
 #
 # Three rules, tightest first:
-#   - /api/auth/*: auth_waf_rate_limit_per_ip (default 100 per 5 minutes, the
-#     AWS minimum; A-AUTH-9). Sign-in is two or three calls; auth-kit's
-#     per-address limits are the real bound, this slows one source spraying
-#     code guesses (or lockouts) across many addresses.
+#   - /api/auth/* except /api/auth/me: auth_waf_rate_limit_per_ip (default
+#     100 per 5 minutes, the AWS minimum; A-AUTH-9). Sign-in is two or three
+#     calls; auth-kit's per-address limits are the real bound, this slows one
+#     source spraying code guesses (or lockouts) across many addresses.
+#     /api/auth/me runs on every page load (the layout asks who is signed in),
+#     so it is left to the /api/ rule: an office behind one NAT browsing the
+#     site never spends the sign-in budget.
 #   - /api/*: waf_api_rate_limit_per_ip (default 300 per 5 minutes). Each is
 #     a Lambda invocation, and a CHIRPS read is up to a few hundred S3 GETs
 #     billed to IC-WBT. Extending one network is a handful of calls.
@@ -23,13 +26,25 @@
 # over 8 KB, and a quaternary polygon POSTed to /api/chirps/monthly can be
 # larger. The API enforces its own input-size limits (4.2).
 #
+# Sampled requests are off on the ACL and every rule (metrics stay on): a
+# sample keeps the request's headers, the session cookie among them, and the
+# client IP in us-east-1 for about 3 hours, and samples can't be redacted.
+# docs/security.md § Infrastructure.
+#
 # Cost: ~$5/month for the ACL + $1/month per rule (three) + $0.60 per 1M requests.
 # ----------------------------------------------------------------------------
 
-# The auth rule's CloudWatch metric name: the Rule dimension of its
-# BlockedRequests metric (alarms.tf).
+# The text transformations every path match uses, in order, so the match is on
+# the path the app routes, not its raw spelling:
+#   1. URL_DECODE: %61 -> a, %2f -> /, %5c -> \.
+#   2. NORMALIZE_PATH_WIN: turn \ into / (the app routes /auth\code as
+#      /auth/code), then collapse //, /./ and /../ (it is NORMALIZE_PATH after
+#      the backslash step, so it replaces it). After the decode, so an encoded
+#      backslash is folded too.
+#   3. LOWERCASE.
+# Each transformation costs 10 WCUs; the ACL stays far under its 1,500.
 locals {
-  waf_auth_rule_metric = "${local.project}-RateLimitAuthPerIP"
+  waf_path_transformations = ["URL_DECODE", "NORMALIZE_PATH_WIN", "LOWERCASE"]
 }
 
 resource "aws_wafv2_web_acl" "frontend" {
@@ -55,25 +70,44 @@ resource "aws_wafv2_web_acl" "frontend" {
         evaluation_window_sec = 300
         aggregate_key_type    = "IP"
 
+        # /api/auth/... but not /api/auth/me, both on the same normalised path.
         scope_down_statement {
-          byte_match_statement {
-            search_string         = "/api/auth/"
-            positional_constraint = "STARTS_WITH"
-            field_to_match {
-              uri_path {}
+          and_statement {
+            statement {
+              byte_match_statement {
+                search_string         = "/api/auth/"
+                positional_constraint = "STARTS_WITH"
+                field_to_match {
+                  uri_path {}
+                }
+                dynamic "text_transformation" {
+                  for_each = local.waf_path_transformations
+                  content {
+                    priority = text_transformation.key
+                    type     = text_transformation.value
+                  }
+                }
+              }
             }
-            # The same normalisation as the /api/ rule below.
-            text_transformation {
-              priority = 0
-              type     = "URL_DECODE"
-            }
-            text_transformation {
-              priority = 1
-              type     = "NORMALIZE_PATH"
-            }
-            text_transformation {
-              priority = 2
-              type     = "LOWERCASE"
+            statement {
+              not_statement {
+                statement {
+                  byte_match_statement {
+                    search_string         = "/api/auth/me"
+                    positional_constraint = "EXACTLY"
+                    field_to_match {
+                      uri_path {}
+                    }
+                    dynamic "text_transformation" {
+                      for_each = local.waf_path_transformations
+                      content {
+                        priority = text_transformation.key
+                        type     = text_transformation.value
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -81,9 +115,9 @@ resource "aws_wafv2_web_acl" "frontend" {
     }
 
     visibility_config {
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false
       cloudwatch_metrics_enabled = true
-      metric_name                = local.waf_auth_rule_metric
+      metric_name                = "${local.project}-RateLimitAuthPerIP"
     }
   }
 
@@ -108,19 +142,12 @@ resource "aws_wafv2_web_acl" "frontend" {
             field_to_match {
               uri_path {}
             }
-            # Match the path CloudFront routes on, not its raw spelling:
-            # decode, then collapse //, /./ and /../, then fold case.
-            text_transformation {
-              priority = 0
-              type     = "URL_DECODE"
-            }
-            text_transformation {
-              priority = 1
-              type     = "NORMALIZE_PATH"
-            }
-            text_transformation {
-              priority = 2
-              type     = "LOWERCASE"
+            dynamic "text_transformation" {
+              for_each = local.waf_path_transformations
+              content {
+                priority = text_transformation.key
+                type     = text_transformation.value
+              }
             }
           }
         }
@@ -128,7 +155,7 @@ resource "aws_wafv2_web_acl" "frontend" {
     }
 
     visibility_config {
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false
       cloudwatch_metrics_enabled = true
       metric_name                = "${local.project}-RateLimitApiPerIP"
     }
@@ -151,16 +178,19 @@ resource "aws_wafv2_web_acl" "frontend" {
     }
 
     visibility_config {
-      sampled_requests_enabled   = true
+      sampled_requests_enabled   = false
       cloudwatch_metrics_enabled = true
       metric_name                = "${local.project}-RateLimitSitePerIP"
     }
   }
 
+  # The metric name differs from the ACL's name on purpose: WAF's WebACL
+  # dimension is the metric name, and the difference makes an alarm that
+  # used the ACL's name fail its test (tests/auth.tftest.hcl).
   visibility_config {
-    sampled_requests_enabled   = true
+    sampled_requests_enabled   = false
     cloudwatch_metrics_enabled = true
-    metric_name                = "${local.project}-frontend-acl"
+    metric_name                = "${local.project}-frontend-acl-metric"
   }
 
   lifecycle {

@@ -72,12 +72,12 @@ variable "lambda_timeout_seconds" {
 }
 
 variable "lambda_reserved_concurrency" {
-  description = "Reserved concurrency of the API Lambda: the most copies that can run at once, which caps worst-case spend (concurrency x memory x seconds). Lambda keeps 10 unreserved, so the account's concurrency quota must be at least this + 10; a new account's quota can be 10, so ask Service Quotas for more first (docs/deployment.md)."
+  description = "Reserved concurrency of the API Lambda: the most copies that can run at once, which caps worst-case spend (concurrency x memory x seconds). Lambda keeps 10 unreserved, so the account's concurrency quota must be at least this + 10; a new account's quota can be 10, so ask Service Quotas for more first (docs/deployment.md). At least 5: the mail-events queue's event source mapping runs up to 2 batches inside this cap, and AWS recommends reserved concurrency of 5 or more for an SQS trigger (below the mapping's maximum, Lambda throttles the queue's polls)."
   type        = number
   default     = 10
   validation {
-    condition     = var.lambda_reserved_concurrency >= 1 && var.lambda_reserved_concurrency <= 50
-    error_message = "lambda_reserved_concurrency must be 1-50. There is deliberately no 'unreserved' (-1) option: the cap is the cost control."
+    condition     = var.lambda_reserved_concurrency >= 5 && var.lambda_reserved_concurrency <= 50
+    error_message = "lambda_reserved_concurrency must be 5-50: at least 5 for the mail-events SQS trigger (AWS's minimum recommendation, above its maximum concurrency of 2), and there is deliberately no 'unreserved' (-1) option: the cap is the cost control."
   }
 }
 
@@ -193,7 +193,7 @@ variable "waf_api_rate_limit_per_ip" {
 }
 
 variable "auth_waf_rate_limit_per_ip" {
-  description = "WAF rate limit on /api/auth/*: requests per IP per 5-minute window (A-AUTH-9). The sign-in flow is two or three calls; auth-kit's own per-address limits are the real bound, this one slows one source guessing codes against many addresses. AWS minimum 100."
+  description = "WAF rate limit on /api/auth/* except /api/auth/me (which every page load calls, so it counts under waf_api_rate_limit_per_ip instead): requests per IP per 5-minute window (A-AUTH-9). The sign-in flow is two or three calls; auth-kit's own per-address limits are the real bound, this one slows one source guessing codes against many addresses. AWS minimum 100."
   type        = number
   default     = 100
   validation {

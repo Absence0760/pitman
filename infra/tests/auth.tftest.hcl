@@ -7,6 +7,10 @@
 # Mocked providers, `command = plan`, no AWS account, no state. The mocks
 # below fill computed values (an identity's ARN, a password's result) during
 # plan (`override_during = plan`), so grants can be compared ARN for ARN.
+# Mocks are per resource type, so two resources of one type (the queue and
+# its DLQ, the SES-events topic and the alert topics, the two sign-in keys)
+# would share a value and an ARN mix-up between them would pass; the
+# override_resource blocks after the providers give each its own.
 
 mock_provider "aws" {
   mock_data "aws_caller_identity" {
@@ -50,7 +54,8 @@ mock_provider "aws" {
   mock_resource "aws_sqs_queue" {
     override_during = plan
     defaults = {
-      arn = "arn:aws:sqs:af-south-1:111111111111:pitman-mail-events"
+      arn = "arn:aws:sqs:af-south-1:111111111111:unexpected-queue"
+      id  = "https://sqs.af-south-1.amazonaws.com/111111111111/unexpected-queue"
     }
   }
   mock_resource "aws_iam_role" {
@@ -75,7 +80,7 @@ mock_provider "aws" {
   mock_resource "aws_sns_topic" {
     override_during = plan
     defaults = {
-      arn = "arn:aws:sns:af-south-1:111111111111:pitman-ses-events"
+      arn = "arn:aws:sns:af-south-1:111111111111:unexpected-topic"
     }
   }
 }
@@ -90,6 +95,73 @@ mock_provider "random" {
   }
 }
 mock_provider "archive" {}
+
+# One distinct value per resource where a type has more than one.
+override_resource {
+  target          = aws_sqs_queue.mail_events
+  override_during = plan
+  values = {
+    arn = "arn:aws:sqs:af-south-1:111111111111:pitman-mail-events"
+    id  = "https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-events"
+  }
+}
+
+override_resource {
+  target          = aws_sqs_queue.mail_events_dlq
+  override_during = plan
+  values = {
+    arn = "arn:aws:sqs:af-south-1:111111111111:pitman-mail-events-dlq"
+    id  = "https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-events-dlq"
+  }
+}
+
+override_resource {
+  target          = aws_sns_topic.ses_events
+  override_during = plan
+  values = {
+    arn = "arn:aws:sns:af-south-1:111111111111:pitman-ses-events"
+  }
+}
+
+override_resource {
+  target          = aws_sns_topic.alerts
+  override_during = plan
+  values = {
+    arn = "arn:aws:sns:af-south-1:111111111111:pitman-alerts"
+  }
+}
+
+override_resource {
+  target          = aws_sns_topic.alerts_us_east_1
+  override_during = plan
+  values = {
+    arn = "arn:aws:sns:us-east-1:111111111111:pitman-alerts"
+  }
+}
+
+override_resource {
+  target          = random_password.auth_code_key
+  override_during = plan
+  values = {
+    result = "mock-code-key-mock-code-key-mock-code-key-mock-c"
+  }
+}
+
+override_resource {
+  target          = random_password.auth_session_key
+  override_during = plan
+  values = {
+    result = "mock-session-key-mock-session-key-mock-session-"
+  }
+}
+
+override_resource {
+  target          = random_password.cloudfront_shared_secret
+  override_during = plan
+  values = {
+    result = "mock-cloudfront-secret-mock-cloudfront-secret-mo"
+  }
+}
 
 # --- region tied to the privacy notice (A-AUTH-6) -----------------------------
 
@@ -283,8 +355,36 @@ run "mail_events_chain" {
   command = plan
 
   assert {
-    condition     = jsondecode(aws_iam_role_policy.lambda_mail_events.policy).Statement[0].Resource == aws_sqs_queue.mail_events.arn
-    error_message = "The Lambda consumes the mail-events queue only."
+    condition     = aws_sqs_queue.mail_events.arn != aws_sqs_queue.mail_events_dlq.arn && aws_sns_topic.ses_events.arn != aws_sns_topic.alerts.arn
+    error_message = "Test harness: the queue and its DLQ, and the SES-events and alert topics, must have distinct mock ARNs, or the pins below can't tell them apart."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.lambda_mail_events.policy).Statement[0].Resource == "arn:aws:sqs:af-south-1:111111111111:pitman-mail-events"
+    error_message = "The Lambda consumes the mail-events queue only (not its DLQ)."
+  }
+  assert {
+    condition     = aws_lambda_event_source_mapping.mail_events.event_source_arn == "arn:aws:sqs:af-south-1:111111111111:pitman-mail-events"
+    error_message = "The event source mapping polls the mail-events queue, not its DLQ."
+  }
+  assert {
+    condition     = jsondecode(aws_sqs_queue.mail_events.redrive_policy).deadLetterTargetArn == "arn:aws:sqs:af-south-1:111111111111:pitman-mail-events-dlq"
+    error_message = "The queue dead-letters into the mail-events DLQ."
+  }
+  assert {
+    condition     = jsondecode(aws_sqs_queue_redrive_allow_policy.mail_events_dlq.redrive_allow_policy).sourceQueueArns == ["arn:aws:sqs:af-south-1:111111111111:pitman-mail-events"] && aws_sqs_queue_redrive_allow_policy.mail_events_dlq.queue_url == aws_sqs_queue.mail_events_dlq.id
+    error_message = "The DLQ accepts redrive from the mail-events queue only."
+  }
+  assert {
+    condition     = aws_sqs_queue_policy.mail_events.queue_url == "https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-events" && jsondecode(aws_sqs_queue_policy.mail_events.policy).Statement[0].Resource == "arn:aws:sqs:af-south-1:111111111111:pitman-mail-events"
+    error_message = "The SNS send policy is on the mail-events queue."
+  }
+  assert {
+    condition     = aws_sns_topic_subscription.mail_events.topic_arn == "arn:aws:sns:af-south-1:111111111111:pitman-ses-events" && aws_sns_topic_subscription.mail_events.endpoint == "arn:aws:sqs:af-south-1:111111111111:pitman-mail-events" && aws_sns_topic_subscription.mail_events.raw_message_delivery
+    error_message = "The mail-events queue subscribes to the SES-events topic, raw."
+  }
+  assert {
+    condition     = aws_sesv2_configuration_set_event_destination.suppression.event_destination[0].sns_destination[0].topic_arn == "arn:aws:sns:af-south-1:111111111111:pitman-ses-events" && aws_sns_topic_policy.ses_events.arn == "arn:aws:sns:af-south-1:111111111111:pitman-ses-events"
+    error_message = "SES publishes to the SES-events topic, and its policy is on that topic."
   }
   assert {
     condition = sort(jsondecode(aws_iam_role_policy.lambda_mail_events.policy).Statement[0].Action) == sort([
@@ -293,8 +393,8 @@ run "mail_events_chain" {
     error_message = "Receive, delete and get-attributes only."
   }
   assert {
-    condition     = jsondecode(aws_sqs_queue_policy.mail_events.policy).Statement[0].Condition.ArnEquals["aws:SourceArn"] == aws_sns_topic.ses_events.arn
-    error_message = "Only the ses-events topic may send to the queue."
+    condition     = jsondecode(aws_sqs_queue_policy.mail_events.policy).Statement[0].Condition.ArnEquals["aws:SourceArn"] == "arn:aws:sns:af-south-1:111111111111:pitman-ses-events"
+    error_message = "Only the ses-events topic (not the alert topic) may send to the queue."
   }
   assert {
     condition     = jsondecode(aws_sqs_queue_policy.mail_events.policy).Statement[0].Principal.Service == "sns.amazonaws.com" && jsondecode(aws_sqs_queue_policy.mail_events.policy).Statement[0].Action == "sqs:SendMessage"
@@ -323,6 +423,46 @@ run "mail_events_chain" {
   assert {
     condition     = aws_lambda_event_source_mapping.mail_events.function_response_types == toset(["ReportBatchItemFailures"])
     error_message = "Only failed records are retried."
+  }
+  assert {
+    condition     = aws_sqs_queue.mail_events.visibility_timeout_seconds == 6 * var.lambda_timeout_seconds + aws_lambda_event_source_mapping.mail_events.maximum_batching_window_in_seconds
+    error_message = "The visibility timeout is 6 x the Lambda timeout + the batching window (AWS's SQS guidance)."
+  }
+  assert {
+    condition     = aws_sqs_queue.mail_events.visibility_timeout_seconds == 185 && aws_lambda_event_source_mapping.mail_events.maximum_batching_window_in_seconds == 5
+    error_message = "At the defaults: 6 x 30 s + a 5 s batching window = 185 s."
+  }
+}
+
+run "mail_events_visibility_follows_the_lambda_timeout" {
+  command = plan
+  variables {
+    lambda_timeout_seconds = 25
+  }
+
+  assert {
+    condition     = aws_sqs_queue.mail_events.visibility_timeout_seconds == 155
+    error_message = "With a 25 s timeout the visibility timeout is 6 x 25 + 5 = 155 s."
+  }
+}
+
+run "reserved_concurrency_below_sqs_minimum_refused" {
+  command = plan
+  variables {
+    lambda_reserved_concurrency = 4
+  }
+  expect_failures = [var.lambda_reserved_concurrency]
+}
+
+run "reserved_concurrency_five_accepted" {
+  command = plan
+  variables {
+    lambda_reserved_concurrency = 5
+  }
+
+  assert {
+    condition     = aws_lambda_function.backend.reserved_concurrent_executions >= aws_lambda_event_source_mapping.mail_events.scaling_config[0].maximum_concurrency
+    error_message = "Reserved concurrency 5 is accepted and is above the mapping's maximum concurrency."
   }
 }
 
@@ -361,24 +501,25 @@ run "lambda_auth_environment" {
   }
 }
 
-run "auth_keys_are_distinct" {
+# A structural check: each key comes from its own random_password resource
+# (each overridden above with a different known value), so wiring both
+# variables to one resource, or swapping them, fails. It can't prove two real
+# random values differ; the backend refuses equal keys at start-up
+# (auth/config.ts, auth.unconfigured).
+run "auth_keys_wired_to_separate_resources" {
   command = plan
 
   assert {
-    condition     = random_password.auth_code_key.result != random_password.auth_session_key.result
-    error_message = "The code key and the session key must be different values."
-  }
-  assert {
-    condition     = aws_lambda_function.backend.environment[0].variables["AUTH_CODE_KEY"] == random_password.auth_code_key.result
+    condition     = aws_lambda_function.backend.environment[0].variables["AUTH_CODE_KEY"] == "mock-code-key-mock-code-key-mock-code-key-mock-c"
     error_message = "AUTH_CODE_KEY comes from random_password.auth_code_key."
   }
   assert {
-    condition     = aws_lambda_function.backend.environment[0].variables["AUTH_SESSION_KEY"] == random_password.auth_session_key.result
-    error_message = "AUTH_SESSION_KEY comes from random_password.auth_session_key."
+    condition     = aws_lambda_function.backend.environment[0].variables["AUTH_SESSION_KEY"] == "mock-session-key-mock-session-key-mock-session-"
+    error_message = "AUTH_SESSION_KEY comes from random_password.auth_session_key (not the code key's resource)."
   }
   assert {
-    condition     = aws_lambda_function.backend.environment[0].variables["CLOUDFRONT_SHARED_SECRET"] == random_password.cloudfront_shared_secret.result
-    error_message = "The existing environment is kept."
+    condition     = aws_lambda_function.backend.environment[0].variables["CLOUDFRONT_SHARED_SECRET"] == "mock-cloudfront-secret-mock-cloudfront-secret-mo"
+    error_message = "The existing environment is kept: CLOUDFRONT_SHARED_SECRET comes from its own resource."
   }
 }
 
@@ -407,18 +548,73 @@ run "waf_auth_rule" {
   assert {
     condition = one([
       for r in aws_wafv2_web_acl.frontend.rule :
-      r.statement[0].rate_based_statement[0].scope_down_statement[0].byte_match_statement[0].search_string
+      r.statement[0].rate_based_statement[0].aggregate_key_type == "IP" && r.statement[0].rate_based_statement[0].evaluation_window_sec == 300
       if r.name == "RateLimitAuthPerIP"
-    ]) == "/api/auth/"
+    ])
+    error_message = "The auth rule counts per IP over 5 minutes."
+  }
+  assert {
+    condition = one([
+      for r in aws_wafv2_web_acl.frontend.rule :
+      length(r.action[0].block) == 1 && length(r.action[0].count) == 0 && length(r.action[0].allow) == 0
+      if r.name == "RateLimitAuthPerIP"
+    ])
+    error_message = "The auth rule blocks (not count, not allow)."
+  }
+  assert {
+    condition = one([
+      for r in aws_wafv2_web_acl.frontend.rule :
+      [for st in r.statement[0].rate_based_statement[0].scope_down_statement[0].and_statement[0].statement : st.byte_match_statement[0].search_string if length(st.byte_match_statement) == 1]
+      if r.name == "RateLimitAuthPerIP"
+    ]) == ["/api/auth/"]
     error_message = "The auth rule is scoped to /api/auth/."
   }
   assert {
     condition = one([
       for r in aws_wafv2_web_acl.frontend.rule :
-      [for t in r.statement[0].rate_based_statement[0].scope_down_statement[0].byte_match_statement[0].text_transformation : t.type]
+      [for st in r.statement[0].rate_based_statement[0].scope_down_statement[0].and_statement[0].statement : "${st.byte_match_statement[0].positional_constraint}:${length(st.byte_match_statement[0].field_to_match[0].uri_path)}" if length(st.byte_match_statement) == 1]
       if r.name == "RateLimitAuthPerIP"
-    ]) == ["URL_DECODE", "NORMALIZE_PATH", "LOWERCASE"]
-    error_message = "The auth rule normalises the path like the /api/ rule."
+    ]) == ["STARTS_WITH:1"]
+    error_message = "The /api/auth/ match is STARTS_WITH on the URI path."
+  }
+  assert {
+    condition = one([
+      for r in aws_wafv2_web_acl.frontend.rule :
+      [
+        for st in r.statement[0].rate_based_statement[0].scope_down_statement[0].and_statement[0].statement :
+        "${st.not_statement[0].statement[0].byte_match_statement[0].search_string}|${st.not_statement[0].statement[0].byte_match_statement[0].positional_constraint}|${length(st.not_statement[0].statement[0].byte_match_statement[0].field_to_match[0].uri_path)}"
+        if length(st.not_statement) == 1
+      ]
+      if r.name == "RateLimitAuthPerIP"
+    ]) == ["/api/auth/me|EXACTLY|1"]
+    error_message = "/api/auth/me (exactly, on the URI path) is excluded from the auth rule: it runs on every page load."
+  }
+  assert {
+    condition = one([
+      for r in aws_wafv2_web_acl.frontend.rule :
+      [
+        for st in r.statement[0].rate_based_statement[0].scope_down_statement[0].and_statement[0].statement :
+        [for t in(length(st.byte_match_statement) == 1 ? st.byte_match_statement[0] : st.not_statement[0].statement[0].byte_match_statement[0]).text_transformation : t.type]
+      ]
+      if r.name == "RateLimitAuthPerIP"
+    ]) == [["URL_DECODE", "NORMALIZE_PATH_WIN", "LOWERCASE"], ["URL_DECODE", "NORMALIZE_PATH_WIN", "LOWERCASE"]]
+    error_message = "Both halves of the auth rule normalise the same path: decode, fold backslashes and collapse the path (NORMALIZE_PATH_WIN), lower-case."
+  }
+  assert {
+    condition = one([
+      for r in aws_wafv2_web_acl.frontend.rule :
+      [for t in r.statement[0].rate_based_statement[0].scope_down_statement[0].byte_match_statement[0].text_transformation : t.type]
+      if r.name == "RateLimitApiPerIP"
+    ]) == ["URL_DECODE", "NORMALIZE_PATH_WIN", "LOWERCASE"]
+    error_message = "The /api/ rule folds backslashes too (the app routes /auth\\code as /auth/code)."
+  }
+  assert {
+    condition = one([
+      for r in aws_wafv2_web_acl.frontend.rule :
+      r.statement[0].rate_based_statement[0].scope_down_statement[0].byte_match_statement[0].search_string == "/api/" && r.statement[0].rate_based_statement[0].scope_down_statement[0].byte_match_statement[0].positional_constraint == "STARTS_WITH"
+      if r.name == "RateLimitApiPerIP"
+    ])
+    error_message = "/api/auth/me still counts under the /api/ rule (STARTS_WITH /api/, no exclusion)."
   }
   assert {
     condition = one([for r in aws_wafv2_web_acl.frontend.rule : r.priority if r.name == "RateLimitAuthPerIP"]) < min([
@@ -427,8 +623,38 @@ run "waf_auth_rule" {
     error_message = "The auth rule is evaluated before the broader rules."
   }
   assert {
-    condition     = one([for r in aws_wafv2_web_acl.frontend.rule : r.visibility_config[0].metric_name if r.name == "RateLimitAuthPerIP"]) == aws_cloudwatch_metric_alarm.waf_auth_blocked.dimensions["Rule"]
-    error_message = "The auth-block alarm watches the auth rule's own metric."
+    condition     = one([for r in aws_wafv2_web_acl.frontend.rule : r.visibility_config[0].metric_name if r.name == "RateLimitAuthPerIP"]) == "pitman-RateLimitAuthPerIP" && aws_cloudwatch_metric_alarm.waf_auth_blocked.dimensions["Rule"] == "pitman-RateLimitAuthPerIP"
+    error_message = "The auth-block alarm's Rule dimension is the auth rule's metric name."
+  }
+}
+
+# WAF's metric dimensions are metric names: WebACL is the ACL's
+# visibility_config metric_name, not its resource name.
+run "waf_alarms_use_metric_names" {
+  command = plan
+
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.waf_blocked.dimensions["WebACL"] == aws_wafv2_web_acl.frontend.visibility_config[0].metric_name && aws_cloudwatch_metric_alarm.waf_auth_blocked.dimensions["WebACL"] == aws_wafv2_web_acl.frontend.visibility_config[0].metric_name
+    error_message = "Both WAF alarms' WebACL dimension is the ACL's metric name."
+  }
+  assert {
+    condition     = aws_wafv2_web_acl.frontend.visibility_config[0].metric_name == "pitman-frontend-acl-metric" && aws_wafv2_web_acl.frontend.name != aws_wafv2_web_acl.frontend.visibility_config[0].metric_name && aws_cloudwatch_metric_alarm.waf_blocked.dimensions["Rule"] == "ALL"
+    error_message = "The ACL's metric (pitman-frontend-acl-metric) differs from its name, so an alarm on the name would be caught; the all-rules alarm uses Rule=ALL."
+  }
+}
+
+# Sampled requests keep headers (the session cookie) and client IPs in
+# us-east-1 for ~3 hours and can't be redacted: off everywhere, metrics on.
+run "waf_sampled_requests_off" {
+  command = plan
+
+  assert {
+    condition     = !aws_wafv2_web_acl.frontend.visibility_config[0].sampled_requests_enabled && aws_wafv2_web_acl.frontend.visibility_config[0].cloudwatch_metrics_enabled
+    error_message = "The ACL keeps no sampled requests and still publishes metrics."
+  }
+  assert {
+    condition     = length(aws_wafv2_web_acl.frontend.rule) == 3 && alltrue([for r in aws_wafv2_web_acl.frontend.rule : !r.visibility_config[0].sampled_requests_enabled && r.visibility_config[0].cloudwatch_metrics_enabled])
+    error_message = "No rule keeps sampled requests; every rule still publishes metrics."
   }
 }
 
@@ -461,6 +687,38 @@ run "auth_alarms" {
   assert {
     condition     = aws_cloudwatch_metric_alarm.auth_locked.threshold == 1 && aws_cloudwatch_metric_alarm.auth_locked.comparison_operator == "GreaterThanOrEqualToThreshold" && aws_cloudwatch_metric_alarm.auth_locked.period == 300
     error_message = "One auth.locked in 5 minutes alarms."
+  }
+  assert {
+    condition     = aws_cloudwatch_log_metric_filter.mail_send_failed.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.mail_send_failed.pattern == "\"mail.send_failed\""
+    error_message = "mail.send_failed (the event routes.ts logs when SES refuses a code) is counted from the API Lambda's log group."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.mail_send_failed.metric_name == aws_cloudwatch_log_metric_filter.mail_send_failed.metric_transformation[0].name && aws_cloudwatch_metric_alarm.mail_send_failed.namespace == "pitman/Auth"
+    error_message = "The mail-send alarm watches the filter's metric."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.mail_send_failed.threshold == 1 && aws_cloudwatch_metric_alarm.mail_send_failed.comparison_operator == "GreaterThanOrEqualToThreshold" && aws_cloudwatch_metric_alarm.mail_send_failed.period == 300 && aws_cloudwatch_metric_alarm.mail_send_failed.statistic == "Sum"
+    error_message = "One mail.send_failed in 5 minutes alarms."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.mail_send_failed.alarm_actions == toset([aws_sns_topic.alerts.arn])
+    error_message = "The mail-send alarm notifies the primary-region alert topic."
+  }
+  assert {
+    condition     = aws_cloudwatch_log_metric_filter.auth_unconfigured.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.auth_unconfigured.pattern == "\"auth.unconfigured\""
+    error_message = "auth.unconfigured (runtime.ts) is counted from the API Lambda's log group."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.auth_unconfigured.metric_name == aws_cloudwatch_log_metric_filter.auth_unconfigured.metric_transformation[0].name && aws_cloudwatch_metric_alarm.auth_unconfigured.threshold == 1 && aws_cloudwatch_metric_alarm.auth_unconfigured.comparison_operator == "GreaterThanOrEqualToThreshold" && aws_cloudwatch_metric_alarm.auth_unconfigured.period == 300
+    error_message = "One auth.unconfigured in 5 minutes alarms."
+  }
+  assert {
+    condition     = aws_cloudwatch_log_metric_filter.auth_send_capped.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.auth_send_capped.pattern == "\"auth.send_capped\""
+    error_message = "auth.send_capped (a listed address reached its daily code-send cap) is counted from the API Lambda's log group."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.auth_send_capped.metric_name == aws_cloudwatch_log_metric_filter.auth_send_capped.metric_transformation[0].name && aws_cloudwatch_metric_alarm.auth_send_capped.threshold == 1 && aws_cloudwatch_metric_alarm.auth_send_capped.comparison_operator == "GreaterThanOrEqualToThreshold" && aws_cloudwatch_metric_alarm.auth_send_capped.period == 900
+    error_message = "One auth.send_capped in 15 minutes alarms."
   }
   assert {
     condition     = aws_cloudwatch_metric_alarm.ses_bounce_rate.metric_name == "Reputation.BounceRate" && aws_cloudwatch_metric_alarm.ses_complaint_rate.metric_name == "Reputation.ComplaintRate"
