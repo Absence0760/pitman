@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { SamiOptionsInput, SamiSimulation } from '../groundwater/sami/index.js';
@@ -18,7 +19,8 @@ import { compareSeries } from './compare.js';
 // "steady" drops the first WRSM_MODULE_WARMUP years (default 5), so a
 // first-month / initial-condition difference does not mask the steady part.
 // Console output is counts and percentages only. The per-module table goes to
-// the git-ignored reviews/sami-modules.md. WRSM_SAMI_VARIANTS=all also runs
+// ../pitman-private/reports/sami-modules.md, outside the repo.
+// WRSM_SAMI_VARIANTS=all also runs
 // the option readings. Skips only when WRSM_REFERENCE_DIR is unset.
 
 const dir = process.env.WRSM_REFERENCE_DIR;
@@ -163,8 +165,18 @@ describe.skipIf(!dir)('module-level comparison against WRSM_REFERENCE_DIR (free 
 			summary.push(`- ${line}`);
 			report.push(`## ${variant}`, '', '| module | km² | ref MAR mm | MAR % | NSE | steady MAR % | steady NSE | Pitman total mm/a | surface | interflow | baseflow | TL | RE mm/a | TL lag |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|', ...rows, '');
 		}
-		mkdirSync(join(repoRoot, 'reviews'), { recursive: true });
-		writeFileSync(join(repoRoot, 'reviews', 'sami-modules.md'), [...report.slice(0, 4), ...summary, '', ...report.slice(4)].join('\n'));
+		// The report names reference folders and carries per-module figures, so it
+		// goes to the private folder beside the main checkout (../pitman-private,
+		// or WRSM_PRIVATE_DIR), never into the repo (CLAUDE.md project rule 2).
+		const gitDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: repoRoot, encoding: 'utf8' }).trim();
+		const mainCheckout = dirname(gitDir);
+		const reportDir = join(resolve(process.env.WRSM_PRIVATE_DIR ?? join(mainCheckout, '..', 'pitman-private')), 'reports');
+		for (const root of [repoRoot, mainCheckout]) {
+			const rel = relative(root, reportDir);
+			if (!rel.startsWith('..') && !isAbsolute(rel)) throw new Error(`refusing to write a reference report inside the repo: ${reportDir}`);
+		}
+		mkdirSync(reportDir, { recursive: true });
+		writeFileSync(join(reportDir, 'sami-modules.md'), [...report.slice(0, 4), ...summary, '', ...report.slice(4)].join('\n'));
 		expect(all.length).toBeGreaterThan(0);
 	}, 600_000);
 });

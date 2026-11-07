@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { makeSamiAquiferStep, samiAquiferInit, samiAquiferStep } from '../groundwater/sami/aquifer.js';
@@ -17,8 +18,9 @@ import { compareNetworkWithReference, type RouteComparison } from './network.js'
 // origins of divergence marked. Skips only when the variable is unset.
 //
 // Console output is counts and percentages only (networks by index). The
-// detailed ranking, with folder names, goes to the git-ignored
-// reviews/sami-comparison.md. WRSM_SAMI_VARIANTS=all also runs every
+// detailed ranking, with folder names, goes to
+// ../pitman-private/reports/sami-comparison.md, outside the repo.
+// WRSM_SAMI_VARIANTS=all also runs every
 // OQ-S2/OQ-S3 reading (sami.md §8) so the winner can be picked.
 
 const dir = process.env.WRSM_REFERENCE_DIR;
@@ -150,8 +152,18 @@ describe.skipIf(!dir)('whole-network comparison against WRSM_REFERENCE_DIR (Sami
 			total += tally.networks;
 		}
 
-		mkdirSync(join(repoRoot, 'reviews'), { recursive: true });
-		writeFileSync(join(repoRoot, 'reviews', 'sami-comparison.md'), [...report.slice(0, 4), ...summary, '', ...report.slice(4)].join('\n'));
+		// The report names reference folders and carries per-module figures, so it
+		// goes to the private folder beside the main checkout (../pitman-private,
+		// or WRSM_PRIVATE_DIR), never into the repo (CLAUDE.md project rule 2).
+		const gitDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: repoRoot, encoding: 'utf8' }).trim();
+		const mainCheckout = dirname(gitDir);
+		const reportDir = join(resolve(process.env.WRSM_PRIVATE_DIR ?? join(mainCheckout, '..', 'pitman-private')), 'reports');
+		for (const root of [repoRoot, mainCheckout]) {
+			const rel = relative(root, reportDir);
+			if (!rel.startsWith('..') && !isAbsolute(rel)) throw new Error(`refusing to write a reference report inside the repo: ${reportDir}`);
+		}
+		mkdirSync(reportDir, { recursive: true });
+		writeFileSync(join(reportDir, 'sami-comparison.md'), [...report.slice(0, 4), ...summary, '', ...report.slice(4)].join('\n'));
 		expect(total).toBeGreaterThan(0);
 	}, 600_000);
 });

@@ -26,7 +26,7 @@ If you find a rule worth applying to *every* future project, propose it for the 
 The plan, ground rules and round structure live in issue #3; specs live in `docs/` (`theory/`, `formats.md`, `data.md`, `decisions.md`, `departures.md`). In short:
 
 1. **Built from the published WRC manuals only** (TT 687/689/690/691). Never disassemble, decompile or copy anything from WRSM2000's executable or DLLs. Cite manual and page for every equation.
-2. **No client data in git.** Reference networks stay on the operator's machine; tests use synthetic fixtures. The reference comparison reads `WRSM_REFERENCE_DIR` and skips only when it is unset. No farm or client names in code, docs, commits, PRs or issues.
+2. **No client data in git.** Reference networks stay on the operator's machine; tests use synthetic fixtures. The reference comparison reads `WRSM_REFERENCE_DIR` and skips only when it is unset. Private data (reference networks, comparison reports, client study files) lives in `../pitman-private`, never in this working tree, not even git-ignored. No farm or client names in code, docs, commits, PRs or issues.
 3. **Correctness = documented hydrology + the reference comparison.** Every difference from WRSM2000's output is explained in `docs/departures.md` or is a bug.
 4. **`packages/wrsm` is pure**: no I/O, DOM or Node APIs (the tsconfig and a guard test enforce it).
 5. **Decisions are recorded** in `docs/decisions.md` with their ID (D…, OQ-…, A…, B…, U-…); change a decision there, not silently in code.
