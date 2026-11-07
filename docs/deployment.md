@@ -63,8 +63,11 @@ conditions, the commit each job checks out and the path lists.
 ### GitHub repo variables
 
 All set in one go by `~/github/templates/scripts/export-tf-vars.sh infra/`
-from the Terraform outputs (each output's name, uppercased). None is a
-secret; the repo needs no AWS secret at all.
+from the Terraform outputs (each output's name, uppercased; `infra/outputs.tf`).
+None is a secret; the repo needs no AWS secret at all. No output is marked
+`sensitive`, because the script would push a sensitive one as a GitHub
+*secret* nobody reads; so the bare Function URL is not an output (step 49
+reads it with the AWS CLI).
 
 | Variable | Output | Used by |
 |---|---|---|
@@ -74,7 +77,8 @@ secret; the repo needs no AWS secret at all.
 | `CLOUDFRONT_DISTRIBUTION_ID` | `cloudfront_distribution_id` | frontend |
 | `LAMBDA_FUNCTION_NAME` | `lambda_function_name` (`pitman-backend`) | backend |
 | `PUBLIC_API_URL` | `public_api_url` (`https://pitman.jaredhoward.com/api`) | frontend build env |
-| `PUBLIC_SITE_URL` | `public_site_url` | frontend build env, backend smoke check |
+| `PUBLIC_SITE_URL` | `public_site_url` | backend smoke check (the frontend build reads no site URL) |
+| `CLOUDFRONT_DOMAIN_NAME`, `CLOUDFRONT_DISTRIBUTION_ARN`, `LAMBDA_ROLE_ARN` | the outputs of the same names | no workflow; exported because every output is (the ARNs are for IC-WBT's bucket policies, the domain for checks before DNS) |
 
 The role ARN is a *variable*, not a secret, on purpose: a job-level `if:`
 can read variables but not secrets, which is what keeps the workflows inert
@@ -84,9 +88,8 @@ masked in logs; AWS does not treat account IDs as secret.
 
 ### Lambda environment
 
-Set by Terraform (`infra/lambda.tf`), never by CI. **The names of the data
-variables are assumptions made while Round 4.2 writes the backend in
-parallel; reconcile them with `backend/src` before the first apply.**
+Set by Terraform (`infra/lambda.tf`), never by CI. The names match what
+`backend/src` reads.
 
 | Name | Value | Meaning |
 |---|---|---|
@@ -106,16 +109,29 @@ parallel; reconcile them with `backend/src` before the first apply.**
 | `MAIL_FROM` | `no-reply@pitman.jaredhoward.com` | the only From address the role may send as (`ses:FromAddress` condition) |
 | `SES_CONFIGURATION_SET` | `pitman` | the configuration set every message must name (TLS required, suppression, events) |
 
+**Not set yet, so those routes answer 503 by design** (not a failed deploy):
+`QUATERNARIES_SOURCE` (the quaternary catalogue, `/quaternaries`, until
+Pitman's own bucket exists, D-1), `DEM_SOURCE` (delineation and channels,
+until Round 5's DEM grant), `CFM_SOURCE` / `CFM_TOKEN` (Cape Farm Mapper land
+use, `/cfm`, until the token is wired, D3), and, until IC-WBT's grants
+(§ Then: IC-WBT's data), `CHIRPS_SOURCE` and `MAP_GRID_SOURCE`
+(`/chirps`, `/map-grid`). Each answers 503 with a "not configured" message
+to a signed-in user; anonymous callers get 401 first.
+
 The function has a second trigger besides the Function URL: an SQS event
 source mapping on `pitman-mail-events` delivers SES bounces and complaints
 (batches of up to 10, at most 2 at once, `ReportBatchItemFailures`), so
-`backend/src/lambda.ts` must tell an SQS batch from an HTTP request. The
+`backend/src/lambda.ts` tells an SQS batch from an HTTP request. The
 SES region is the function's own (`AWS_REGION`, af-south-1).
 
-Sign-in's variables (`backend/src/auth/config.ts`; #28 P2 adds them to
-`infra/lambda.tf`). **Until they are all set, every route but `/health` and
-`POST /auth/logout` answers 503** (fail closed), and the Lambda logs
-`{"event":"auth.unconfigured","problem":…}` naming the gap, never a value.
+Logs are JSON (`infra/lambda.tf`): application lines at `INFO` and above
+(everything the backend writes; the log-line alarms read them), platform
+lines at `WARN` and above (no START/END/REPORT per invocation).
+
+Sign-in's variables (`backend/src/auth/config.ts`). **Until they are all
+set, every route but `/health` and `POST /auth/logout` answers 503** (fail
+closed), and the Lambda logs `{"event":"auth.unconfigured","problem":…}`
+naming the gap, never a value.
 
 | Name | Value | Meaning |
 |---|---|---|
@@ -124,13 +140,11 @@ Sign-in's variables (`backend/src/auth/config.ts`; #28 P2 adds them to
 | `AUTH_CODE_KEY` | Terraform `random_password`, 32+ characters | keys the code and address HMACs |
 | `AUTH_SESSION_KEY` | another `random_password`, 32+ characters, different | signs session tokens (kid `k1`) |
 | `MAIL_TRANSPORT` | `ses` | `console` and `smtp` are refused on Lambda |
-| `MAIL_FROM` | the SES identity's sender, e.g. `Pitman <no-reply@pitman.jaredhoward.com>` | the sign-in email's From |
+| `MAIL_FROM` | the bare address `no-reply@pitman.jaredhoward.com` (Terraform sets no display name; the local dev default is `Pitman <no-reply@localhost>`) | the sign-in email's From |
 | `SES_CONFIGURATION_SET` | the configuration set's name | TLS-required delivery, suppression and bounce/complaint events |
 
 `DYNAMODB_ENDPOINT` and `AUTH_DEV_COOKIE` are for local dev and are refused
-on Lambda. The Lambda also needs an SQS event-source mapping from the
-bounce/complaint queue (P2): `lambda.ts` sends SQS batches to the
-mail-event handler.
+on Lambda.
 
 The API routes are mounted **without** the `/api` prefix: CloudFront's
 `api_strip_prefix` function turns `/api/chirps/monthly` into
@@ -141,34 +155,106 @@ frontend calls `:3001` directly.
 
 Claude prepares and checks; the operator runs every command below (they
 need the operator's AWS and GitHub credentials). One step at a time, in
-order. `pitman` is the SSO profile created in step 3.
+order: each says what to expect, and a step marked **Gate** must show that
+before you go on. Run the repo commands from the root of a pitman checkout on
+`main`. `pitman` is the SSO profile made in step 17.
 
-1. In `~/github/templates`, create the bootstrap's project file: `cp infra/bootstrap/projects/example.tfvars infra/bootstrap/projects/pitman.tfvars` and set `project = "pitman"`, `account_email`, `github_repo = "Absence0760/pitman"`, `github_subject_prefix = "repo:Absence0760/pitman"`, `github_environment = "production"`, `create_subdomain = true`, `parent_domain = "jaredhoward.com"`, and **`region = "us-east-1"`** (the tfstate bucket and `alias/pitman-sops` live there; `af-south-1` isn't enabled in a new account yet, R4-I3).
-2. Dry-run, then run, the bootstrap (#22 step 4): `cd ~/github/templates && ./scripts/new-project-account.sh pitman --plan && ./scripts/new-project-account.sh pitman`. Note the tfstate bucket name it prints.
-3. Give yourself access and a profile (Runbook D in `~/github/project-mgmt/docs/runbooks.md`): assign `AdministratorAccess` on the new account in Identity Center, then `aws configure sso --profile pitman`.
-4. Check the child zone is delegated: `dig +short NS pitman.jaredhoward.com` (four `awsdns` servers).
-5. Check the `production` environment has you as required reviewer (#22 step 5): `gh api repos/Absence0760/pitman/environments/production --jq '.protection_rules[] | select(.type=="required_reviewers") | .reviewers[].reviewer.login'`. **Do this before step 15**: a workflow that runs against a missing environment creates it with no reviewer.
-6. Enable `af-south-1` in the account: `aws account enable-region --region-name af-south-1 --profile pitman`.
-7. Wait until it reports `ENABLED` (minutes, sometimes hours): `aws account get-region-opt-status --region-name af-south-1 --profile pitman --query RegionOptStatus --output text`.
-8. Check the Lambda concurrency quota (must be at least `lambda_reserved_concurrency` + 10 = 20): `aws service-quotas get-service-quota --service-code lambda --quota-code L-B99A9384 --region af-south-1 --profile pitman --query Quota.Value`.
-9. If it's below 20, ask for 1 000 (usually granted automatically, can take a day): `aws service-quotas request-service-quota-increase --service-code lambda --quota-code L-B99A9384 --desired-value 1000 --region af-south-1 --profile pitman`.
-10. Turn on **IAM access to billing information** for the account (root user, console: Account → "IAM user and role access to Billing information" → Activate). Until then set `budget_monthly_usd = 0` in step 12, or the apply fails on the budget.
-11. Write the backend config, filling in the bucket from step 2: `cp infra/backend.config.example infra/backend.config && $EDITOR infra/backend.config`.
-12. Write the variables (leave the IC-WBT block commented out for now; set `alert_email`): `cp infra/terraform.tfvars.example infra/terraform.tfvars && $EDITOR infra/terraform.tfvars`.
-13. Initialise against the real state bucket: `AWS_PROFILE=pitman terraform -chdir=infra init -backend-config=backend.config`.
-14. Plan, read it, then apply that plan (about 15 minutes: the certificate and CloudFront): `AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan && AWS_PROFILE=pitman terraform -chdir=infra apply tfplan`.
-15. Confirm the two "AWS Notification - Subscription Confirmation" emails (one per alert topic).
-16. Export the outputs to the repo variables (this is the step that switches the deploy workflows on): `AWS_PROFILE=pitman ~/github/templates/scripts/export-tf-vars.sh infra/`.
-17. Check they're there: `gh variable list --repo Absence0760/pitman`.
-18. Deploy the API, then approve the run in the Actions tab: `gh workflow run deploy-backend.yml --repo Absence0760/pitman`.
-19. Deploy the site (`check-csp` refuses a build without SvelteKit's hash CSP, R4-I1), then approve: `gh workflow run deploy-frontend.yml --repo Absence0760/pitman`.
-20. Check the site answers with its CSP: `curl -sI https://pitman.jaredhoward.com/ | grep -i -e '^content-security-policy' -e '^strict-transport-security'`.
-21. Check the API through CloudFront: `curl -s https://pitman.jaredhoward.com/api/health` → `{"ok":true}`.
-22. Check the bare Function URL refuses a caller that skips CloudFront: `curl -s "$(AWS_PROFILE=pitman terraform -chdir=infra output -raw lambda_function_url)health"` → `{"error":"forbidden"}`.
+The order is deliberate. CI must be green before anything deploys; the AWS
+account is bootstrapped while the repo is still private (on a public repo
+the bootstrap's last stage would make `main` PR-only); the repo goes public
+only after the pnpm caches holding auth-kit are gone and the history is
+clean; and the `production` environment, with you as required reviewer,
+exists before the step that switches the deploy workflows on (on GitHub
+Free a required reviewer needs a public repo, and a workflow that names a
+missing environment creates it with no reviewer).
+
+### Step 0: AWS access on this workstation
+
+Profiles as project-mgmt's runbooks set them up (`~/github/project-mgmt/docs/runbooks.md`,
+Runbook A § Prerequisites and Runbook D). The SSO start URL is the AWS
+access portal URL in IAM Identity Center → Settings, in `personal-mgmt`
+(`us-east-1`, instance `ssoins-72234b0cbf7ee333`).
+
+1. Add the org-root profile: `aws configure sso --profile mgmt`. Session name `personal`, the start URL above, SSO region `us-east-1`, scope `sso:account:access`; pick account `734828258077` (personal-mgmt) and `AdministratorAccess`; default region `us-east-1`. It writes `~/.aws/config` and opens a browser to approve.
+2. Add the parent-zone profile: `aws configure sso --profile dns-parent`. Reuse the session `personal`; pick account `136758763748` (jaredhoward, which owns the `jaredhoward.com` zone) and `AdministratorAccess`.
+3. Log in (one approval covers both profiles, which share the session): `aws sso login --profile mgmt`.
+4. **Gate:** `aws sts get-caller-identity --profile mgmt --query Account --output text` → `734828258077`.
+5. **Gate:** `aws sts get-caller-identity --profile dns-parent --query Account --output text` → `136758763748`.
+
+### CI access to auth-kit, and CI green
+
+6. Create the auth-kit read token as Absence0760/auth-kit#2 describes (github.com → Settings → Developer settings → Fine-grained tokens: resource owner Absence0760, only `Absence0760/auth-kit`, Contents read-only). Write its expiry date down.
+7. Store it as an Actions secret (paste at the hidden prompt): `gh secret set AUTH_KIT_READ_TOKEN --app actions --repo Absence0760/pitman`.
+8. Store it as a Dependabot secret too: `gh secret set AUTH_KIT_READ_TOKEN --app dependabot --repo Absence0760/pitman`.
+9. Check both exist (names only): `gh secret list --app actions --repo Absence0760/pitman && gh secret list --app dependabot --repo Absence0760/pitman` → `AUTH_KIT_READ_TOKEN` in each.
+10. Re-run CI on main: `gh workflow run ci.yml --repo Absence0760/pitman --ref main`.
+11. **Gate:** after about ten minutes, `gh run list --workflow ci.yml --branch main --limit 1 --repo Absence0760/pitman --json headSha,status,conclusion` → `completed`, `success`. Red: fix it before anything else; no deploy can run on a red commit.
+
+### The AWS account (while the repo is still private)
+
+12. Read the bootstrap's project file (committed and pushed in infra-secrets; settings, not secrets): `cat ~/github/infra-secrets/pitman/bootstrap.tfvars` → `project = "pitman"`, `account_name = "Pitman"`, `region = "us-east-1"` (the tfstate bucket and `alias/pitman-sops`; `af-south-1` isn't enabled in a new account yet, R4-I3), `create_subdomain = true`, `parent_domain = "jaredhoward.com"`, `github_repo = "Absence0760/pitman"`, `github_environment = "production"`, and `github_subject_prefix = "repo:Absence0760@21693150/pitman@1437736870"`.
+13. **Gate:** the subject prefix matches what GitHub puts in this repo's OIDC tokens: `gh api repos/Absence0760/pitman/actions/oidc/customization/sub --jq .sub_claim_prefix` → `repo:Absence0760@21693150/pitman@1437736870`, exactly as in step 12. This repo uses immutable subject claims (owner and repo each with its numeric ID); a plain `repo:Absence0760/pitman` would never match, and the first deploy would fail `AssumeRoleWithWebIdentity` without naming either subject (project-mgmt Runbook G).
+14. Dry-run the bootstrap: `cd ~/github/templates && ./scripts/new-project-account.sh pitman --plan`. Expect stage 1's plan only: one `aws_organizations_account` named `Pitman` to add, nothing to change or destroy. Read it: creating an account can't be undone.
+15. Run it: `cd ~/github/templates && ./scripts/new-project-account.sh pitman`. Stages 1 to 3 create the account, the baseline (tfstate bucket, `alias/pitman-sops`, the GitHub OIDC provider and the `pitman-deploy` role, the `pitman.jaredhoward.com` zone) and the delegation in `jaredhoward.com`. Note the **account id** and the **tfstate bucket** from its summary. Stage 4 prints two warnings while the repo is private (the environment PUT and branch protection both need a public repo on GitHub Free): expected, step 27 creates the environment. If stage 2 fails with `NotSignedUp`, `SubscriptionRequiredException` or `OptInRequired`, the new account's services are still activating: wait a few minutes and run the same command again. **Never run this script again once the repo is public:** its stage 4 would make `main` PR-only, enforced on admins.
+16. Give yourself access (Runbook D, console): in `personal-mgmt`, IAM Identity Center → AWS accounts → `Pitman` → Assign users or groups → user `Jared` → permission set `AdministratorAccess`.
+17. Add the profile: `aws configure sso --profile pitman`. Reuse the session `personal`; pick the `Pitman` account and `AdministratorAccess`; default region `af-south-1`.
+18. **Gate:** `aws sts get-caller-identity --profile pitman --query Account --output text` → the account id from step 15.
+19. Check the child zone is delegated: `dig +short NS pitman.jaredhoward.com` → four `awsdns` servers (minutes after step 15).
+
+### Going public, then the `production` environment
+
+20. **Gate:** no workflow on `main` caches the pnpm store any more (it would hold auth-kit's code): `git fetch origin && git grep -nE '^[[:space:]]*cache:' origin/main -- .github/workflows/` → no output.
+21. Delete the caches saved before that change: `gh cache delete --all --repo Absence0760/pitman`.
+22. **Gate:** `gh cache list --repo Absence0760/pitman` → nothing listed.
+23. **Gate:** no client term anywhere in the history (needs `~/github/infra-secrets/pitman/client-terms.txt`; `docs/security.md` § Public repo hygiene): `pnpm check:terms --history` → `Client terms OK (the history of every ref).` A "No client terms file" line means it checked nothing: fix the file first.
+24. Run the full-history secret scan: `gh workflow run gitleaks-sweep.yml --repo Absence0760/pitman --ref main`.
+25. **Gate:** `gh run list --workflow gitleaks-sweep.yml --limit 1 --repo Absence0760/pitman --json status,conclusion` → `completed`, `success`. A finding: rotate the secret and clean the history before going on.
+26. Make the repo public: `gh repo edit Absence0760/pitman --visibility public --accept-visibility-change-consequences`.
+27. Create the environment with you as required reviewer: `~/github/templates/scripts/backfill-prod-environment.sh --apply Absence0760/pitman` → `FIXED (MISSING -> required reviewer = <your login>)`.
+28. **Gate:** `gh api repos/Absence0760/pitman/environments/production --jq '.protection_rules[] | select(.type=="required_reviewers") | .reviewers[].reviewer.login'` → your login. Don't reach step 43 without it.
+
+### Region, quota and billing
+
+29. Enable `af-south-1` in the account: `aws account enable-region --region-name af-south-1 --region us-east-1 --profile pitman`.
+30. **Gate:** wait until it reports `ENABLED` (minutes, sometimes hours): `aws account get-region-opt-status --region-name af-south-1 --region us-east-1 --profile pitman --query RegionOptStatus --output text`.
+31. Check the Lambda concurrency quota (must be at least `lambda_reserved_concurrency` + 10 = 20): `aws service-quotas get-service-quota --service-code lambda --quota-code L-B99A9384 --region af-south-1 --profile pitman --query Quota.Value`. A `NoSuchResourceException` means the quota has never been touched: read the default instead with `aws service-quotas get-aws-default-service-quota --service-code lambda --quota-code L-B99A9384 --region af-south-1 --profile pitman --query Quota.Value`.
+32. If it's below 20, ask for 1 000 (usually granted automatically, can take a day): `aws service-quotas request-service-quota-increase --service-code lambda --quota-code L-B99A9384 --desired-value 1000 --region af-south-1 --profile pitman`.
+33. Check whether the org manages root centrally: `aws iam list-organizations-features --profile mgmt --query EnabledFeatures`. The budget (`infra/alarms.tf`) can't be created until **IAM access to billing information** is on in the account, a root-only toggle, and an account the org created has no root password.
+34. Turn billing access on, or take the explicit opt-out:
+    - **If step 33 lists neither `RootCredentialsManagement` nor `RootSessions`:** open the root sign-in page (signin.aws.amazon.com, "Root user"), enter the `account_email` from step 12, choose "Forgot password", set a strong password from the reset mail (keep it in Bitwarden), sign in, add MFA, then Account → "IAM user and role access to Billing information" → Edit → Activate. Sign out of root.
+    - **If root is managed centrally, or you'd rather not touch root yet:** in step 36 set `budget_monthly_usd = 0` **and** `no_budget_acknowledged = true` (Terraform refuses 0 without it). The CloudWatch alarms still run. Come back later: enable billing access, set the budget, remove the opt-out, plan and apply.
+
+### Terraform
+
+35. Write the backend config, with the tfstate bucket from step 15 and region `us-east-1`: `cp infra/backend.config.example infra/backend.config && $EDITOR infra/backend.config`.
+36. Write the variables: `cp infra/terraform.tfvars.example infra/terraform.tfvars && $EDITOR infra/terraform.tfvars`. Set `alert_email` to a real mailbox you read (the example address is refused at plan time); keep `budget_monthly_usd = 25`, or 0 with the opt-out from step 34; leave the IC-WBT block commented out.
+37. Initialise against the real state bucket: `AWS_PROFILE=pitman terraform -chdir=infra init -backend-config=backend.config` → "Terraform has been successfully initialized!".
+38. Plan into a file: `AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan` → `Plan: N to add, 0 to change, 0 to destroy`. A validation error names the variable to fix (an example `alert_email`, a 0 budget without the opt-out).
+39. **Gate:** read the plan before applying it: nothing to change or destroy on a first apply; the Lambda, its role and grants, the user table, the WAF, CloudFront, SES and about two dozen alarms in two regions. The saved `infra/tfplan` holds the generated keys in plaintext; it is gitignored, and step 40 deletes it.
+40. Apply exactly that plan, then delete it (about 15 minutes: the certificate and CloudFront): `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan` → `Apply complete!`.
+41. Confirm both "AWS Notification - Subscription Confirmation" emails (one per alert topic, af-south-1 and us-east-1): click the link in each.
+42. **Gate:** fire a test alarm in each region and check both mails arrive (each alarm goes back to OK at its next evaluation, with no mail): `aws cloudwatch set-alarm-state --alarm-name pitman-lambda-errors --state-value ALARM --state-reason test --region af-south-1 --profile pitman`, then `aws cloudwatch set-alarm-state --alarm-name pitman-cloudfront-requests --state-value ALARM --state-reason test --region us-east-1 --profile pitman` → an "ALARM: …" mail for each within a few minutes. No mail: that region's subscription isn't confirmed (step 41).
+
+### The first deploys
+
+43. **Only once step 28 printed your login**, export the outputs to the repo variables (this switches the deploy workflows on): `AWS_PROFILE=pitman GH_REPO=Absence0760/pitman ~/github/templates/scripts/export-tf-vars.sh infra/` → ten `set var …` lines, no `set secret`.
+44. Check they're there: `gh variable list --repo Absence0760/pitman` → the ten variables of § GitHub repo variables.
+45. Deploy the API: `gh workflow run deploy-backend.yml --repo Absence0760/pitman --ref main`. The gate refuses unless CI passed on main's head (step 11, or CI's run on any commit since). Approve the waiting run in the Actions tab; it ends with `{"ok":true}` from the smoke check.
+46. Deploy the site (`check-csp` refuses a build without SvelteKit's hash CSP, R4-I1): `gh workflow run deploy-frontend.yml --repo Absence0760/pitman --ref main`, then approve it.
+47. Check the site answers with its CSP: `curl -sI https://pitman.jaredhoward.com/ | grep -i -e '^content-security-policy' -e '^strict-transport-security'` → both headers.
+48. Check the API through CloudFront: `curl -s https://pitman.jaredhoward.com/api/health` → `{"ok":true}`.
+49. Check the bare Function URL refuses a caller that skips CloudFront: `curl -s "$(aws lambda get-function-url-config --function-name pitman-backend --region af-south-1 --profile pitman --query FunctionUrl --output text)health"` → `{"error":"forbidden"}`.
+
+From here on, every push to `main` that CI passes and that touches a
+surface's paths starts that deploy, waiting for your approval (§ How a
+deploy happens). Until the steps below, the data routes answer 503 by
+design (§ Lambda environment): quaternaries, delineation and channels (DEM),
+Cape Farm Mapper land use, and CHIRPS and the MAP grid until IC-WBT's
+grants. Sign-in mail reaches users once SES is out of the sandbox (step 53).
 
 ### Then: sign-in mail (SES, #28)
 
-Start step 23 as soon as step 14 has applied: AWS reviews it by hand and it
+Start step 50 as soon as step 40 has applied: AWS reviews it by hand and it
 can take a day or more. Until it's granted the account is in the SES sandbox,
 where a send to an unverified recipient is refused (`MessageRejected`); the
 users are unverified addresses, so sign-in mail works only after production
@@ -176,26 +262,30 @@ access. Each refusal is logged as `mail.send_failed` and raises the
 `pitman-mail-send-failed` alarm. After production access, sign in once for
 real and check that alarm stays OK.
 
-23. Ask for SES production access in af-south-1 (transactional mail, low volume): `aws sesv2 put-account-details --production-access-enabled --mail-type TRANSACTIONAL --website-url https://pitman.jaredhoward.com --contact-language EN --use-case-description "Sign-in codes for an invite-only tool with a handful of users listed by an admin. No marketing mail. Bounces and complaints are suppressed by the configuration set and logged for the admin." --region af-south-1 --profile pitman`.
-24. Check the domain identity has verified (the DKIM CNAMEs, MAIL FROM MX and SPF are in the zone from step 14; DNS can take up to an hour): `aws sesv2 get-email-identity --email-identity pitman.jaredhoward.com --region af-south-1 --profile pitman --query '{sending:VerifiedForSendingStatus,dkim:DkimAttributes.Status,mailFrom:MailFromAttributes.MailFromDomainStatus}'` → `true`, `SUCCESS`, `SUCCESS`.
-25. Check DMARC is published: `dig +short TXT _dmarc.pitman.jaredhoward.com` → `"v=DMARC1; p=none; adkim=r; aspf=r"`.
-26. Once AWS answers, check production access: `aws sesv2 get-account --region af-south-1 --profile pitman --query '{production:ProductionAccessEnabled,sending:SendingEnabled}'` → both `true`.
-27. Confirm the new alarms exist (bounce/complaint rate, user table, `auth.locked`, `mail.send_failed`, `auth.unconfigured`, `auth.send_capped`, `auth.slow_code_request`, `cloudfront-secret-unset`, `mail-record-failed`, `mail-events-unrecorded`, `mail-events-dropped`, mail DLQ, auth WAF blocks): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region af-south-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
+50. Ask for SES production access in af-south-1 (transactional mail, low volume): `aws sesv2 put-account-details --production-access-enabled --mail-type TRANSACTIONAL --website-url https://pitman.jaredhoward.com --contact-language EN --use-case-description "Sign-in codes for an invite-only tool with a handful of users listed by an admin. No marketing mail. Bounces and complaints are suppressed by the configuration set and logged for the admin." --region af-south-1 --profile pitman`.
+51. Check the domain identity has verified (the DKIM CNAMEs, MAIL FROM MX and SPF are in the zone from step 40; DNS can take up to an hour): `aws sesv2 get-email-identity --email-identity pitman.jaredhoward.com --region af-south-1 --profile pitman --query '{sending:VerifiedForSendingStatus,dkim:DkimAttributes.Status,mailFrom:MailFromAttributes.MailFromDomainStatus}'` → `true`, `SUCCESS`, `SUCCESS`.
+52. Check DMARC is published: `dig +short TXT _dmarc.pitman.jaredhoward.com` → `"v=DMARC1; p=none; adkim=r; aspf=r"`.
+53. Once AWS answers, check production access: `aws sesv2 get-account --region af-south-1 --profile pitman --query '{production:ProductionAccessEnabled,sending:SendingEnabled}'` → both `true`.
+54. Confirm the af-south-1 alarms exist (Lambda errors, throttles, invocations, duration, SES bounce and complaint rates, the user table, `auth.locked`, `mail.send_failed`, `auth.unconfigured`, `auth.send_capped`, `auth.slow_code_request`, `cloudfront-secret-unset`, `mail-record-failed`, `mail-events-unrecorded`, `mail-events-dropped`, the mail DLQ): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region af-south-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
+55. Confirm the us-east-1 alarms exist (`pitman-cloudfront-requests`, `pitman-cloudfront-bytes`, `pitman-cloudfront-5xx`, `pitman-waf-blocked`, `pitman-waf-auth-blocked`): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region us-east-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
 
-The first admin is added later with `pnpm admin:bootstrap` (A-AUTH-5), never
-through Terraform.
+The first admin is added later with `pnpm admin:bootstrap` (A-AUTH-5,
+§ Sign-in), never through Terraform.
 
 ### Then: IC-WBT's data (after Round 4.1)
 
-28. Print the Lambda role ARN for the IC-WBT PR (4.1) to name as principal: `AWS_PROFILE=pitman terraform -chdir=infra output -raw lambda_role_arn`.
-29. Once 4.1 is merged and applied in IC-WBT's account, uncomment and fill the IC-WBT block in `infra/terraform.tfvars` (`icwbt_account_id`, `chirps_bucket`, and `map_grid_bucket` + `map_grid_key` once D-4's decision is recorded), then plan and apply as in step 14.
-30. Check a missing CHIRPS chunk reads as missing, not denied (R4-I2) with the backend's CHIRPS test call, and a real quaternary's monthly series comes back.
+56. Print the Lambda role ARN for the IC-WBT PR (4.1) to name as principal: `AWS_PROFILE=pitman terraform -chdir=infra output -raw lambda_role_arn`.
+57. Once 4.1 is merged and applied in IC-WBT's account, uncomment and fill the IC-WBT block in `infra/terraform.tfvars` (`icwbt_account_id`, `chirps_bucket`, and `map_grid_bucket` + `map_grid_key` once D-4's decision is recorded): `$EDITOR infra/terraform.tfvars`.
+58. Plan into a file: `AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan` → the cross-account policy added and the Lambda's environment changed in place, nothing destroyed.
+59. **Gate:** read the plan: only `lambda_cross_account_read` and the function's `CHIRPS_*` / `MAP_GRID_SOURCE` variables change.
+60. Apply it and delete the plan: `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan`.
+61. Check a missing CHIRPS chunk reads as missing, not denied (R4-I2) with the backend's CHIRPS test call, and a real quaternary's monthly series comes back.
 
 ## What IC-WBT must grant (Round 4.1)
 
 A separate PR in `project-water-management`'s `infra/` (its `/safe-edit`
 flow): **bucket-policy statements** naming Pitman's Lambda role by exact
-ARN (`aws:PrincipalArn` = step 28's output, never the whole Pitman account),
+ARN (`aws:PrincipalArn` = step 56's output, never the whole Pitman account),
 matching the identity policy `infra/lambda.tf` already carries. Rows from
 `docs/data.md` § Cross-account access:
 
@@ -291,7 +381,7 @@ setup is Absence0760/auth-kit#2; the pitman side:
 
 ## Changing the infrastructure
 
-`AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan`, read it, then `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan`; re-run step 16 if an output changed. Claude never runs `apply` (nor a plan against the real backend). CI checks every `infra/` change credential-free (`terraform.yml`: fmt, validate, Trivy); `terraform -chdir=infra test` runs the mocked-provider tests in `infra/tests/`, and `node --test infra/scripts/*.test.mjs` the CSP guard's and the CloudFront functions' tests.
+`AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan`, read it, then `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan` (the saved plan holds the generated keys in plaintext; `tfplan` is gitignored); re-run step 43 if an output changed. Claude never runs `apply` (nor a plan against the real backend). CI checks every `infra/` change credential-free (`terraform.yml`: fmt, validate, Trivy); `terraform -chdir=infra test` runs the mocked-provider tests in `infra/tests/`, and `node --test infra/scripts/*.test.mjs` the CSP guard's and the CloudFront functions' tests.
 
 ## Rollback
 

@@ -12,7 +12,9 @@ name: Deploy frontend
 #
 # Repo variables (set by templates/scripts/export-tf-vars.sh from the
 # Terraform outputs): AWS_DEPLOY_ROLE_ARN, AWS_REGION, FRONTEND_BUCKET,
-# CLOUDFRONT_DISTRIBUTION_ID, PUBLIC_API_URL, PUBLIC_SITE_URL.
+# CLOUDFRONT_DISTRIBUTION_ID, PUBLIC_API_URL (the one build variable set
+# here; frontend/src/env.ts lists what the build reads, and the PUBLIC_TILES_*
+# ones stay unset until /tiles/* lands).
 
 # When it runs: only after CI has passed on the commit. It triggers on
 # `workflow_run` of CI, and the gate job requires that run to have succeeded,
@@ -148,7 +150,6 @@ jobs:
         working-directory: frontend
         env:
           PUBLIC_API_URL: ${{ vars.PUBLIC_API_URL }}
-          PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
         run: pnpm build
 
       # Refuses a build the CloudFront CSP would weaken or break: no meta CSP

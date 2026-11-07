@@ -147,10 +147,16 @@ runs it.
   `infra/security_headers.tf`. Plus HSTS (2 years), nosniff, DENY framing,
   COOP same-origin, a Permissions-Policy; the API's responses get
   `default-src 'none'`.
-- **Spend is bounded**: the Lambda's reserved concurrency (10) caps what a
-  flood can cost (about $15 a day at 1 GB), with alarms on invocations per
-  hour, throttles, errors and duration, a monthly budget (forecast and
-  actual), and WAF-block and CloudFront-5xx alarms.
+- **Spend is bounded where it can be, and watched where it can't**: the
+  Lambda's reserved concurrency (10) caps what a flood can cost (about $15 a
+  day, about $460 a month, at 1 GB), the user table's on-demand throughput
+  is capped (100 read / 50 write units a second), and the platform log lines
+  are off. CloudFront and the WAF have no cap; hourly alarms on its requests
+  and bytes are the early warning. Alarms on Lambda invocations per hour,
+  throttles, errors and duration, a monthly budget (gross of credits;
+  forecast and actual), and WAF-block and CloudFront-5xx alarms. Worst cases
+  month by month: `infra/README.md` § Cost; the kill switch: § Incident
+  playbook.
 - **Cross-account reads are least-privilege**: the Lambda role may
   `GetObject` IC-WBT's `rnl/*` (and the root `zarr.json`) and one MAP-grid
   key, and `ListBucket` the mirror only under `rnl/`, every statement
@@ -466,12 +472,39 @@ records what it found over the history when it was introduced.
    or demotes the user (it bites on their next request); the user can also
    use "sign out everywhere". Rotating `AUTH_SESSION_KEY`
    (`terraform apply -replace`) signs everyone out.
+6. **Runaway spend** (a `pitman-lambda-invocations`, `-lambda-throttles`,
+   `-cloudfront-requests` or `-cloudfront-bytes` alarm, or a budget mail).
+   At the caps a flood costs about $460 a month in Lambda compute plus about
+   $65 in requests and $113 in the user table (`infra/README.md` § Cost),
+   some 26 times the $25 budget, and CloudFront has no cap at all (about
+   $155 a day at 1 000 requests a second). The kill switches, each one
+   command:
+   - **API (Lambda):** `aws lambda put-function-concurrency --function-name pitman-backend --reserved-concurrent-executions 0 --region af-south-1 --profile pitman`.
+     No copy can run, so no Lambda spend and no reads of IC-WBT's buckets;
+     the API answers 429 (throttled) and the static site stays up. The next
+     `terraform apply` restores the configured concurrency (10), so put it
+     back deliberately, after the cause is fixed, by applying.
+   - **Edge (CloudFront):** first tighten the WAF: lower
+     `waf_site_rate_limit_per_ip` (and `waf_api_rate_limit_per_ip`) in
+     `infra/terraform.tfvars` and plan and apply (the minimum is 100 per 5
+     minutes). If the flood is spread too thin for per-IP limits, disable
+     the distribution, which stops all edge spend and takes the whole site
+     down. With the distribution ID (`gh variable get CLOUDFRONT_DISTRIBUTION_ID --repo Absence0760/pitman`) as `<id>`, three commands:
+     `aws cloudfront get-distribution-config --id <id> --profile pitman > dist.json`, then
+     `jq '.DistributionConfig.Enabled = false | .DistributionConfig' dist.json > disabled.json`, then
+     `aws cloudfront update-distribution --id <id> --if-match "$(jq -r .ETag dist.json)" --distribution-config file://disabled.json --profile pitman`.
+     Terraform sees the drift; the next apply re-enables it.
+   Then find the source in the CloudFront and WAF metrics (sampled requests
+   are off, waf.tf) and the Lambda's logs before turning anything back on.
 
 ## Known gaps
 
 - The WAF limits are per IP; a flood spread over many addresses is bounded by
-  reserved concurrency and surfaced by the invocation alarm and the budget,
-  not blocked.
+  reserved concurrency at the Lambda and surfaced by the invocation alarm, not
+  blocked. At the edge it isn't bounded at all: the CloudFront requests and
+  bytes alarms say so within the hour, and the kill switch (§ Incident
+  playbook) is manual. CloudFront's flat-rate plan would make it a fixed
+  cost (`infra/README.md` § Cost).
 - The CloudFront shared secret and the two sign-in keys (`AUTH_CODE_KEY`,
   `AUTH_SESSION_KEY`) sit in the Lambda's environment and the Terraform
   state (both in-account, encrypted at rest), not Secrets Manager. Anyone who

@@ -1,7 +1,15 @@
-# Every output except lambda_function_url is pushed to a GitHub repo variable
-# by `~/github/templates/scripts/export-tf-vars.sh infra/` (non-sensitive ->
-# `gh variable set <NAME uppercased>`); the deploy workflows read them as
-# vars.<NAME> and skip cleanly while they are unset.
+# Every output here is pushed to a GitHub repo variable by
+# `~/github/templates/scripts/export-tf-vars.sh infra/` (`gh variable set
+# <NAME uppercased>`); the deploy workflows read the ones they need as
+# vars.<NAME> and skip cleanly while they are unset. Three are exported but
+# read by no workflow (CLOUDFRONT_DOMAIN_NAME, LAMBDA_ROLE_ARN,
+# CLOUDFRONT_DISTRIBUTION_ARN): harmless, none is secret.
+#
+# No output is `sensitive`: export-tf-vars.sh would push a sensitive output
+# as a GitHub *secret* nobody reads. The bare Function URL (debugging only;
+# the shared-secret check refuses it) is therefore not an output; read it
+# with `aws lambda get-function-url-config --function-name pitman-backend
+# --region af-south-1 --query FunctionUrl --output text`.
 
 output "aws_region" {
   description = "Primary region (the Lambda and the site bucket). Repo variable AWS_REGION."
@@ -59,10 +67,4 @@ output "lambda_role_arn" {
 output "cloudfront_distribution_arn" {
   description = "Distribution ARN: IC-WBT's tiles bucket policy names it as AWS:SourceArn when Round 5 adds /tiles/* (data.md row 6)."
   value       = aws_cloudfront_distribution.frontend.arn
-}
-
-output "lambda_function_url" {
-  description = "Direct Function URL, for debugging only: the shared-secret check rejects every request that skips CloudFront. Sensitive so export-tf-vars.sh doesn't publish it as a variable (it would become a GitHub secret, unused)."
-  value       = aws_lambda_function_url.backend.function_url
-  sensitive   = true
 }
