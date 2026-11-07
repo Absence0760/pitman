@@ -583,3 +583,61 @@ resource "aws_cloudwatch_metric_alarm" "cloudfront_secret_unset" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
 }
+
+# mail.record_failed: see backend/src/auth/mailEvents.ts.
+resource "aws_cloudwatch_log_metric_filter" "mail_record_failed" {
+  name           = "${local.project}-mail-record-failed"
+  log_group_name = aws_cloudwatch_log_group.lambda.name
+  pattern        = "\"mail.record_failed\""
+
+  metric_transformation {
+    name          = "MailRecordFailed"
+    namespace     = "${local.project}/Auth"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "mail_record_failed" {
+  alarm_name          = "${local.project}-mail-record-failed"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.mail_record_failed.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.mail_record_failed.metric_transformation[0].namespace
+  period              = 900
+  statistic           = "Sum"
+  threshold           = 3
+  alarm_description   = "Bounce or complaint flags are failing to save in the users table (store errors; SQS redelivers them). Check the user-table alarms and the Lambda's errors; persistent failures end in the mail-events DLQ."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
+
+# mail.events_unrecorded: see backend/src/auth/mailEvents.ts.
+resource "aws_cloudwatch_log_metric_filter" "mail_events_unrecorded" {
+  name           = "${local.project}-mail-events-unrecorded"
+  log_group_name = aws_cloudwatch_log_group.lambda.name
+  pattern        = "\"mail.events_unrecorded\""
+
+  metric_transformation {
+    name          = "MailEventsUnrecorded"
+    namespace     = "${local.project}/Auth"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "mail_events_unrecorded" {
+  alarm_name          = "${local.project}-mail-events-unrecorded"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.mail_events_unrecorded.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.mail_events_unrecorded.metric_transformation[0].namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "SES bounce and complaint events are arriving while sign-in is unconfigured, so they can't be recorded and are being redelivered. Fix the auth-unconfigured alarm first."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
