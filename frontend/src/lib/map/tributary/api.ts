@@ -7,6 +7,7 @@
 
 import type { AreaGeometry, ChannelCollection, DelineateRefusal, DelineateResponse, DemProvenance } from '@pitman/wrsm';
 import { apiUrl } from '#lib/extend/api.js';
+import { sessionFetch } from '#lib/auth/unauthorized.js';
 
 export const DELINEATE_PATH = '/delineate';
 export const CHANNELS_PATH = '/channels';
@@ -74,7 +75,8 @@ function refusalOf(body: unknown): { error?: string; reason?: DelineateRefusal; 
 
 /** One request with a timeout, a caller's abort and the screen's messages. */
 async function request(url: string, init: RequestInit, options: TributaryClientOptions, timeoutMs: number): Promise<unknown> {
-	const doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+	// A 401 sends the user to sign-in (lib/auth/unauthorized.ts); the error below still reaches the screen.
+	const doFetch = sessionFetch(options.fetch);
 	const controller = new AbortController();
 	let timedOut = false;
 	const timer = setTimeout(() => {

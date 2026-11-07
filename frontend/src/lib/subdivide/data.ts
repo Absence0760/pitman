@@ -12,6 +12,7 @@
 
 import type { AreaGeometry, MapGridCells, MapGridCellsRequest, MapGridSample, QuaternaryCollection } from '@pitman/wrsm';
 import { apiUrl } from '#lib/extend/api.js';
+import { sessionFetch } from '#lib/auth/unauthorized.js';
 
 export const QUATERNARIES_PATH = '/quaternaries';
 export const MAP_GRID_CELLS_PATH = '/map-grid/cells';
@@ -68,7 +69,8 @@ async function serviceMessage(response: Response): Promise<string | undefined> {
 }
 
 async function request(what: string, path: string, init: RequestInit, signal: AbortSignal, options: SubdivideDataOptions): Promise<unknown> {
-	const doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+	// A 401 sends the user to sign-in (lib/auth/unauthorized.ts); the error below still reaches the screen.
+	const doFetch = sessionFetch(options.fetch);
 	const timeoutMs = options.timeoutMs ?? DATA_TIMEOUT_MS;
 	const controller = new AbortController();
 	let timedOut = false;
