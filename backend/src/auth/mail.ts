@@ -5,8 +5,8 @@
 //            entry (server.ts → mail.smtp.ts), so nodemailer never enters the Lambda bundle.
 //   ses      the Lambda: SES v2 SendEmail through its own role, with the configuration set.
 //
-// A mailer throws on failure; the /auth/code route logs the failure by name and still answers 202, so
-// a mail outage can't tell a listed address from an unlisted one.
+// A mailer throws on failure. Since issue #30 no request waits on one: /auth/code enqueues the email
+// (mailQueue.ts) and whatever reads the queue sends it, logging a failure as `mail.send_failed`.
 import { CODE_TTL_MS } from '@absence0760/auth-kit';
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import type { AuthConfig } from './config.js';
@@ -44,12 +44,12 @@ export function consoleMailer(): Mailer {
 }
 
 /**
- * The SES client's bounds. The send runs inside /auth/code's floor (CODE_REQUEST_MIN_LATENCY_MS in
- * runtime.ts), and the SDK's defaults (3 attempts with backoff, no request timeout) could stretch a listed
- * address's request well past it, which an unlisted one never does. Two attempts, each cut off after 1 s
- * (0.5 s to connect). `throwOnRequestTimeout` is what makes `requestTimeout` a bound at all: without it
- * @smithy/node-http-handler only logs a warning when a request runs past it. A request past the floor is
- * logged as `auth.slow_code_request`, and a failed send as `mail.send_failed`, still answering 202.
+ * The SES client's bounds. The send runs in the mail-queue worker (mailWorker.ts), which sends a batch's
+ * records at once, so a batch lasts one send's worst case; the SDK's defaults (3 attempts with backoff, no
+ * request timeout) would let a stalled SES hold the function to its timeout instead. Two attempts, each cut
+ * off after 1 s (0.5 s to connect). `throwOnRequestTimeout` is what makes `requestTimeout` a bound at all:
+ * without it @smithy/node-http-handler only logs a warning when a request runs past it. A failed send is
+ * logged as `mail.send_failed` and SQS tries it again (A-AUTH-14).
  */
 export const SES_CLIENT_OPTIONS = { maxAttempts: 2, requestHandler: { connectionTimeout: 500, requestTimeout: 1_000, throwOnRequestTimeout: true } } as const;
 

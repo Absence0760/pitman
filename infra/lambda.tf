@@ -217,6 +217,10 @@ resource "aws_lambda_function" "backend" {
       MAIL_TRANSPORT        = "ses"
       MAIL_FROM             = local.mail_from_address
       SES_CONFIGURATION_SET = aws_sesv2_configuration_set.main.configuration_set_name
+      # POST /auth/code enqueues the email here; the same function sends it
+      # (issue #30, mail_queue.tf). lambda.ts also dispatches on this URL.
+      MAIL_QUEUE     = "sqs"
+      MAIL_QUEUE_URL = aws_sqs_queue.mail_send.url
     }
   }
 

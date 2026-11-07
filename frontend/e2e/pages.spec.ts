@@ -40,6 +40,8 @@ test.describe('the privacy notice, signed out', () => {
 		await expect(page.getByText(/About 24 months/)).toBeVisible();
 		await expect(page.getByText('Whether mail to you bounced or was reported as spam', { exact: true })).toBeVisible();
 		await expect(page.getByText(/restored for 35 days/)).toBeVisible();
+		// The sealed copy of a code waiting on the mail queue (issue #30).
+		await expect(page.getByText(/encrypted with your\s+address in a mail queue for at most a day/)).toBeVisible();
 		// How to ask for access (POPIA s23; docs/security.md § Access requests).
 		await expect(page.getByText(/^To ask, email/)).toBeVisible();
 		await expect(page.getByRole('region', { name: 'Your rights' }).getByRole('link', { name: 'privacy@jaredhoward.com' })).toHaveAttribute('href', 'mailto:privacy@jaredhoward.com');

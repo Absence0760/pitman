@@ -16,15 +16,17 @@ const LAMBDA = {
 	MAIL_TRANSPORT: 'ses',
 	MAIL_FROM: 'Pitman <no-reply@example.test>',
 	SES_CONFIGURATION_SET: 'pitman',
+	MAIL_QUEUE: 'sqs',
+	MAIL_QUEUE_URL: 'https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-send',
 	AUTH_CODE_KEY: CODE,
 	AUTH_SESSION_KEY: SESSION
 };
 
 describe('readAuthConfig', () => {
-	it('defaults local dev to the memory store and console mail', () => {
+	it('defaults local dev to the memory store, console mail and the in-process mail queue', () => {
 		expect(readAuthConfig({ AUTH_CODE_KEY: CODE, AUTH_SESSION_KEY: SESSION })).toEqual({
 			ok: true,
-			config: { store: { kind: 'memory' }, codeKey: CODE, sessionKey: SESSION, mail: { kind: 'console', from: 'Pitman <no-reply@localhost>' }, devCookie: false }
+			config: { store: { kind: 'memory' }, codeKey: CODE, sessionKey: SESSION, mail: { kind: 'console', from: 'Pitman <no-reply@localhost>' }, queue: { kind: 'inline' }, devCookie: false }
 		});
 		expect(readAuthConfig({ AUTH_CODE_KEY: CODE, AUTH_SESSION_KEY: SESSION, USER_STORE: 'dynamodb', USERS_TABLE: 't', DYNAMODB_ENDPOINT: 'http://127.0.0.1:8000', MAIL_TRANSPORT: 'smtp', SMTP_PORT: '1025', AUTH_DEV_COOKIE: 'true' })).toMatchObject({
 			ok: true,
@@ -35,7 +37,7 @@ describe('readAuthConfig', () => {
 	it('accepts a complete Lambda configuration', () => {
 		expect(readAuthConfig(LAMBDA)).toEqual({
 			ok: true,
-			config: { store: { kind: 'dynamodb', table: 'pitman-users' }, codeKey: CODE, sessionKey: SESSION, mail: { kind: 'ses', from: LAMBDA.MAIL_FROM, configurationSet: 'pitman' }, devCookie: false }
+			config: { store: { kind: 'dynamodb', table: 'pitman-users' }, codeKey: CODE, sessionKey: SESSION, mail: { kind: 'ses', from: LAMBDA.MAIL_FROM, configurationSet: 'pitman' }, queue: { kind: 'sqs', url: LAMBDA.MAIL_QUEUE_URL }, devCookie: false }
 		});
 	});
 
@@ -54,6 +56,12 @@ describe('readAuthConfig', () => {
 		[{ MAIL_TRANSPORT: 'smtp' }, 'MAIL_TRANSPORT=smtp is for local dev'],
 		[{ MAIL_FROM: undefined }, 'MAIL_FROM is not set'],
 		[{ SES_CONFIGURATION_SET: undefined }, 'SES_CONFIGURATION_SET is not set'],
+		[{ MAIL_QUEUE: undefined }, 'MAIL_QUEUE is not set'],
+		[{ MAIL_QUEUE: 'inline' }, 'MAIL_QUEUE=inline is for local dev'],
+		[{ MAIL_QUEUE: 'kafka' }, 'MAIL_QUEUE must be inline or sqs'],
+		[{ MAIL_QUEUE_URL: undefined }, 'MAIL_QUEUE_URL is not set'],
+		[{ MAIL_QUEUE_URL: 'http://127.0.0.1:4566/000000000000/pitman-mail-send' }, 'MAIL_QUEUE_URL is not an SQS queue URL'],
+		[{ MAIL_QUEUE_URL: 'https://sqs.af-south-1.amazonaws.com/111111111111/a b' }, 'MAIL_QUEUE_URL is not an SQS queue URL'],
 		[{ AUTH_DEV_COOKIE: 'true' }, 'AUTH_DEV_COOKIE is for local dev']
 	])('refuses a Lambda with %o', (gap, problem) => {
 		const r = readAuthConfig({ ...LAMBDA, ...gap });

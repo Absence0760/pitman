@@ -40,8 +40,12 @@ that doesn't check the role, is the bug class to find.
    An unset CloudFront shared secret is 503 on everything (`backend/src/app.ts`).
 6. **Enumeration and timing.** `POST /auth/code` answers 202 with the same
    body for listed and unlisted addresses, inside the latency floor
-   (`backend/src/auth/runtime.ts`); nothing in a response or log says whether
-   an address is listed.
+   (`backend/src/auth/runtime.ts`), and both do the same work: one sealed,
+   same-size message on the mail queue (a decoy for an unlisted address,
+   `backend/src/auth/mailQueue.ts`), never a send inside the request (#30).
+   A path that sends mail or skips the enqueue for one kind of address is
+   High. Nothing in a response, a log or a queued body says whether an
+   address is listed.
 7. **Request checks.** CORS without credentials, `csrf()`,
    `sameOriginWrites` (`backend/src/http/sameOrigin.ts`), JSON-only, the
    per-instance auth limit (`RATE_LIMITS.auth`) and the WAF's auth rule

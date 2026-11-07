@@ -27,7 +27,7 @@ Legal questions that need a reasoned position go to the `za-legal-researcher` ag
 - **Backups**: DynamoDB point-in-time recovery, 35 days.
 - **Logs**: 30 days; an event name and at most a user id, never an address, code, token or IP (A-AUTH-11, guarded by `backend/src/__tests__/logGuard.ts`).
 - **IP addresses**: held in memory by the WAF and the per-instance limiter while they count (`backend/src/http/rateLimit.ts`); WAF sampled requests are off (`docs/security.md` § Infrastructure).
-- **Mail**: SES in af-south-1 sends the code; bounces and complaints come back SNS → SQS → `backend/src/auth/mailEvents.ts`.
+- **Mail**: `POST /auth/code` enqueues the code, sealed, on SQS `pitman-mail-send` (10 minutes; DLQ a day; `infra/mail_queue.tf`) and the Lambda sends it through SES in af-south-1 (`backend/src/auth/mailWorker.ts`); bounces and complaints come back SNS → SQS → `backend/src/auth/mailEvents.ts`.
 
 ## Where the data paths are
 

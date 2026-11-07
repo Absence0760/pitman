@@ -14,7 +14,8 @@ browser ──► CloudFront (WAF, CSP headers, pitman.jaredhoward.com)
               └─ /api/*  ─► strip /api ─► Lambda Function URL (AWS_IAM: OAC-signed, + shared-secret header)
                                             ├─► IC-WBT's buckets, read-only (CHIRPS rnl/*, MAP grid)
                                             ├─► DynamoDB pitman-users (the user list, #28)
-                                            └─► SES: sign-in codes from no-reply@pitman.jaredhoward.com
+                                            └─► SQS pitman-mail-send: one sealed sign-in email per code request (#30)
+SQS pitman-mail-send ─► the same Lambda ─► SES: sign-in codes from no-reply@pitman.jaredhoward.com
 SES bounces/complaints ─► SNS pitman-ses-events ─► SQS pitman-mail-events ─► the same Lambda
 ```
 
@@ -108,6 +109,8 @@ Set by Terraform (`infra/lambda.tf`), never by CI. The names match what
 | `MAIL_TRANSPORT` | `ses` | send through SES v2 with the function's own role (no SMTP password) |
 | `MAIL_FROM` | `no-reply@pitman.jaredhoward.com` | the only From address the role may send as (`ses:FromAddress` condition) |
 | `SES_CONFIGURATION_SET` | `pitman` | the configuration set every message must name (TLS required, suppression, events) |
+| `MAIL_QUEUE` | `sqs` | `POST /auth/code` enqueues the sign-in email rather than sending it (#30, A-AUTH-14) |
+| `MAIL_QUEUE_URL` | the `pitman-mail-send` queue's URL (`infra/mail_queue.tf`) | where it enqueues; `lambda.ts` also sends this queue's batches to the mail worker |
 
 **Not set yet, so those routes answer 503 by design** (not a failed deploy):
 `QUATERNARIES_SOURCE` (the quaternary catalogue, `/quaternaries`, until
@@ -118,11 +121,15 @@ use, `/cfm`, until the token is wired, D3), and, until IC-WBT's grants
 (`/chirps`, `/map-grid`). Each answers 503 with a "not configured" message
 to a signed-in user; anonymous callers get 401 first.
 
-The function has a second trigger besides the Function URL: an SQS event
-source mapping on `pitman-mail-events` delivers SES bounces and complaints
-(batches of up to 10, at most 2 at once, `ReportBatchItemFailures`), so
-`backend/src/lambda.ts` tells an SQS batch from an HTTP request. The
-SES region is the function's own (`AWS_REGION`, af-south-1).
+The function has two more triggers besides the Function URL, both SQS
+event source mappings (batches of up to 10, at most 2 at once,
+`ReportBatchItemFailures`): `pitman-mail-send` delivers the sign-in emails
+`POST /auth/code` enqueued (no batching window; the mail worker sends them,
+#30), and `pitman-mail-events` delivers SES bounces and complaints (a 5 s
+window). `backend/src/lambda.ts` tells an SQS batch from an HTTP request, and
+the mail queue's batches (by source ARN, against `MAIL_QUEUE_URL`) from the
+bounce queue's. The SES and SQS region is the function's own (`AWS_REGION`,
+af-south-1).
 
 Logs are JSON (`infra/lambda.tf`): application lines at `INFO` and above
 (everything the backend writes; the log-line alarms read them), platform
@@ -142,6 +149,8 @@ naming the gap, never a value.
 | `MAIL_TRANSPORT` | `ses` | `console` and `smtp` are refused on Lambda |
 | `MAIL_FROM` | the bare address `no-reply@pitman.jaredhoward.com` (Terraform sets no display name; the local dev default is `Pitman <no-reply@localhost>`) | the sign-in email's From |
 | `SES_CONFIGURATION_SET` | the configuration set's name | TLS-required delivery, suppression and bounce/complaint events |
+| `MAIL_QUEUE` | `sqs` | `inline` (local dev's in-process queue) is refused on Lambda |
+| `MAIL_QUEUE_URL` | the mail queue's URL, `https://sqs.<region>.amazonaws.com/<account>/<name>` | where sign-in email is enqueued |
 
 `DYNAMODB_ENDPOINT` and `AUTH_DEV_COOKIE` are for local dev and are refused
 on Lambda.
@@ -297,14 +306,16 @@ can take a day or more. Until it's granted the account is in the SES sandbox,
 where a send to an unverified recipient is refused (`MessageRejected`); the
 users are unverified addresses, so sign-in mail works only after production
 access. Each refusal is logged as `mail.send_failed` and raises the
-`pitman-mail-send-failed` alarm. After production access, sign in once for
-real and check that alarm stays OK.
+`pitman-mail-send-failed` alarm; the mail worker tries each email 3 times,
+then it lands in `pitman-mail-send-dlq` (its own alarm; don't redrive it, the
+code has expired). After production access, sign in once for real and check
+that both alarms stay OK.
 
 50. Ask for SES production access in af-south-1 (transactional mail, low volume): `aws sesv2 put-account-details --production-access-enabled --mail-type TRANSACTIONAL --website-url https://pitman.jaredhoward.com --contact-language EN --use-case-description "Sign-in codes for an invite-only tool with a handful of users listed by an admin. No marketing mail. Bounces and complaints are suppressed by the configuration set and logged for the admin." --region af-south-1 --profile pitman`.
 51. Check the domain identity has verified (the DKIM CNAMEs, MAIL FROM MX and SPF are in the zone from step 40; DNS can take up to an hour): `aws sesv2 get-email-identity --email-identity pitman.jaredhoward.com --region af-south-1 --profile pitman --query '{sending:VerifiedForSendingStatus,dkim:DkimAttributes.Status,mailFrom:MailFromAttributes.MailFromDomainStatus}'` → `true`, `SUCCESS`, `SUCCESS`.
 52. Check DMARC is published: `dig +short TXT _dmarc.pitman.jaredhoward.com` → `"v=DMARC1; p=none; adkim=r; aspf=r"`.
 53. Once AWS answers, check production access: `aws sesv2 get-account --region af-south-1 --profile pitman --query '{production:ProductionAccessEnabled,sending:SendingEnabled}'` → both `true`.
-54. Confirm the af-south-1 alarms exist (Lambda errors, throttles, invocations, duration, SES bounce and complaint rates, the user table, `auth.locked`, `mail.send_failed`, `auth.unconfigured`, `auth.send_capped`, `auth.slow_code_request`, `cloudfront-secret-unset`, `mail-record-failed`, `mail-events-unrecorded`, `mail-events-dropped`, the mail DLQ): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region af-south-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
+54. Confirm the af-south-1 alarms exist (Lambda errors, throttles, invocations, duration, SES bounce and complaint rates, the user table, `auth.locked`, `mail.send_failed`, `auth.unconfigured`, `auth.send_capped`, `auth.slow_code_request`, `cloudfront-secret-unset`, `mail-record-failed`, `mail-events-unrecorded`, `mail-events-dropped`, the mail-events DLQ, and for the sign-in mail queue `mail-enqueue-failed`, `mail-send-dropped`, `mail-send-dlq` and `mail-send-age`): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region af-south-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
 55. Confirm the us-east-1 alarms exist (`pitman-cloudfront-requests`, `pitman-cloudfront-bytes`, `pitman-cloudfront-5xx`, `pitman-waf-blocked`, `pitman-waf-auth-blocked`): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region us-east-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
 
 The first admin is added later with `pnpm admin:bootstrap` (A-AUTH-5,

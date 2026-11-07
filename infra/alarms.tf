@@ -454,14 +454,15 @@ resource "aws_cloudwatch_metric_alarm" "auth_locked" {
   treat_missing_data  = "notBreaching"
 }
 
-# mail.send_failed: SES refused a sign-in code. /auth/code still answers 202
-# (so a listed address can't be told from an unlisted one) and the error is
-# caught, so neither the Lambda error alarm nor the SES reputation alarms see
-# it. One may mean every sign-in is failing silently: the account is in the
+# mail.send_failed: SES refused a sign-in code. Since #30 the mail-queue worker
+# sends it (backend/src/auth/mailWorker.ts), after /auth/code has answered
+# 202; the error is caught and the record retried (up to 3 receives, then the
+# mail-send DLQ), so neither the Lambda error alarm nor the SES reputation
+# alarms see it. Each try logs a line. One may mean every sign-in is failing silently: the account is in the
 # SES sandbox or paused, DKIM fell back to pending, the configuration set is
 # disabled, or the IAM grant's ses:FromAddress no longer matches MAIL_FROM.
 # Same quoted-term pattern as auth.locked; the line carries the user's id and
-# the SES error name only (routes.ts).
+# the SES error name only (mailQueue.ts).
 resource "aws_cloudwatch_log_metric_filter" "mail_send_failed" {
   name           = "${local.project}-mail-send-failed"
   log_group_name = aws_cloudwatch_log_group.lambda.name
@@ -485,7 +486,7 @@ resource "aws_cloudwatch_metric_alarm" "mail_send_failed" {
   period              = 300
   statistic           = "Sum"
   threshold           = 1
-  alarm_description   = "SES refused to send a sign-in code: the user sees 'check your email' and gets nothing. The log line's error names the cause, e.g. MessageRejected (SES sandbox or an unverified identity), AccessDenied (the IAM grant or MAIL_FROM), AccountSuspended or SendingPausedException (reputation). Check `aws sesv2 get-account` and the identity's DKIM status."
+  alarm_description   = "SES refused to send a sign-in code (the mail-queue worker tries it up to 3 times): the user sees 'check your email' and may get nothing. The log line's error names the cause, e.g. MessageRejected (SES sandbox or an unverified identity), AccessDenied (the IAM grant or MAIL_FROM), AccountSuspended or SendingPausedException (reputation). Check `aws sesv2 get-account` and the identity's DKIM status."
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
 }
@@ -578,11 +579,12 @@ resource "aws_cloudwatch_metric_alarm" "mail_events_dlq" {
   }
 }
 
-# auth.slow_code_request: a /auth/code request ran past its minimum-latency
-# floor (backend/src/auth/routes.ts), almost always because SES was slow or
-# throttling. Past the floor, a listed address (which sends mail) answers later
-# than an unlisted one, so a run of these is both a mail problem and a timing
-# signal. A single slow request is noise; three in 15 minutes is not.
+# auth.slow_code_request: a /auth/code request ran past its 1 s minimum-latency
+# floor (backend/src/auth/routes.ts): the user table or the SQS enqueue was
+# slow. Since #30 no mail is sent inside the request and a listed and an
+# unlisted address do the same work, so a slow request is slow for both; what
+# a run of these can still leak is the difference in auth-kit's own store work
+# past the floor. A single slow request is noise; three in 15 minutes is not.
 resource "aws_cloudwatch_log_metric_filter" "auth_slow_code_request" {
   name           = "${local.project}-auth-slow-code-request"
   log_group_name = aws_cloudwatch_log_group.lambda.name
@@ -606,7 +608,7 @@ resource "aws_cloudwatch_metric_alarm" "auth_slow_code_request" {
   period              = 900
   statistic           = "Sum"
   threshold           = 3
-  alarm_description   = "Sign-in code requests are running past their minimum-latency floor, usually SES slowness or throttling. Past the floor, listed and unlisted addresses no longer take the same time. Check SES sending in af-south-1 and the mail-send-failed alarm."
+  alarm_description   = "Sign-in code requests are running past their 1 s minimum-latency floor: the user table or the SQS enqueue is slow (no mail is sent inside the request). Check the user-table alarms, the mail-enqueue-failed alarm and SQS in af-south-1."
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
 }
@@ -671,11 +673,13 @@ resource "aws_cloudwatch_metric_alarm" "mail_record_failed" {
   treat_missing_data  = "notBreaching"
 }
 
-# mail.events_unrecorded: see backend/src/auth/mailEvents.ts.
+# mail.events_unrecorded (backend/src/auth/mailEvents.ts) and
+# mail.queue_unsent (backend/src/auth/mailWorker.ts): bounce events or queued
+# sign-in mail arriving while sign-in is unconfigured, redelivered each time.
 resource "aws_cloudwatch_log_metric_filter" "mail_events_unrecorded" {
   name           = "${local.project}-mail-events-unrecorded"
   log_group_name = aws_cloudwatch_log_group.lambda.name
-  pattern        = "\"mail.events_unrecorded\""
+  pattern        = "?\"mail.events_unrecorded\" ?\"mail.queue_unsent\""
 
   metric_transformation {
     name          = "MailEventsUnrecorded"
@@ -695,7 +699,7 @@ resource "aws_cloudwatch_metric_alarm" "mail_events_unrecorded" {
   period              = 300
   statistic           = "Sum"
   threshold           = 1
-  alarm_description   = "SES bounce and complaint events are arriving while sign-in is unconfigured, so they can't be recorded and are being redelivered. Fix the auth-unconfigured alarm first."
+  alarm_description   = "SES bounce and complaint events (mail.events_unrecorded) or queued sign-in mail (mail.queue_unsent) are arriving while sign-in is unconfigured, so they can't be recorded or sent and are being redelivered. Fix the auth-unconfigured alarm first; queued codes expire after 10 minutes."
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
 }
@@ -733,4 +737,116 @@ resource "aws_cloudwatch_metric_alarm" "mail_events_dropped" {
   alarm_description   = "An SES bounce or complaint event was dropped unrecorded (mail.event_refused: auth-kit refused a recipient's address or timestamp; mail.event_ignored: unreadable or an unexpected event type). SES's event shape or timestamps may have changed, so bounces and complaints aren't being recorded on the Users page. Read the Lambda's mail.* log lines and compare with SES's current event format."
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
+}
+
+# --- The sign-in mail queue (mail_queue.tf, issue #30) ------------------------
+
+# mail.enqueue_failed: /auth/code couldn't put the email on the queue (SQS
+# refused, or the grant or MAIL_QUEUE_URL is wrong). The request still answers
+# 202, so nothing else sees it: the user waits for a code that never comes.
+# Logged for a listed address and an unlisted one's decoy alike (routes.ts).
+resource "aws_cloudwatch_log_metric_filter" "mail_enqueue_failed" {
+  name           = "${local.project}-mail-enqueue-failed"
+  log_group_name = aws_cloudwatch_log_group.lambda.name
+  pattern        = "\"mail.enqueue_failed\""
+
+  metric_transformation {
+    name          = "MailEnqueueFailed"
+    namespace     = "${local.project}/Auth"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "mail_enqueue_failed" {
+  alarm_name          = "${local.project}-mail-enqueue-failed"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.mail_enqueue_failed.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.mail_enqueue_failed.metric_transformation[0].namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "POST /auth/code couldn't enqueue a sign-in email (the request still answered 202, so the user waits for nothing). The log line's error names the cause, e.g. AccessDenied (the role's sqs:SendMessage grant) or QueueDoesNotExist (MAIL_QUEUE_URL). Check the pitman-mail-send queue and the Lambda's environment."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
+
+# mail.send_expired (a queued code had expired before it could be sent: a
+# backlog, or retries that ran out its 10 minutes) and mail.queue_unreadable
+# (a body that won't open: AUTH_CODE_KEY rotated with mail in flight, or
+# something other than /auth/code wrote to the queue). Both are dropped, so a
+# user got no code. One filter, as for mail_events_dropped.
+resource "aws_cloudwatch_log_metric_filter" "mail_send_dropped" {
+  name           = "${local.project}-mail-send-dropped"
+  log_group_name = aws_cloudwatch_log_group.lambda.name
+  pattern        = "?\"mail.send_expired\" ?\"mail.queue_unreadable\""
+
+  metric_transformation {
+    name          = "MailSendDropped"
+    namespace     = "${local.project}/Auth"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "mail_send_dropped" {
+  alarm_name          = "${local.project}-mail-send-dropped"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.mail_send_dropped.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.mail_send_dropped.metric_transformation[0].namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "A queued sign-in email was dropped unsent: mail.send_expired (its code expired first: a backlog or failing sends, see the mail-send-age and mail-send-failed alarms) or mail.queue_unreadable (a body that won't open: AUTH_CODE_KEY was rotated with mail in flight, or something else wrote to pitman-mail-send). The user asks for a new code."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
+
+# A dead-lettered sign-in email: SES refused it 3 times (each logged as
+# mail.send_failed), or the function crashed, timed out or was throttled on
+# it. The code inside has expired or soon will, so there is nothing to
+# redrive: fix the cause and let the DLQ's 1-day retention clear it.
+resource "aws_cloudwatch_metric_alarm" "mail_send_dlq" {
+  alarm_name          = "${local.project}-mail-send-dlq"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 300
+  statistic           = "Maximum"
+  threshold           = 0
+  alarm_description   = "A sign-in email is in the mail-send DLQ: it failed 3 receives (SES refusals, logged as mail.send_failed, or a Lambda crash, timeout or throttle). Its code has expired, so don't redrive it: fix the cause (the mail-send-failed alarm, the Lambda's errors and throttles); the DLQ clears itself within a day."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    QueueName = aws_sqs_queue.mail_send_dlq.name
+  }
+}
+
+# The oldest sign-in email has waited more than 2 minutes: the mapping isn't
+# consuming (disabled, throttled by a flood holding every reserved copy, or
+# failing). Users are waiting on codes that expire at 10 minutes, when SQS
+# deletes the message (its retention) without dead-lettering it, so this is
+# the only alarm that sees a queue nobody reads.
+resource "aws_cloudwatch_metric_alarm" "mail_send_age" {
+  alarm_name          = "${local.project}-mail-send-age"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateAgeOfOldestMessage"
+  namespace           = "AWS/SQS"
+  period              = 300
+  statistic           = "Maximum"
+  threshold           = 120
+  alarm_description   = "A sign-in email has waited over 2 minutes on pitman-mail-send: the Lambda isn't consuming the queue (event source mapping disabled, throttled or failing). Codes expire at 10 minutes. Check the mapping's state (aws lambda list-event-source-mappings), the Lambda's throttles and errors."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    QueueName = aws_sqs_queue.mail_send.name
+  }
 }

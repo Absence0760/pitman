@@ -29,7 +29,7 @@ doesn't reach.
    the script already read (never typed into a shell)? Does the Lambda lack
    `ses:DeleteSuppressedDestination` (`infra/ses.tf`), as documented?
 4. **Copies outside the table.** The bounce queue and its DLQ (messages
-   carry the recipient; check their retention in `infra/ses.tf`), CloudWatch
+   carry the recipient; check their retention in `infra/ses.tf`), the sign-in mail queue and its DLQ (sealed bodies holding the address and a code; retention 10 minutes and a day in `infra/mail_queue.tf`, which must stay inside point-in-time recovery's 35 days), CloudWatch
    logs (should hold no address, `backend/src/__tests__/logGuard.ts`), the
    operator's shell history (the script reads stdin, never argv), Terraform
    state (should hold none).

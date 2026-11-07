@@ -19,7 +19,8 @@
 //   4. the data sources stay local (docs/data.md): every `*_SOURCE` is `local`, so no default reads IC-WBT's
 //      buckets or Cape Farm Mapper; every `*_LOCAL_FILE` / `*_LOCAL_DIR` is a path inside the workspace;
 //   5. sign-in stays on the laptop (docs/run-locally.md § Sign-in): USER_STORE is `memory` or `dynamodb`
-//      (DynamoDB Local), USERS_TABLE ends `-local`, MAIL_TRANSPORT is `console` or `smtp` (Mailpit), never SES;
+//      (DynamoDB Local), USERS_TABLE ends `-local`, MAIL_TRANSPORT is `console` or `smtp` (Mailpit), never SES,
+//      and MAIL_QUEUE is `inline` (the in-process queue) with no MAIL_QUEUE_URL, never the SQS queue (#30);
 //   6. frontend env files define only `PUBLIC_*` keys (anything else in a Vite env file is ignored or a
 //      secret in the wrong place), and PUBLIC_API_URL is the same-origin `/api` the cookie depends on.
 //
@@ -161,6 +162,12 @@ export function checkEnvFile(file, text) {
 		}
 		if (key === 'MAIL_TRANSPORT' && value !== 'console' && value !== 'smtp') {
 			add(line, 'MAIL_TRANSPORT must be console or smtp (Mailpit) in a committed dev default; SES sends real mail');
+		}
+		if (key === 'MAIL_QUEUE' && value !== 'inline') {
+			add(line, 'MAIL_QUEUE must be inline in a committed dev default; the SQS queue needs AWS credentials and is production only');
+		}
+		if (key === 'MAIL_QUEUE_URL' && value !== '') {
+			add(line, 'MAIL_QUEUE_URL must not be set in a committed dev default; the SQS queue is production only');
 		}
 	}
 	return out;
