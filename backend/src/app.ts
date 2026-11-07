@@ -2,6 +2,11 @@ import { timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
+import { csrf } from 'hono/csrf';
+import { HTTPException } from 'hono/http-exception';
+import { requireSession } from './auth/middleware.js';
+import { publicAuthRoutes, sessionRoutes } from './auth/routes.js';
+import { type AuthRuntime, authRuntimeFromEnv } from './auth/runtime.js';
 import { landUseRoutes } from './cfm/routes.js';
 import { type LandUseSource, landUseSourceFromEnv } from './cfm/source.js';
 import { ChirpsCopy, chirpsCopyConfig } from './chirps/copy.js';
@@ -9,6 +14,7 @@ import { chirpsRoutes } from './chirps/routes.js';
 import { delineationRoutes } from './delineation/routes.js';
 import { DemSource, demLocationFromEnv } from './delineation/source.js';
 import { MAX_BODY_BYTES } from './http/area.js';
+import { jsonOnly } from './http/jsonOnly.js';
 import { rateLimit } from './http/rateLimit.js';
 import { mapGridRoutes } from './mapgrid/routes.js';
 import { MapGridCatalog, mapGridSourcesFromEnv } from './mapgrid/source.js';
@@ -25,7 +31,10 @@ export const RATE_LIMITS = {
 	channels: { limit: 60, windowMs: 10 * 60_000 },
 	quaternaries: { limit: 120, windowMs: 10 * 60_000 },
 	// One fetch per area on the screen, cached; each miss may cost up to 40 upstream pages.
-	landUse: { limit: 20, windowMs: 10 * 60_000 }
+	landUse: { limit: 20, windowMs: 10 * 60_000 },
+	// Sign-in and the Users page, per instance; the WAF's /api/auth/* rule (A-AUTH-9) is the global one,
+	// and auth-kit's per-address send limits and lockout the real ones.
+	auth: { limit: 60, windowMs: 10 * 60_000 }
 } as const;
 
 /** What the data routes read; tests pass their own, the app builds them from the environment. */
@@ -42,7 +51,10 @@ export interface AppDeps {
 		channels?: { limit: number; windowMs: number };
 		quaternaries?: { limit: number; windowMs: number };
 		landUse?: { limit: number; windowMs: number };
+		auth?: { limit: number; windowMs: number };
 	};
+	/** Sign-in (auth/runtime.ts). Default: built from the environment; tests pass one on a memory store. */
+	auth: AuthRuntime;
 	now: () => number;
 	today: () => string;
 }
@@ -56,6 +68,7 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	const quaternaries = deps.quaternaries ?? new QuaternaryStore(quaternarySourceFromEnv());
 	const landUse = deps.landUse ?? landUseSourceFromEnv();
 	const limits = deps.rateLimits ?? RATE_LIMITS;
+	const auth = deps.auth ?? authRuntimeFromEnv(process.env);
 
 	// CloudFront-stamped shared secret. In prod, CloudFront stamps every
 	// /api/* request with X-CloudFront-Shared-Secret via the origin's
@@ -89,11 +102,17 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 		'*',
 		cors({
 			origin: (origin) => (allowedOrigins.includes(origin) ? origin : null),
+			// No credentials and no PATCH/DELETE: the browser only ever calls the API same-origin (CloudFront's
+			// /api/* in production, the Vite proxy in dev), so CORS never has to carry the session cookie.
 			allowMethods: ['GET', 'POST', 'OPTIONS'],
 			allowHeaders: ['Content-Type'],
 			maxAge: 600
 		})
 	);
+
+	// A cross-origin form-like body (form, multipart, text/plain) is refused with 403 (A-AUTH-9). Cross-origin
+	// JSON is stopped by the CORS preflight and the session cookie's SameSite=Strict.
+	app.use('*', csrf({ origin: allowedOrigins }));
 
 	app.get('/health', (c) => c.json({ ok: true }));
 
@@ -107,6 +126,26 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 			onError: (c) => c.json({ error: `the body is larger than ${MAX_BODY_BYTES / 1024 / 1024} MiB; simplify the area` }, 413)
 		})
 	);
+	app.use('*', jsonOnly);
+
+	// Sign-in (docs/architecture.md § Sign-in). Never cached: these answers are one person's.
+	// One limiter for all of them, so the four paths share one count per client.
+	const authLimit = rateLimit({ ...(limits.auth ?? RATE_LIMITS.auth), now });
+	for (const path of ['/auth/*', '/users', '/users/*', '/audit']) {
+		app.use(path, async (c, next) => {
+			await next();
+			c.header('Cache-Control', 'no-store');
+		});
+		app.use(path, authLimit);
+	}
+	app.route('/', publicAuthRoutes(auth));
+
+	// The gate (A-AUTH-1). Everything registered from here on needs a session: Hono runs handlers in the
+	// order they were added, so only /health and the routes above answer without one, and a route added
+	// below can't forget it (app.test.ts enumerates app.routes to prove it).
+	app.use('*', requireSession(auth));
+	app.route('/', sessionRoutes(auth));
+
 	app.use('/chirps/*', rateLimit({ ...limits.chirps, now }));
 	app.use('/map-grid/*', rateLimit({ ...limits.mapGrid, now }));
 	app.use('/delineate', rateLimit({ ...(limits.delineate ?? RATE_LIMITS.delineate), now }));
@@ -124,6 +163,8 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	app.notFound((c) => c.json({ error: 'not found' }, 404));
 
 	app.onError((err, c) => {
+		// csrf() throws a 403.
+		if (err instanceof HTTPException && err.status === 403) return c.json({ error: 'cross-origin request refused' }, 403);
 		console.error('Unhandled error', err);
 		return c.json({ error: 'Internal server error' }, 500);
 	});

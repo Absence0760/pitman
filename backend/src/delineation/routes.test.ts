@@ -14,6 +14,7 @@ import { MAX_CHANNEL_BOX_DEG, parseBbox, parsePoint, tilesOf, type DelineateAnsw
 import { DemSource, type DemLocation } from './source.js';
 import { syntheticDem } from './syntheticDem.js';
 import { ApiError } from '../http/errors.js';
+import { asSignedIn, signedIn, type Requester } from '../__tests__/session.js';
 
 const many = { limit: 100_000, windowMs: 60_000 };
 const quaternaries = JSON.parse(readFileSync(new URL('../../fixtures/geo/quaternaries.synthetic.geojson', import.meta.url), 'utf8')) as {
@@ -23,15 +24,18 @@ const Z01A = quaternaries.features.find((f) => f.properties.code === 'Z01A')!.ge
 const TRIBUTARY: [number, number] = [21.1110878, -33.6584957];
 
 const shared = new DemSource(syntheticDem());
+// Behind the gate (A-AUTH-1): every request carries a signed-in admin's session.
+const session = await signedIn();
 const app = (dem: DemSource = shared, limits: { delineate?: typeof many; channels?: typeof many } = {}, now?: () => number) =>
-	createApp({
+	asSignedIn(createApp({
+		auth: session.auth,
 		dem,
 		chirps: new ChirpsCopy({ problem: 'unused' } as never),
 		mapGrids: new MapGridCatalog({ problem: 'unused' }),
 		rateLimits: { chirps: many, mapGrid: many, delineate: limits.delineate ?? many, channels: limits.channels ?? many },
 		...(now ? { now } : {})
-	});
-const post = (a: ReturnType<typeof createApp>, body: unknown) =>
+	}), session.cookie);
+const post = (a: Requester, body: unknown) =>
 	a.request('/delineate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body) });
 
 describe('POST /delineate', () => {

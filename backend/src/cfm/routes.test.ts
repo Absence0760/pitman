@@ -8,12 +8,16 @@ import { MapGridCatalog } from '../mapgrid/source.js';
 import { QuaternaryStore } from '../quaternaries/source.js';
 import { CFM_MAX_AREA_KM2, CFM_MAX_AREA_VERTICES, landUseRoutes } from './routes.js';
 import { localLandUseSource, type LandUseSource } from './source.js';
+import { asSignedIn, signedIn } from '../__tests__/session.js';
 
 const box = (w: number, s: number, e: number, n: number): AreaGeometry => ({ type: 'Polygon', coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] });
 const Z01A = box(21, -33.75, 21.25, -33.5);
 const unused = { problem: 'unused' };
+// Behind the gate (A-AUTH-1): every request carries a signed-in admin's session.
+const session = await signedIn();
 const app = (deps: Partial<AppDeps> = {}) =>
-	createApp({
+	asSignedIn(createApp({
+		auth: session.auth,
 		chirps: new ChirpsCopy(chirpsCopyConfig({})),
 		mapGrids: new MapGridCatalog(unused),
 		dem: new DemSource(unused),
@@ -21,7 +25,7 @@ const app = (deps: Partial<AppDeps> = {}) =>
 		landUse: localLandUseSource(),
 		today: () => '2026-10-30',
 		...deps
-	});
+	}), session.cookie);
 const post = (a: ReturnType<typeof app>, body: unknown, headers: Record<string, string> = {}) =>
 	a.request('/cfm/land-use', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) });
 

@@ -14,6 +14,7 @@ import { MAX_BODY_BYTES } from './http/area.js';
 import { localGridSource, MapGridCatalog } from './mapgrid/source.js';
 import { QuaternaryStore, quaternarySourceFromEnv } from './quaternaries/source.js';
 import { syntheticMapGridJson } from './mapgrid/synthetic.js';
+import { asSignedIn, signedIn, type Requester } from './__tests__/session.js';
 
 const tmp: string[] = [];
 afterAll(() => tmp.forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -24,16 +25,20 @@ const box = (w: number, s: number, e: number, n: number) => ({ type: 'Polygon', 
 const GRID = box(25.0, -20.5, 25.4, -20.0);
 const many = { limit: 1000, windowMs: 60_000 };
 
+// Behind the gate (A-AUTH-1): every request carries a signed-in admin's session. The gate itself is
+// tested in auth/routes.test.ts.
+const session = await signedIn();
 function app(deps: Partial<AppDeps> = {}) {
-	return createApp({
+	return asSignedIn(createApp({
+		auth: session.auth,
 		chirps: new ChirpsCopy(chirpsCopyConfig({ CHIRPS_SOURCE: 'local', CHIRPS_LOCAL_DIR: FIXTURE_MIRROR_DIR })),
 		mapGrids: new MapGridCatalog([localGridSource(join(FIXTURE_GEO_DIR, 'map-grid.synthetic.json'), 'synthetic')]),
 		rateLimits: { chirps: many, mapGrid: many },
 		today: () => '2026-10-29',
 		...deps
-	});
+	}), session.cookie);
 }
-const post = (a: ReturnType<typeof createApp>, path: string, body: unknown, headers: Record<string, string> = {}) =>
+const post = (a: Requester, path: string, body: unknown, headers: Record<string, string> = {}) =>
 	a.request(path, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) });
 
 describe('POST /chirps/monthly', () => {
@@ -209,7 +214,7 @@ describe('the template’s guards', () => {
 	});
 
 	it('answers 503 "not configured" when the environment names no source, and reads the local copies .env.development names', async () => {
-		const unset = createApp();
+		const unset = asSignedIn(createApp({ auth: session.auth }), session.cookie);
 		const c = await post(unset, '/chirps/monthly', { area: GRID });
 		expect(c.status).toBe(503);
 		expect(await c.json()).toEqual({ error: expect.stringContaining('CHIRPS_SOURCE is not set') });
@@ -218,7 +223,7 @@ describe('the template’s guards', () => {
 		vi.stubEnv('CHIRPS_LOCAL_DIR', '/nonexistent/pitman-default');
 		vi.stubEnv('MAP_GRID_SOURCE', 'local');
 		vi.stubEnv('MAP_GRID_LOCAL_FILE', '/nonexistent/pitman-default.json');
-		const local = createApp();
+		const local = asSignedIn(createApp({ auth: session.auth }), session.cookie);
 		expect(await (await post(local, '/chirps/monthly', { area: GRID })).json()).toEqual({ error: expect.stringContaining('/nonexistent/pitman-default') });
 		expect(await (await post(local, '/map-grid/mean', { area: GRID })).json()).toEqual({ error: expect.stringContaining('/nonexistent/pitman-default.json') });
 	});
