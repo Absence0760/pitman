@@ -2,77 +2,71 @@
 description: Find server-only secrets that may have leaked into a client bundle, git history, GitHub Actions logs, or a public asset
 ---
 
-Audit for secrets / env vars / API keys that should be server-only but are reachable from a client bundle, a public asset, or git history.
+Audit for secrets, env vars and keys that should be server-only but are reachable from the client bundle, a public asset, a workflow log or git history.
 
 ## Goal
 
-Production secrets live SOPS-encrypted in the **sibling `infra-secrets` repo** (`infra-secrets/pitman/prod.sops.yaml`), NOT in this repo. The trust boundary is clear: anything in `frontend/.env` is `PUBLIC_*` and ships to the client; everything else stays server-only. Find any key that's on the wrong side, confirm no secret (encrypted or not) is committed to this repo, and confirm the infra-secrets file is actually encrypted (no committed plaintext, no leaked history).
+Production secrets live SOPS-encrypted in the **sibling `infra-secrets` repo** (`infra-secrets/pitman/`), NOT in this repo. Pitman's own secrets are few: the CloudFront shared secret and the two auth keys are Terraform `random_password` values (in state and the Lambda's environment, an accepted gap in `docs/security.md`), the Cape Farm Mapper token (`CFM_TOKEN`) is the operator's, and CI holds `AUTH_KIT_READ_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` and the Dependabot `DEPENDABOT_LOCKFILE_PAT`. The frontend has only `PUBLIC_*` values, inlined at build. Find any key on the wrong side, confirm no secret (encrypted or not) is committed here, and confirm history is clean.
+
+**Never decrypt, print or read a secret value** (no `sops -d`, no `aws lambda get-function-configuration`, no `terraform output` of a sensitive value). SOPS keeps key names in plaintext, so names can be compared without decrypting; values are the operator's to check.
 
 ## What to check
 
-1. **No secret files in THIS repo, and the infra-secrets file is encrypted.**
-   - This repo must contain NO `*.sops` / `*.sops.yaml` and no committed secret. `git ls-files | grep -E '\.sops(\.yaml)?$'` should return nothing; the `.gitignore` guard (`*.sops`, `*.sops.yaml`) backs this up. Any such file here is a finding — secrets belong in `../infra-secrets/`.
-   - `../infra-secrets/pitman/prod.sops.yaml` (if it exists): confirm it's flat-YAML SOPS — each value is individually `ENC[AES256_GCM,...]` with a `sops:` metadata block (`kms` recipient ARNs, `mac`, `version`). Reject any value that's plaintext at the top level.
-   - A SOPS file edited without `sops <file>` (e.g. `vim` on the blob) loses encryption integrity — the `mac` won't validate. Flag a confirmed direct edit.
+1. **No secret files in this repo.**
+   - `git ls-files | grep -E '\.sops(\.yaml)?$'` returns nothing (bar `*.sops.yaml.example`); the `.gitignore` guard (`*.sops`, `*.sops.yaml`) backs it up.
+   - `../infra-secrets/pitman/*.sops.yaml`, if present: every value is `ENC[AES256_GCM,...]` with a `sops:` block. Check by reading the file's structure, not by decrypting it.
 
-2. **Plaintext SOPS siblings absent from git.**
-   - `backend/.env`, `infra/terraform.tfvars`: confirmed gitignored.
-   - `git log --all --full-history -- backend/.env infra/terraform.tfvars` should return zero commits ever. If it returns any, the secret is permanently exposed and every value in it needs rotation — flag as Critical.
+2. **Plaintext siblings absent from git.**
+   - `backend/.env`, `frontend/.env`, `*.env.development.local`, `infra/terraform.tfvars`, `infra/backend.config`, `infra/*.tfstate*` are gitignored.
+   - `git log --all --full-history -- backend/.env frontend/.env infra/terraform.tfvars infra/backend.config` returns no commits. Any hit means the values are permanently exposed and need rotation: Critical.
 
-3. **`.env` files at workspace roots.**
-   - `frontend/.env`, `studio/.env`: gitignored. `frontend/.env.example` and `studio/.env.example` are the committed templates (PUBLIC_* / SANITY_STUDIO_* only; no real secrets).
-   - Run `git log --all --full-history -- frontend/.env studio/.env` to confirm neither has ever been committed.
+3. **Committed `.env.development` files are non-sensitive.** `backend/.env.development` and `frontend/.env.development` may hold only localhost URLs, ports, local file paths, `memory`/`console` transports and dev flags (CLAUDE.md § Local-dev env is committed). A real token, a real AWS resource name that grants access, or a value reused elsewhere is a finding.
 
-4. **Client-bundle leakage (frontend).**
-   - SvelteKit env vars are split: `$env/static/public` is inlined into the client bundle, `$env/static/private` is server-only. Per `frontend/CLAUDE.md`, the frontend stays static — there's no `$env/dynamic/private` anywhere; if it appears, that's a Critical because it implies an SSR adapter was added.
-   - Grep `frontend/src/` for `$env/static/private`, `$env/dynamic`. Every hit is a finding.
-   - Grep `frontend/src/` for raw `process.env` references. SvelteKit's static build doesn't expose `process.env` to the client — any reference is either dead code or a bug.
+4. **Client-bundle leakage.**
+   - The frontend is static: `$env/static/private` and `$env/dynamic/*` must not appear in `frontend/src/` (their presence implies an SSR adapter). Every hit is a finding.
+   - Raw `process.env` in `frontend/src/` is dead code or a bug.
+   - `frontend/src/env.ts` declares only `PUBLIC_*` names; compare with `frontend/.env.development`.
 
-5. **Server-only env touched from a non-server frontend path.**
-   - The frontend has no server-only paths today (static adapter). Any reference to `$env/static/private` or to a non-`PUBLIC_*` env var from `frontend/src/` is a finding.
+5. **Backend env hygiene.**
+   - Nothing reachable from `backend/src/lambda.ts` imports `dotenv` (only `backend/src/server.ts` does).
+   - `CFM_TOKEN` is read only in `backend/src/cfm/` and never logged or returned; upstream error text is not passed through to a response.
+   - Logs carry no secret and no personal data (`backend/src/http/logError.ts`, `backend/src/__tests__/logGuard.ts`).
+   - Compare the env names the Lambda needs (`infra/lambda.tf` `environment`, `docs/deployment.md` § Lambda environment) with what the code reads; a name with no documented purpose is Low.
 
-6. **Backend env hygiene.**
-   - `backend/src/` references `process.env.X` directly (per `backend/CLAUDE.md`, no `dotenv` imports reachable from `lambda.ts`).
-   - Grep `backend/src/lambda.ts` and everything it transitively imports for `import 'dotenv'` or `dotenv/config`. Any hit is a finding — dotenv must only live in `server.ts`.
-   - `backend/.env.example` lists the env-var names. Compare against `../infra-secrets/pitman/prod.sops.yaml` (run `sops -d ../infra-secrets/pitman/prod.sops.yaml` if you have `kms:Decrypt` and report by name, never by value) — any required key missing from the encrypted file is a Medium; any extra key with no documented purpose is a Low.
+6. **GitHub Actions.**
+   - Every `env:` in `.github/workflows/*.yml` references `${{ secrets.X }}` or `${{ vars.X }}`, never a literal.
+   - No step echoes a secret or runs `set -x` with one in scope.
+   - `AUTH_KIT_READ_TOKEN` reaches git only on the `pnpm install` step, as `GIT_CONFIG_*` env, never written to a config file (`scripts/ci-guards/workflows.test.mjs` enforces this; confirm it's green).
+   - Deploy workflows use OIDC (`role-to-assume`), never `aws-access-key-id`. A long-lived AWS key in any workflow is Critical.
 
-7. **GitHub Actions workflow secrets.**
-   - `.github/workflows/*.yml`: every `env:` block should reference `${{ secrets.X }}` or `${{ vars.X }}`, never a literal value.
-   - `actions-runner` / build steps should not `echo $SECRET_X` or `set -x` with secret values in scope.
-   - Workflows that deploy (`deploy-frontend.yml`, `deploy-backend.yml`, `deploy-studio.yml`) must use OIDC (`aws-actions/configure-aws-credentials@v4+` with `role-to-assume`), never `aws-access-key-id` / `aws-secret-access-key`. Long-lived AWS keys in any workflow is a Critical.
+7. **Terraform outputs.** No `output` in `infra/outputs.tf` exposes the shared secret or an auth key without `sensitive = true`.
 
-8. **Public asset leak.**
-   - Search `frontend/static/` for any file containing key shapes — `sk_`, `rs_` (<email-service> keys), `key-`, `Bearer `, hex strings ≥ 32 chars. Pasted-into-asset-config leaks have happened.
+8. **Public assets.** Search `frontend/static/` and the committed fixtures (`backend/fixtures/`, `docs/formats/examples/`) for key shapes: `AKIA`, `ghp_`, `github_pat_`, `sk-`, `Bearer `, long hex or base64 runs.
 
-9. **Git history pickaxe.**
-   - `git log --all -S '<EMAIL_SERVICE>_API_KEY' -S '<CMS>_API_TOKEN' -S '<PAYMENT>_PASSPHRASE' -S 'AWS_ACCESS_KEY' -S 'sk-' --source --pretty=fuller`
-   - The `-S` "pickaxe" finds commits that added or removed the literal string. A single touch on a real secret means that value is permanently exposed and needs rotation regardless of subsequent removal — flag as Critical with the recommendation "rotate the underlying credential, the value can be recovered from git history."
+9. **Git history pickaxe.** `git log --all -S 'AKIA' -S 'github_pat_' -S 'CFM_TOKEN=' -S 'AUTH_SESSION_KEY=' -S 'CLOUDFRONT_SHARED_SECRET=' --source --pretty=oneline`. A real value touched once is permanently exposed: rotate it, whatever was removed later. The weekly `gitleaks-sweep.yml` covers the same ground; check its latest run.
 
-10. **`.gitignore` covers the right paths.**
-    - Confirm `.gitignore` ignores: `backend/.env`, `frontend/.env`, `studio/.env`, `infra/terraform.tfvars`, `infra/*.tfstate*`, `.envrc`. Any missing → Medium.
+10. **`.gitignore`** covers `.env`, `.env.*.local`, `*.tfvars` (with `!*.tfvars.example`), `infra/backend.config`, `*.tfstate*`, `*.sops*`. A missing path is Medium.
 
 ## Report
 
-- **Critical** — a real secret in git history, a secret file (`*.sops` or plaintext) committed to THIS repo, an SSR adapter that exposes server-only env to the client, an AWS access key in a workflow, an unencrypted value in the infra-secrets file.
-- **High** — server-only env referenced from a non-server frontend path, dotenv reachable from Lambda bundle, workflow logs an env var, OIDC role's `:sub` condition missing or wildcarded.
-- **Medium** — env var in `.env.example` missing from the encrypted file, key in the encrypted file with no documented purpose, `.gitignore` missing a path.
-- **Low** — undocumented env intent, missing example entry, overscoped key (e.g. a write-scope <CMS> token used only for reads).
+- **Critical**: a real secret in git history; a secret file committed to this repo; an SSR adapter exposing server-only env; an AWS access key in a workflow.
+- **High**: server-only env referenced from frontend code; dotenv reachable from the Lambda bundle; a workflow that logs a secret; the auth-kit token outside the install step.
+- **Medium**: a sensitive value in a committed `.env.development`; a sensitive output without `sensitive = true`; `.gitignore` missing a path.
+- **Low**: an env name with no documented purpose; a missing example entry.
 
-For each: the literal env-var name and the file:line, what should change. **Never paste a found key value into the report — identify by name + location only.**
+For each: the env-var name and file:line, and what should change. **Never paste a found value into the report.**
 
 ## Useful starting points
 
-- `backend/.env.example`, `infra/terraform.tfvars.example` — declared env shapes
-- `backend/CLAUDE.md § Three entry points` — dotenv-isolation rationale
-- `frontend/CLAUDE.md § Hard rules` — static-only invariant
-- `.github/workflows/deploy-*.yml` — OIDC pattern
-- `../infra-secrets/.sops.yaml` — KMS recipient configuration (per-project creation rules)
+- `backend/.env.development`, `frontend/.env.development`, `infra/terraform.tfvars.example` — declared env shapes
+- `backend/src/lambda.ts`, `backend/src/server.ts` — the two entry points (`docs/STACK.md` § Conventions and gotchas)
+- `.github/workflows/deploy-frontend.yml`, `.github/workflows/deploy-backend.yml` — the OIDC pattern
+- `scripts/ci-guards/workflows.test.mjs` — the auth-kit token guard
+- `docs/deployment.md` § Secrets, `docs/security.md` § Secrets management
 - `../infra-secrets/README.md` — the estate secrets model
-- `docs/deployment.md § Secrets management` — the full workflow
-- `docs/security.md § Risk 8` (secrets management) — the risk register entry
 
 ## Delegate to
 
 Use the `repo-security-auditor` agent: `"Audit for server-only secrets that may have leaked into a client bundle, public asset, GitHub Actions log, or git history."`
 
-Read-only. Recommendations only — never paste a found key into the report. Identify by name + location.
+Read-only. Recommendations only; never decrypt or paste a secret. Identify by name and location.

@@ -1,136 +1,104 @@
 ---
-description: Verify spend safeguards across AWS, the <CMS>, <email-service>, and <payment-processor> — no single failure should produce a runaway bill
+description: Verify spend safeguards across AWS (Lambda, CloudFront, WAF, SES, DynamoDB, the cross-account data reads) and Cape Farm Mapper — no single failure should produce a runaway bill
 ---
 
-Audit every layer that bounds runaway spend across the stack. The realistic cost-vector accidents for this project: a leaked <email-service> / <CMS> API token, an unauthenticated Lambda burst from a botnet, a CloudFront egress flood, a <CMS> dataset overrun, a <payment-processor>-volume spike (legit or otherwise). Each one should be capped by **at least one** independent ceiling — none should run unbounded for hours before someone notices.
+Audit every layer that bounds runaway spend. The realistic cost accidents for Pitman: a flood of costly data calls (`POST /delineate` reads hundreds of MB of DEM and runs up to 20 s; `GET /channels` routes a 3 × 3 window; `POST /chirps/monthly` and `/map-grid/*` read the CHIRPS mirror and a MAP grid cross-account), CloudFront egress on `/tiles/*`, a sign-in flood sending SES mail, a chatty Lambda with long log retention, and a fan-out to Cape Farm Mapper. Each should be capped by **at least one** independent ceiling, and none should run unbounded for hours before an alarm fires.
 
 ## Goal
 
-The baseline cost at launch is **~R380/month** (per `docs/architecture.md` cost analysis — AWS + the <CMS> paid plan + domain). A finding is anything that lets the bill exceed that by an order of magnitude before any alarm fires. <payment-processor> is per-transaction (no monthly subscription), so it doesn't have a runaway-cost path the way a token-billed AI service does — but it still has a real cost per legitimate order, which means a botnet hammering `POST /orders` indirectly hits <payment-processor> volume too.
+Pitman's legitimate traffic is a handful of hydrologists. A finding is anything that lets the bill exceed the configured `budget_monthly_usd` by an order of magnitude before any alarm fires. There are no payments, no CMS and no third-party email service: AWS (including SES) is the whole bill, plus whatever Cape Farm Mapper's terms allow.
 
 ## What to check
 
-### 1. Backend rate limiting
+### 1. Who can call the costly routes
 
-`backend/src/rate-limit.ts` is the in-memory per-IP fixed-window limiter applied to:
+- Every data route sits behind the session gate (`requireSession` in `backend/src/app.ts`): an anonymous flood gets 401 before any read. `backend/src/auth/routes.test.ts` proves it by enumerating `app.routes`.
+- The Function URL answers only CloudFront: the shared-secret check in `backend/src/app.ts` (403 without it, 503 on Lambda when unset), so the WAF can't be bypassed.
 
-| Route | Window | Max per IP | Wired in |
-|---|---|---|---|
-| `POST /orders` | 15 min | 5 | `backend/src/routes/orders.ts` |
-| `POST /enquiries` | 15 min | 5 | `backend/src/routes/enquiries.ts` |
-| `GET /orders/:ref` | 1 min | 20 | `backend/src/routes/order-lookup.ts` |
-| `POST /webhooks/<payment>-webhook` | 1 min | 60 | `backend/src/routes/<payment>-webhook.ts` |
-| `POST /webhooks/cms-order` | 1 min | 60 | `backend/src/routes/cms-webhook.ts` |
+### 2. Per-instance and per-IP limits
 
-Verify:
-- The limiter is wired into every public-facing route (`GET /products`, `/gallery`, `/testimonials`, and `/health` are intentionally unlimited — they're cacheable / unprivileged reads).
-- The 5/15min limits for `POST /orders` and `POST /enquiries` match the documented value in `docs/security.md § Risk 2`.
-- The 20/min limit on `GET /orders/:ref` lets a customer legitimately repeat-poll the tracking page without hitting the limit but caps a scripted enumeration attempt.
-- The 60/min webhook limits are permissive enough that a legitimate <payment-processor> / <CMS> retry burst isn't rate-limited (<CMS>'s IPs are stable; <payment-processor>'s are well-known) but still bound a runaway loop.
+- `RATE_LIMITS` in `backend/src/app.ts` (`backend/src/http/rateLimit.ts`): one limit per costly route (`chirps`, `mapGrid`, `delineate`, `channels`, `quaternaries`, `landUse`, `auth`). Each route that reads S3 or calls upstream is mounted with one; a new costly route without one is High.
+- The limiter is per Lambda instance (in memory); the WAF (`infra/waf.tf`) is the cross-instance per-IP cap: `waf_api_rate_limit_per_ip` on `/api/*`, `auth_waf_rate_limit_per_ip` on `/api/auth/*` (except `/api/auth/me`), `waf_site_rate_limit_per_ip` on every path. Confirm the rules exist, match `docs/security.md` § Infrastructure, and that path normalisation runs before matching.
+- Input caps: the body limit and the area/box limits (`backend/src/http/area.ts`, the CHIRPS cell cap, the delineation budget and caches in `backend/src/delineation/`). A route that accepts an unbounded area or box is High.
 
-**Caveat**: the limiter is per-Lambda-instance (in-memory). API Gateway's throttling is the cross-instance cap — see check 2 below.
+### 3. Lambda ceiling
 
-### 2. API Gateway throttling
+`infra/lambda.tf` and `infra/variables.tf`:
 
-`infra/api_gateway.tf` should declare `throttling_burst_limit` and `throttling_rate_limit` on the `$default` route. The per-Lambda-instance rate limiter doesn't catch a distributed attack across many fresh Lambda cold-starts; API Gateway is the global cap.
+- `reserved_concurrent_executions = var.lambda_reserved_concurrency` is set (the hard cap a distributed flood hits). Unset or `-1` is Critical.
+- `lambda_memory_mb` × `lambda_timeout_seconds` × concurrency gives the worst case per hour; check the comment in `infra/lambda.tf` still matches the defaults.
+- The timeout stays within the validated 25–30 s and equal to CloudFront's origin read timeout (`infra/s3_cloudfront.tf`), so no request is billed after the viewer gave up.
 
-- Limits set: green.
-- Unbounded throttling on `$default`: flag as High (this is the single most important cost-runaway gate for this project given how low the legitimate traffic is).
+### 4. Budget and alarms
 
-### 3. AWS account budget
+`infra/alarms.tf`:
 
-`infra/budget.tf` should declare an `aws_budgets_budget`:
+- `aws_budgets_budget.monthly` exists when `budget_monthly_usd > 0`, with forecasted 100 %, actual 50 % and actual 100 % notifications. Forecasted is the only one that catches a runaway during the month; missing it is High. `budget_monthly_usd = 0` is allowed only until IAM billing access is on (say so as a manual check).
+- Alarms on Lambda invocations per hour (`lambda_invocations_alarm_per_hour`), throttles, errors and duration, CloudFront 5xx and WAF blocks, and the SES bounce and complaint rates; all publish to topics with `alert_email` subscribed. An alarm with no subscriber is Low (it still shows in the console).
 
-- **`monthly_budget_limit_usd`** is reasonable — single-digit dollars/month given current scale. Anything over $50 without justification is suspicious for this project's traffic.
-- **Three notifications minimum**: `ACTUAL > 50 %`, `ACTUAL > 100 %`, `FORECASTED > 100 %`. Forecasted is the only one that catches a runaway *during* the month — actual lags by up to 24 h. Missing forecasted → High.
-- **`budget_alert_emails` non-empty** in `terraform.tfvars` (encrypted). A budget with zero subscribers is a no-op.
+### 5. Log retention
 
-### 4. CloudWatch log retention
+- Every `aws_cloudwatch_log_group` has `retention_in_days` set (`lambda_log_retention_days`, 30 by default). Unbounded retention is High.
+- Logs are event names, not request bodies (`backend/src/http/logError.ts`), so volume grows with errors, not with traffic.
 
-A static site with poor cache-hit ratio can be drained on egress; a chatty Lambda with infinite log retention bleeds money slowly. Check:
+### 6. CloudFront and S3
 
-- Every `aws_cloudwatch_log_group` in `infra/*.tf` has `retention_in_days` ≤ 90 (default = forever = $0.50/GB/month forever).
-- The Lambda log group specifically — `/aws/lambda/<function-name>` — has it set.
-- (Historical: the Phase-0 EventBridge `pii_cleanup` schedule was deleted at the Day 8 cutover. PII retention is now handled by DynamoDB per-item TTL in `infra/dynamodb.tf`, which has no log group of its own. If you see this comment still mentioning a `pii_cleanup` schedule, that's the stale reference to flag.)
+`infra/s3_cloudfront.tf`:
 
-### 5. CloudFront cost guardrails
+- `price_class` is `PriceClass_100` or `_200`, not `_All` (the audience is South African).
+- `/tiles/*` is cached (long TTLs, range requests) so the basemap and terrain don't re-read the origin per view; the tiles are IC-WBT's bucket read cross-account (`docs/data.md` § Cross-account access), so check who pays for those GETs and egress.
+- The site bucket: versioning and a lifecycle for non-current versions, if versioning is on.
 
-- `price_class = "PriceClass_100"` or `_200` (not `_All`). PriceClass_All bills from every edge location regardless of where users actually live, and the site's audience is South African.
-- S3 lifecycle expiring non-current versions on the site bucket — missing = unbounded version growth at $0.023/GB/month forever.
-- No WAF needed at current scale (over-engineering for the traffic level) — but if one's been added, confirm it's attached and the scope-down filter doesn't accidentally rate-limit legitimate users.
+### 7. Cross-account data reads
 
-### 6. <email-service> quota
+`infra/lambda.tf` (`lambda_cross_account_read`) and `docs/data.md`:
 
-<email-service>'s free tier is 100 emails/day, 3,000/month. Customer-facing emails fire on:
+- Reads are `GetObject` on the CHIRPS mirror's `rnl/*` and one MAP-grid key, `ListBucket` only under `rnl/`; nothing broader can be read (and billed) by a bug.
+- The CHIRPS and MAP-grid readers cache what they read (`backend/src/chirps/`, `backend/src/mapgrid/`), so a repeated area costs no second read.
 
-- Order creation → owner notification + customer pending-payment (2 emails/order).
-- ITN payment confirmation → customer "payment received" (1/order).
-- Status change in <CMS> Studio → customer status email (1/transition; typically 2-3 transitions per order).
+### 8. SES
 
-At ~50 orders/month, that's ~250 emails/month — comfortable within free tier.
+`infra/ses.tf`, `backend/src/auth/mail.ts`:
 
-Verify:
-- The <email-service> client (raw `fetch` in `backend/src/email.ts`, per `backend/CLAUDE.md`) handles 429 responses gracefully — doesn't bomb the user-facing request, doesn't auto-retry into a loop.
-- A burst of order failures (<CMS> write error) doesn't cascade-email the owner — `backend/src/routes/orders.ts` sends the owner notification AFTER the <CMS> write, so a <CMS> outage means no spam, but verify.
-- If `<EMAIL_SERVICE>_API_KEY` ever leaks, the daily/monthly cap on the <email-service> console is the only thing standing between the attacker and a giant bill. Surface as a manual check: "confirm the <email-service> project has its monthly send cap set to a value matching expected legitimate volume (e.g. 1,000/month, not unlimited)."
+- Mail is sent only for sign-in codes, and auth-kit's per-address limits (60 s apart, 5 an hour, 10 a day) plus the WAF auth rule bound it. A path that sends mail without them is High.
+- The SES client's retries are bounded (`SES_SEND_WORST_CASE_MS`), and a failed send is logged once, not retried in a loop.
+- The bounce/complaint queue (`aws_sqs_queue.mail_events`) has a DLQ and a redrive limit, so a poison message can't keep the Lambda busy.
 
-### 7. <CMS> dataset growth
+### 9. DynamoDB
 
-<CMS> charges per-dataset row count and asset storage on paid plans. At current scale we're on Growth ($15/month, comfortable). The migration to Free (per `docs/orders-pii-split-plan.md`) caps things differently — Free is 2 datasets, 20 user seats. Neither is hit at current scale.
+`infra/users.tf`: the user table is on-demand (or provisioned with a ceiling); the alarm on `users_table` covers throttles or errors. Point-in-time recovery cost is accepted (it is the erasure window in `docs/security.md` § Erasure).
 
-Verify:
-- No automated process is hammering <CMS> writes. (Phase 1+ note: there is no scheduled job touching <CMS> at all — PII retention is now DynamoDB-side TTL. Any EventBridge rule still targeting the backend Lambda is unexpected; flag.)
-- The <CMS> webhook on order changes fires per-mutation — bounded by the operator's editing rate. Safe.
-- Customer-facing surfaces (`POST /orders`) write one <CMS> doc per call. With backend rate limiting + API Gateway throttling in front of it, <CMS> write volume is bounded.
+### 10. Cape Farm Mapper
 
-### 8. <payment-processor> volume
+`backend/src/cfm/`: each `/cfm/land-use` call may cost up to 40 upstream pages; it is rate-limited (`landUse`) and cached. Confirm the token is used only by the backend and the fan-out can't be driven unbounded by one request.
 
-<payment-processor> charges per-transaction (~2.9% + R2). Cost scales with legitimate orders. The denial-of-wallet path here is: attacker hits `POST /orders` thousands of times → backend creates <CMS> order docs + <payment-processor> redirect URLs → no real charges because the attacker doesn't complete the redirect, BUT we've burned Lambda invocations + <CMS> rows + <email-service> emails.
+### 11. Documentation matches reality
 
-The protections:
-
-- Backend rate limiter (check 1) → caps per-IP per-window.
-- API Gateway throttling (check 2) → caps cross-instance globally.
-- <payment-processor>-side ITN sig verification (check 4 below) → ensures we never confirm a fake payment.
-
-### 9. <payment-processor> ITN-side checks
-
-If an attacker can fake an ITN callback, they can mark unpaid orders as `payment_received` and trigger downstream emails. Verify:
-
-- `backend/src/routes/<payment>-webhook.ts` verifies the MD5 signature over the **raw body** (per `backend/CLAUDE.md`).
-- `amount_gross` is cross-checked against the stored `amountZar` — mismatches rejected.
-- Status state machine is idempotent — replaying an ITN against an already-confirmed order is a no-op, not a duplicate email.
-
-### 10. Documentation matches reality
-
-This audit's value depends on the docs being honest:
-
-- `docs/security.md § Risk 8` (cost / spend) and `§ Risk 10` (<payment-processor> integrity) match the current code.
-- `docs/architecture.md` cost table reflects the actual baseline (~R380/month or whatever the current configuration produces).
-- The proposed `docs/orders-pii-split-plan.md` cost table (R77/month post-migration) is internally consistent.
+- `docs/security.md` § Infrastructure ("Spend is bounded") states the reserved concurrency, the worst-case daily cost and the alarms; check the numbers against `infra/variables.tf`.
+- `infra/README.md` and `docs/deployment.md` describe the same knobs.
 
 ## Report
 
-- **Critical** — `aws_budgets_budget` missing entirely, API Gateway throttling unbounded on `$default`, <payment-processor> ITN signature not verified (already verified per code; flag if the diff weakens it), <email-service> API key in a path that auto-retries on 429.
-- **High** — log retention infinite, AWS budget exists but no `FORECASTED` notification (catches runaway only after the fact), `budget_alert_emails` empty / placeholder, CloudFront `PriceClass_All` without justification, no per-IP rate limit on `POST /orders`.
-- **Medium** — missing S3 lifecycle for non-current versions, <CMS> webhook handler does anything non-idempotent on status change, PII cleanup logs not captured.
-- **Low** — doc drift between `docs/architecture.md` cost table and configured values, alarm exists but not subscribed to a real email, <email-service> console-side monthly cap unconfirmed.
+- **Critical**: no reserved concurrency on the Lambda; a costly data route answering without a session; the shared-secret check bypassable; no budget at all once billing access is on.
+- **High**: a costly route with no rate limit or no input cap; no forecasted budget notification; unbounded log retention; CloudFront `PriceClass_All` without a reason; a mail path outside auth-kit's limits.
+- **Medium**: no lifecycle on non-current versions; a cache missing on a repeated upstream read; the CHIRPS or MAP-grid grant broader than its prefix.
+- **Low**: doc drift between `docs/security.md` and the configured values; an alarm with no subscriber.
 
-For each finding: file:line + the concrete change. Don't apply fixes without explicit confirmation.
+For each finding: file:line and the concrete change. Don't apply fixes without explicit confirmation.
 
 ## Useful starting points
 
-- `backend/src/rate-limit.ts` — the in-memory limiter
-- `backend/src/routes/orders.ts`, `<payment>-webhook.ts`, `order-lookup.ts`, `cms-webhook.ts` — wired routes
-- `infra/budget.tf` — account-wide spend ceiling
-- `infra/api_gateway.tf` — request-rate cap
-- `infra/lambda.tf` — log retention, runtime, reserved concurrency
-- `infra/s3_cloudfront.tf` — CDN cost levers
-- `docs/security.md § Risk 8` + `§ Risk 10` — risk register
-- `docs/architecture.md` — cost projection these guards defend
+- `backend/src/app.ts` — the gate, the shared secret, `RATE_LIMITS`
+- `backend/src/http/rateLimit.ts`, `backend/src/http/area.ts` — the limiter and the input caps
+- `infra/lambda.tf`, `infra/variables.tf` — memory, timeout, concurrency, log retention, cross-account grants
+- `infra/waf.tf` — per-IP limits
+- `infra/alarms.tf` — budget and alarms
+- `infra/s3_cloudfront.tf` — price class, `/tiles/*`, origin timeout
+- `infra/ses.tf`, `infra/users.tf` — mail and the user table
+- `docs/security.md` § Infrastructure, `docs/data.md` § Cross-account access
 
 ## Delegate to
 
-`general-purpose` agent with this file as the prompt body. Cross-cuts code + IaC + docs + provider-console gaps, so it doesn't fit one of the specialised auditors.
+The `infra-auditor` agent with `"Audit area: cost"` as the prompt's first sentence, plus this file's checklist. It knows the Terraform and the cross-account grants in depth.
 
-Read-only. Findings only. The audit must NOT mutate IaC, run `terraform plan`, hit AWS / <CMS> / <email-service> APIs, or load-test the backend — a load test against `POST /orders` is itself a small spend event.
+Read-only. Findings only. The audit must NOT mutate IaC, run `terraform plan` with real credentials, call AWS or Cape Farm Mapper, or load-test the backend: a load test is itself a spend event.

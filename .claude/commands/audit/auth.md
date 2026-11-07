@@ -1,71 +1,67 @@
 ---
-description: Sweep every backend route for auth-middleware gating + tenant-context wrapper discipline
+description: Sweep every backend route for session gating and admin checks — the requireSession gate, the PUBLIC allowlist, admin-only routes, fail-closed config
 ---
 
-Audit auth gating and tenant-context enforcement across the backend API.
+Audit sign-in gating and admin authorization across the backend API.
 
 ## Goal
 
-A single route registered without the auth middleware exposes whatever it does to anonymous callers. A single route that bypasses the tenant-aware query wrapper reads across tenant boundaries — RLS policies (or whatever isolation mechanism this stack uses) don't apply because the per-connection tenant marker (`SET app.current_org_id = …`, or the equivalent) was never set. Find both classes of bug in one pass.
+Pitman's API has one gate: `requireSession` (`backend/src/auth/middleware.ts`),
+registered once in `createApp` (`backend/src/app.ts`) before every data route,
+so a route added below it is gated by default. Only `/health` and the three
+sign-in routes answer without a session. Sign-in, sessions and user
+management come from auth-kit (CLAUDE.md project rule 7). There are no
+tenants: every signed-in user sees the same data; admins alone manage users
+and read the audit log. A route registered above the gate, or an admin route
+that doesn't check the role, is the bug class to find.
 
 ## What to check
 
-1. **Global route registration.** Read the entrypoint that mounts every router/handler (e.g. `backend/src/index.ts`, `app.py`, `main.go`). The default should be "auth middleware applied at the mount". Public-by-design mounts are an explicit allowlist:
-   - `/health` and similar liveness/readiness probes
-   - Pre-auth endpoints (`/auth/login`, `/auth/register`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/verify-email`)
-   - Public read endpoints intended for unauthenticated consumption (status badges, public webhooks, OAuth callbacks)
-
-   Anything else mounted without the auth middleware is a finding. Anything mounted *with* the auth middleware but with sub-routers that re-expose a handler via a different public mount needs re-checking — the middleware applies at the mount point, not per-handler.
-
-2. **Non-null `user` assertions in handlers.** Inside any route handler, code like `req.user!.id` (TS) / `request.user.id` (Python) / `ctx.User.OrgID` (Go) is only safe when the auth middleware actually ran upstream. Grep route handlers for these accesses and confirm each lives in a router gated by the auth middleware.
-
-3. **Tenant-aware query wrapper discipline.** Routes that read or write tenant-scoped data must use the tenant-aware wrapper (e.g. `tenantQuery(orgId, sql, params)` / `tenant_db(org_id).query(...)` / `WithTenant(ctx, orgId, ...)`). The wrapper's job is to set the per-connection tenant marker before queries fire so RLS sees an org context. The DB connects as a **non-superuser role** so RLS is actually enforced — confirm this in the project's DB-connection docs.
-
-   **Pre-tenant queries are legitimate** (don't flag) when they're explicitly cross-tenant by design:
-   - Auth middleware itself — looking up the API key / JWT subject before tenant context can be set
-   - Login / registration / invite acceptance — pre-tenant by definition
-   - Background jobs / cron sweeps that iterate every org
-   - Public-read endpoints (badges, OAuth handshake)
-   - Admin-only DB introspection
-
-   Any **new** raw query in a tenant-scoped route is a finding unless the file has a comment explaining why it's cross-tenant by design.
-
-4. **Resource-level authorization on path-param handlers.** Endpoints that take a resource id in the URL (`/orders/:id`, `/runs/:id`, `/reports/:id`) must verify the resource belongs to the caller's org/user **before** doing the work:
-
-   ```
-   tenantQuery(orgId, "SELECT 1 FROM <table> WHERE id = $1", [resourceId])
-   ```
-
-   then fail closed if no row returns. The canonical gotcha is the *streaming* endpoint (SSE / WebSocket) — without the gate, an authenticated user from a different org can subscribe to another org's live events.
-
-5. **Token in query string.** For endpoints that can't accept `Authorization: Bearer` (browser `EventSource` for SSE, `<img>` with credentials), tokens are sometimes accepted as `?token=…`. Verify the token-from-query path runs through the same JWT verification + org binding as the header path. Token-in-URL is an accepted footgun for SSE; the mitigation is short TTL + HTTPS + scoping to that single path.
-
-6. **API key paths.** If the project supports machine-to-machine API keys, confirm:
-   - Keys are hashed at rest (with a non-secret prefix retained for fast lookup, not the full hash).
-   - Key lookup runs *before* tenant context is set (a legitimate pre-tenant query).
-   - The resulting user/org context is established from the *stored* `api_keys.org_id`, never from a request header or body.
+1. **Registration order.** Read `createApp`. Every route registered before
+   `app.use('*', requireSession(auth))` must be on the `PUBLIC` set in
+   `backend/src/auth/routes.test.ts` (`GET /health`, `POST /auth/code`,
+   `/auth/verify`, `/auth/logout`) with a reason. A sub-app mounted with
+   `app.route` above the gate exposes all its handlers.
+2. **The enumeration test.** `backend/src/auth/routes.test.ts` walks
+   `app.routes` and expects 401 on every non-public one, with no session and
+   with a bad one. Confirm it still covers every route (new methods,
+   parameterised paths) and that no route was added to `PUBLIC` without a
+   reason.
+3. **Admin routes.** `/users*` and `/audit` (`backend/src/auth/routes.ts`)
+   answer 403 to a non-admin, enforced on the server by auth-kit; nobody
+   removes or demotes themself; the last admin can't go. Confirm the
+   frontend's hiding of **Users** isn't the only check.
+4. **Session checks.** The cookie (`backend/src/auth/cookies.ts`): `__Host-`
+   prefix, `Secure`, `HttpOnly`, `SameSite=Strict`; re-checked against the
+   user record and revocations on every request, so a removal bites at once.
+5. **Fail closed.** On Lambda, a missing or weak key, a missing table, the
+   memory store, a non-SES mail transport or the dev cookie leaves sign-in
+   unconfigured and every gated route 503 (`backend/src/auth/config.ts`).
+   An unset CloudFront shared secret is 503 on everything (`backend/src/app.ts`).
+6. **Enumeration and timing.** `POST /auth/code` answers 202 with the same
+   body for listed and unlisted addresses, inside the latency floor
+   (`backend/src/auth/runtime.ts`); nothing in a response or log says whether
+   an address is listed.
+7. **Request checks.** CORS without credentials, `csrf()`,
+   `sameOriginWrites` (`backend/src/http/sameOrigin.ts`), JSON-only, the
+   per-instance auth limit (`RATE_LIMITS.auth`) and the WAF's auth rule
+   (`infra/waf.tf`).
+8. **Frontend.** The sign-in gate in `frontend/src/routes/+layout.svelte` is a
+   convenience; every API client goes through `sessionFetch`
+   (`frontend/src/lib/auth/unauthorized.ts`), and `next` is followed only to
+   a path on this site (`frontend/src/lib/auth/next.ts`).
 
 ## Report
 
-Group findings by severity:
+- **Critical**: a data or admin route answers without a session; a non-admin can manage users or read the audit log.
+- **High**: the enumeration test no longer covers a route; a config error leaves the gate open instead of 503.
+- **Medium**: a public route without a stated reason; a response or log that reveals whether an address is listed.
+- **Low**: a client-side-only check duplicating a server one without a comment.
 
-- **Critical** — a route exposes tenant data to anonymous callers; a route lets one tenant read/write another tenant's rows because the tenant marker wasn't set.
-- **High** — non-null user assertions reachable in a path that isn't gated; a `:resourceId` handler doesn't verify ownership.
-- **Medium** — new raw query in a tenant-scoped route without a comment explaining why; a per-route auth check that duplicates (and could drift from) the global one.
-- **Low** — public mount missing a comment explaining why it's public.
-
-For each: file:line, the concrete fix, the worst-case blast radius.
-
-## Useful starting points
-
-- The entrypoint that mounts all routers — the full picture of who's gated.
-- The auth middleware — JWT and/or API key resolution.
-- The tenant-aware DB wrapper — the `set_config('app.current_org_id', …)` (or equivalent) is what closes the loop.
-- Any streaming endpoint (SSE / WebSocket) — the canonical "verify the resource belongs to the caller's org" gate.
-- The project's CLAUDE.md or `docs/security.md` for the documented constraint about which DB role runtime traffic uses.
+For each: file:line, the concrete fix, the worst-case blast radius. A flaw in auth-kit itself is fixed there and taken by tag; say so.
 
 ## Delegate to
 
-Use the `repo-security-auditor` agent: `"Audit auth gating and tenant-context enforcement across the backend API."`
+Use the `repo-security-auditor` agent: `"Audit area: auth. Sweep session gating and admin authorization across the backend API."`
 
 Read-only. Findings only.
