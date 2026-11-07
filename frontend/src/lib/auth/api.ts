@@ -20,6 +20,20 @@ export interface ListedUser extends User {
 	readonly addedBy: string;
 	/** ISO 8601. */
 	readonly addedAt: string;
+	/** The last hard bounce or spam complaint for the address, until an admin clears it; null when none. */
+	readonly undeliverable: DeliveryProblem | null;
+}
+
+export interface DeliveryProblem {
+	readonly kind: 'bounce' | 'complaint';
+	/** ISO 8601: when the mail service saw it. */
+	readonly at: string;
+}
+
+/** The API's `undeliverable`, or null for anything it can't be (an older API leaves it out). */
+function readProblem(v: unknown): DeliveryProblem | null {
+	const p = v as Partial<DeliveryProblem> | null | undefined;
+	return p && (p.kind === 'bounce' || p.kind === 'complaint') && typeof p.at === 'string' ? { kind: p.kind, at: p.at } : null;
 }
 
 export interface AuditRow {
@@ -180,7 +194,7 @@ export async function listUsers(options: AuthClientOptions): Promise<ListedUser[
 		if (!Array.isArray(users) || !users.every((u) => isUser(u) && typeof (u as ListedUser).addedAt === 'string')) {
 			throw new AuthRequestError('Pitman’s server sent a user list it can’t read.', 200);
 		}
-		return users.map((u: ListedUser) => ({ id: u.id, email: u.email, isAdmin: u.isAdmin, addedBy: String(u.addedBy ?? ''), addedAt: u.addedAt }));
+		return users.map((u: ListedUser) => ({ id: u.id, email: u.email, isAdmin: u.isAdmin, addedBy: String(u.addedBy ?? ''), addedAt: u.addedAt, undeliverable: readProblem(u.undeliverable) }));
 	});
 }
 
@@ -190,6 +204,11 @@ export async function addUser(email: string, isAdmin: boolean, options: AuthClie
 
 export async function setAdmin(id: string, isAdmin: boolean, options: AuthClientOptions): Promise<void> {
 	await call(options, `/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: { isAdmin } }, { gated: true });
+}
+
+/** `POST /users/:id/clear-delivery-problem` (admins only): the address is fixed or confirmed, so the flag goes. */
+export async function clearDeliveryProblem(id: string, options: AuthClientOptions): Promise<void> {
+	await call(options, `/users/${encodeURIComponent(id)}/clear-delivery-problem`, { method: 'POST', body: {} }, { gated: true });
 }
 
 export async function removeUser(id: string, options: AuthClientOptions): Promise<void> {

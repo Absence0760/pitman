@@ -10,12 +10,13 @@ interface Row {
 	isAdmin: boolean;
 	addedBy: string;
 	addedAt: string;
+	undeliverable: { kind: 'bounce' | 'complaint'; at: string } | null;
 }
 
-async function usersApi(page: Page, refuse: { patch?: { status: number; error: string } } = {}) {
+async function usersApi(page: Page, refuse: { patch?: { status: number; error: string } } = {}, problem: Row['undeliverable'] = null) {
 	const users: Row[] = [
-		{ ...ADMIN, addedBy: 'operator', addedAt: '2026-11-07T08:00:00Z' },
-		{ ...MEMBER, addedBy: ADMIN.email, addedAt: '2026-11-07T09:30:00Z' }
+		{ ...ADMIN, addedBy: 'operator', addedAt: '2026-11-07T08:00:00Z', undeliverable: null },
+		{ ...MEMBER, addedBy: ADMIN.email, addedAt: '2026-11-07T09:30:00Z', undeliverable: problem }
 	];
 	const audit = [
 		{ at: '2026-11-07T10:05:00Z', actor: ADMIN.email, action: 'signin', target: null },
@@ -30,7 +31,7 @@ async function usersApi(page: Page, refuse: { patch?: { status: number; error: s
 		const body = req.postDataJSON() as { email: string; isAdmin?: boolean };
 		if (users.some((u) => u.email === body.email)) return route.fulfill({ status: 409, json: { error: `${body.email} is already on the list.` } });
 		const user = { id: `u-${users.length + 1}`, email: body.email, isAdmin: body.isAdmin === true };
-		users.push({ ...user, addedBy: ADMIN.email, addedAt: '2026-11-07T11:00:00Z' });
+		users.push({ ...user, addedBy: ADMIN.email, addedAt: '2026-11-07T11:00:00Z', undeliverable: null });
 		return route.fulfill({ status: 201, json: { user } });
 	});
 	await page.route('**/api/users/*', async (route) => {
@@ -46,6 +47,14 @@ async function usersApi(page: Page, refuse: { patch?: { status: number; error: s
 		}
 		users.splice(users.indexOf(user), 1);
 		return route.fulfill({ status: 204 });
+	});
+	await page.route('**/api/users/*/clear-delivery-problem', async (route) => {
+		const req = route.request();
+		const id = decodeURIComponent(new URL(req.url()).pathname.split('/').at(-2)!);
+		calls.push(`${req.method()} /users/${id}/clear-delivery-problem ${req.postData()}`);
+		const user = users.find((u) => u.id === id)!;
+		user.undeliverable = null;
+		return route.fulfill({ json: { user } });
 	});
 	await page.route('**/api/audit?*', (route) => route.fulfill({ json: { rows: audit } }));
 	return { users, calls };
@@ -111,6 +120,28 @@ test('the audit log reads as dates and sentences, never raw ISO', async ({ page 
 	await expect(log).not.toContainText('2026-11-07T');
 	await expect(page.getByRole('table', { name: /Users/ })).not.toContainText('2026-11-07T');
 	await expect(row(page, MEMBER.email)).toContainText('07 Nov 2026, 11:30 by admin@example.test');
+});
+
+test('a bounced address shows a readable badge until an admin clears it', async ({ page }) => {
+	const api = await usersApi(page, {}, { kind: 'bounce', at: '2026-11-07T10:15:00Z' });
+	await page.goto('/users');
+	await expect(row(page, MEMBER.email)).toContainText('Mail bounced on 07 Nov 2026, 12:15');
+	await expect(row(page, ADMIN.email)).not.toContainText('Mail');
+	await expect(page.getByRole('table', { name: /Users/ })).not.toContainText('2026-11-07T');
+	const clear = row(page, MEMBER.email).getByRole('button', { name: `Clear the mail problem for ${MEMBER.email}` });
+	// WCAG 2.5.8: a 24 px target at least.
+	const box = (await clear.boundingBox())!;
+	expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(24);
+	await clear.click();
+	await expect(page.getByRole('status')).toHaveText(`Cleared the mail problem for ${MEMBER.email}.`);
+	await expect(row(page, MEMBER.email)).not.toContainText('Mail bounced');
+	expect(api.calls.filter((c) => c.includes('clear-delivery-problem'))).toEqual([`POST /users/${MEMBER.id}/clear-delivery-problem {}`]);
+});
+
+test('a complaint reads as one', async ({ page }) => {
+	await usersApi(page, {}, { kind: 'complaint', at: '2026-11-07T10:15:00Z' });
+	await page.goto('/users');
+	await expect(row(page, MEMBER.email)).toContainText('Mail complaint on 07 Nov 2026, 12:15');
 });
 
 test.describe('signed in without admin rights', () => {

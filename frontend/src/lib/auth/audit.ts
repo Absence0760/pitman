@@ -5,6 +5,7 @@ import type { AuditRow } from './api.js';
 /** `operator` and `unlisted:<key>` are not addresses: say what they are. */
 export function actorText(actor: string): string {
 	if (actor === 'operator') return 'The operator';
+	if (actor === 'system') return 'Mail delivery';
 	if (actor.startsWith('unlisted:')) return 'An address not on the list';
 	if (actor.startsWith('erased:')) return 'An erased user';
 	return actor;
@@ -30,6 +31,12 @@ export function actionText(row: AuditRow): string {
 			return `cleared the sign-in lock on ${target}`;
 		case 'erase':
 			return `erased ${target} from the log`;
+		case 'mail.bounce':
+			return `reported that mail to ${target} bounced`;
+		case 'mail.complaint':
+			return `reported that ${target} marked Pitman’s mail as spam`;
+		case 'mail.cleared':
+			return `cleared the mail problem for ${target}`;
 		case 'signin':
 			return 'signed in';
 		case 'signin.failed':

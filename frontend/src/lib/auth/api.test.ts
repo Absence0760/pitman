@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { addUser, AuthRequestError, fetchMe, listAudit, listUsers, removeUser, requestCode, retryAfterSeconds, setAdmin, verifyCode, waitText } from './api.js';
+import { addUser, AuthRequestError, clearDeliveryProblem, fetchMe, listAudit, listUsers, removeUser, requestCode, retryAfterSeconds, setAdmin, verifyCode, waitText } from './api.js';
 import { onUnauthorized } from './unauthorized.js';
 
 interface Call {
@@ -87,7 +87,7 @@ describe('the user calls', () => {
 	afterEach(() => off?.());
 
 	it('list, add, change and remove users', async () => {
-		const listed = { ...USER, addedBy: 'operator', addedAt: '2026-11-07T10:00:00Z' };
+		const listed = { ...USER, addedBy: 'operator', addedAt: '2026-11-07T10:00:00Z', undeliverable: null };
 		const a = fake(200, { users: [listed] });
 		expect(await listUsers(a.options)).toEqual([listed]);
 		expect(a.calls[0]!.url).toBe('/api/users');
@@ -103,6 +103,23 @@ describe('the user calls', () => {
 		const d = fake(204);
 		await removeUser('u1', d.options);
 		expect(d.calls[0]).toMatchObject({ url: '/api/users/u1', method: 'DELETE' });
+	});
+
+	it('read a bounce or complaint flag, null for none or anything else, and clear it with an empty JSON POST', async () => {
+		const at = '2026-11-07T10:00:00Z';
+		const users = [
+			{ ...USER, addedBy: 'operator', addedAt: at, undeliverable: { kind: 'bounce', at } },
+			{ ...USER, id: 'u2', addedBy: 'operator', addedAt: at, undeliverable: { kind: 'complaint', at } },
+			{ ...USER, id: 'u3', addedBy: 'operator', addedAt: at },
+			{ ...USER, id: 'u4', addedBy: 'operator', addedAt: at, undeliverable: { kind: 'other', at } }
+		];
+		expect((await listUsers(fake(200, { users }).options)).map((u) => u.undeliverable)).toEqual([{ kind: 'bounce', at }, { kind: 'complaint', at }, null, null]);
+
+		const c = fake(200, { user: { ...USER, undeliverable: null } });
+		await clearDeliveryProblem('u/1', c.options);
+		expect(c.calls[0]).toMatchObject({ url: '/api/users/u%2F1/clear-delivery-problem', method: 'POST', body: {} });
+		expect(c.calls[0]!.headers['content-type']).toBe('application/json');
+		expect((await refusal(clearDeliveryProblem('u1', fake(409, { error: 'A newer problem arrived.' }).options))).message).toBe('A newer problem arrived.');
 	});
 
 	it('show a 409 or 403 sentence as it is', async () => {
