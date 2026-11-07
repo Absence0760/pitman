@@ -99,3 +99,6 @@ backend.config
 # directory-level ignore would defeat the negation.
 /reviews/*
 !/reviews/README.md
+
+# Claude Code agent worktrees: whole copies of the repo, never committed.
+.claude/worktrees/
