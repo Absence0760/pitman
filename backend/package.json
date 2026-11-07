@@ -6,7 +6,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "tsx watch src/server.ts",
-		"build": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/lambda.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+		"build": "esbuild src/lambda.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
 		"check": "tsc -p tsconfig.json --noEmit",
 		"test": "vitest run --passWithNoTests",
 		"test:coverage": "vitest run --passWithNoTests --coverage",
