@@ -1,6 +1,7 @@
 # Credential-free tests of the users-and-sign-in infrastructure (issue #28 P2):
 # the region refusal (A-AUTH-6), the user table's protections (A-AUTH-4), the
 # Lambda's exact grants on the table, SES and the mail-events queue (A-AUTH-7),
+# the sign-in mail queue (issue #30, A-AUTH-14),
 # the sign-in keys (A-AUTH-8), the edge (A-AUTH-3, A-AUTH-9) and the alarms.
 #   terraform -chdir=infra init -backend=false && terraform -chdir=infra test
 #
@@ -118,6 +119,26 @@ override_resource {
   values = {
     arn = "arn:aws:sqs:af-south-1:111111111111:pitman-mail-events-dlq"
     id  = "https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-events-dlq"
+  }
+}
+
+override_resource {
+  target          = aws_sqs_queue.mail_send
+  override_during = plan
+  values = {
+    arn = "arn:aws:sqs:af-south-1:111111111111:pitman-mail-send"
+    id  = "https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-send"
+    url = "https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-send"
+  }
+}
+
+override_resource {
+  target          = aws_sqs_queue.mail_send_dlq
+  override_during = plan
+  values = {
+    arn = "arn:aws:sqs:af-south-1:111111111111:pitman-mail-send-dlq"
+    id  = "https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-send-dlq"
+    url = "https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-send-dlq"
   }
 }
 
@@ -351,6 +372,7 @@ run "ses_grant_is_exact" {
         aws_iam_role_policy.lambda_users_table.policy,
         aws_iam_role_policy.lambda_ses_send.policy,
         aws_iam_role_policy.lambda_mail_events.policy,
+        aws_iam_role_policy.lambda_mail_send.policy,
       ] : strcontains(p, "DeleteSuppressedDestination") || strcontains(p, "ses:*") || strcontains(p, "\"*\"")
     ])
     error_message = "No Lambda policy grants ses:DeleteSuppressedDestination, ses:* or a bare * (removing a suppression is the operator's job)."
@@ -467,8 +489,96 @@ run "reserved_concurrency_five_accepted" {
   }
 
   assert {
-    condition     = aws_lambda_function.backend.reserved_concurrent_executions >= aws_lambda_event_source_mapping.mail_events.scaling_config[0].maximum_concurrency
-    error_message = "Reserved concurrency 5 is accepted and is above the mapping's maximum concurrency."
+    condition     = aws_lambda_function.backend.reserved_concurrent_executions > aws_lambda_event_source_mapping.mail_events.scaling_config[0].maximum_concurrency + aws_lambda_event_source_mapping.mail_send.scaling_config[0].maximum_concurrency
+    error_message = "Reserved concurrency 5 is accepted and is above both mappings' combined maximum concurrency, leaving a copy for the API."
+  }
+}
+
+# --- The sign-in mail queue (issue #30, A-AUTH-14) ----------------------------------
+
+run "mail_send_queue" {
+  command = plan
+
+  assert {
+    condition     = aws_sqs_queue.mail_send.arn != aws_sqs_queue.mail_send_dlq.arn && aws_sqs_queue.mail_send.arn != aws_sqs_queue.mail_events.arn
+    error_message = "Test harness: the mail queue, its DLQ and the bounce queue must have distinct mock ARNs."
+  }
+  assert {
+    condition     = jsondecode(aws_sqs_queue.mail_send.redrive_policy).deadLetterTargetArn == "arn:aws:sqs:af-south-1:111111111111:pitman-mail-send-dlq" && jsondecode(aws_sqs_queue.mail_send.redrive_policy).maxReceiveCount == 3
+    error_message = "The mail queue dead-letters into its own DLQ after 3 receives."
+  }
+  assert {
+    condition     = jsondecode(aws_sqs_queue_redrive_allow_policy.mail_send_dlq.redrive_allow_policy).sourceQueueArns == ["arn:aws:sqs:af-south-1:111111111111:pitman-mail-send"] && aws_sqs_queue_redrive_allow_policy.mail_send_dlq.queue_url == aws_sqs_queue.mail_send_dlq.id
+    error_message = "The mail DLQ accepts redrive from the mail queue only."
+  }
+  assert {
+    condition     = aws_sqs_queue.mail_send.message_retention_seconds == 600 && aws_sqs_queue.mail_send_dlq.message_retention_seconds == 86400
+    error_message = "A queued email lives as long as its code (10 minutes, auth-kit's CODE_TTL_MS); the DLQ keeps it a day."
+  }
+  assert {
+    condition     = aws_sqs_queue.mail_send.visibility_timeout_seconds == 6 * var.lambda_timeout_seconds && aws_sqs_queue.mail_send.visibility_timeout_seconds == 180
+    error_message = "The visibility timeout is 6 x the Lambda timeout (no batching window): 180 s at the default."
+  }
+  assert {
+    condition     = aws_sqs_queue.mail_send.visibility_timeout_seconds * jsondecode(aws_sqs_queue.mail_send.redrive_policy).maxReceiveCount < aws_sqs_queue.mail_send.message_retention_seconds
+    error_message = "Every retry happens, and a refused email dead-letters, before SQS's retention deletes it."
+  }
+  assert {
+    condition     = aws_sqs_queue.mail_send.sqs_managed_sse_enabled && aws_sqs_queue.mail_send_dlq.sqs_managed_sse_enabled
+    error_message = "Both mail queues are SSE-SQS encrypted (the body is sealed by the backend as well)."
+  }
+  assert {
+    condition = (
+      aws_sqs_queue_policy.mail_send.queue_url == "https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-send" &&
+      length(jsondecode(aws_sqs_queue_policy.mail_send.policy).Statement) == 1 &&
+      jsondecode(aws_sqs_queue_policy.mail_send.policy).Statement[0].Effect == "Deny" &&
+      jsondecode(aws_sqs_queue_policy.mail_send.policy).Statement[0].Condition.Bool["aws:SecureTransport"] == "false"
+    )
+    error_message = "The mail queue's policy only refuses requests not over TLS; it allows nobody anything."
+  }
+  assert {
+    condition     = length(jsondecode(aws_iam_role_policy.lambda_mail_send.policy).Statement) == 2
+    error_message = "Two statements: enqueue and consume."
+  }
+  assert {
+    condition = alltrue([
+      for st in jsondecode(aws_iam_role_policy.lambda_mail_send.policy).Statement : st.Resource == "arn:aws:sqs:af-south-1:111111111111:pitman-mail-send" && st.Effect == "Allow"
+    ])
+    error_message = "The role's mail-queue grants name the mail queue only (not its DLQ, not the bounce queue)."
+  }
+  assert {
+    condition = sort(flatten([for st in jsondecode(aws_iam_role_policy.lambda_mail_send.policy).Statement : st.Action])) == sort([
+      "sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes",
+    ])
+    error_message = "SendMessage, ReceiveMessage, DeleteMessage and GetQueueAttributes only."
+  }
+  assert {
+    condition     = aws_lambda_event_source_mapping.mail_send.event_source_arn == "arn:aws:sqs:af-south-1:111111111111:pitman-mail-send" && aws_lambda_event_source_mapping.mail_send.function_name == aws_lambda_function.backend.arn
+    error_message = "The mail queue (not its DLQ) triggers the existing API Lambda."
+  }
+  assert {
+    condition     = aws_lambda_event_source_mapping.mail_send.batch_size == 10 && aws_lambda_event_source_mapping.mail_send.maximum_batching_window_in_seconds == 0 && aws_lambda_event_source_mapping.mail_send.scaling_config[0].maximum_concurrency == 2
+    error_message = "Batches of 10, no batching window, at most 2 at once."
+  }
+  assert {
+    condition     = aws_lambda_event_source_mapping.mail_send.function_response_types == toset(["ReportBatchItemFailures"])
+    error_message = "Only refused sends are retried."
+  }
+  assert {
+    condition     = aws_lambda_function.backend.environment[0].variables["MAIL_QUEUE"] == "sqs" && aws_lambda_function.backend.environment[0].variables["MAIL_QUEUE_URL"] == "https://sqs.af-south-1.amazonaws.com/111111111111/pitman-mail-send"
+    error_message = "The Lambda enqueues to, and dispatches on, the mail queue's URL."
+  }
+}
+
+run "mail_send_visibility_follows_the_lambda_timeout" {
+  command = plan
+  variables {
+    lambda_timeout_seconds = 25
+  }
+
+  assert {
+    condition     = aws_sqs_queue.mail_send.visibility_timeout_seconds == 150
+    error_message = "With a 25 s timeout the visibility timeout is 6 x 25 = 150 s."
   }
 }
 
@@ -735,8 +845,29 @@ run "auth_alarms" {
   }
 
   assert {
-    condition     = aws_cloudwatch_log_metric_filter.mail_events_unrecorded.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.mail_events_unrecorded.pattern == "\"mail.events_unrecorded\"" && aws_cloudwatch_metric_alarm.mail_events_unrecorded.metric_name == aws_cloudwatch_log_metric_filter.mail_events_unrecorded.metric_transformation[0].name && aws_cloudwatch_metric_alarm.mail_events_unrecorded.threshold == 1 && aws_cloudwatch_metric_alarm.mail_events_unrecorded.period == 300 && aws_cloudwatch_metric_alarm.mail_events_unrecorded.alarm_actions == toset([aws_sns_topic.alerts.arn])
-    error_message = "mail.events_unrecorded alarms at 1 in 300 s, from the API Lambda's log group."
+    condition     = aws_cloudwatch_log_metric_filter.mail_events_unrecorded.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.mail_events_unrecorded.pattern == "?\"mail.events_unrecorded\" ?\"mail.queue_unsent\"" && aws_cloudwatch_metric_alarm.mail_events_unrecorded.metric_name == aws_cloudwatch_log_metric_filter.mail_events_unrecorded.metric_transformation[0].name && aws_cloudwatch_metric_alarm.mail_events_unrecorded.threshold == 1 && aws_cloudwatch_metric_alarm.mail_events_unrecorded.period == 300 && aws_cloudwatch_metric_alarm.mail_events_unrecorded.alarm_actions == toset([aws_sns_topic.alerts.arn])
+    error_message = "mail.events_unrecorded or mail.queue_unsent alarms at 1 in 300 s, from the API Lambda's log group."
+  }
+
+  assert {
+    condition     = aws_cloudwatch_log_metric_filter.mail_enqueue_failed.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.mail_enqueue_failed.pattern == "\"mail.enqueue_failed\"" && aws_cloudwatch_metric_alarm.mail_enqueue_failed.metric_name == aws_cloudwatch_log_metric_filter.mail_enqueue_failed.metric_transformation[0].name && aws_cloudwatch_metric_alarm.mail_enqueue_failed.threshold == 1 && aws_cloudwatch_metric_alarm.mail_enqueue_failed.period == 300 && aws_cloudwatch_metric_alarm.mail_enqueue_failed.alarm_actions == toset([aws_sns_topic.alerts.arn])
+    error_message = "mail.enqueue_failed alarms at 1 in 300 s, from the API Lambda's log group."
+  }
+  assert {
+    condition     = aws_cloudwatch_log_metric_filter.mail_send_dropped.log_group_name == aws_cloudwatch_log_group.lambda.name && aws_cloudwatch_log_metric_filter.mail_send_dropped.pattern == "?\"mail.send_expired\" ?\"mail.queue_unreadable\"" && aws_cloudwatch_metric_alarm.mail_send_dropped.metric_name == aws_cloudwatch_log_metric_filter.mail_send_dropped.metric_transformation[0].name && aws_cloudwatch_metric_alarm.mail_send_dropped.threshold == 1 && aws_cloudwatch_metric_alarm.mail_send_dropped.period == 300 && aws_cloudwatch_metric_alarm.mail_send_dropped.alarm_actions == toset([aws_sns_topic.alerts.arn])
+    error_message = "mail.send_expired or mail.queue_unreadable (a sign-in email dropped unsent) alarms at 1 in 300 s."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.mail_send_dlq.dimensions["QueueName"] == "pitman-mail-send-dlq" && aws_cloudwatch_metric_alarm.mail_send_dlq.metric_name == "ApproximateNumberOfMessagesVisible" && aws_cloudwatch_metric_alarm.mail_send_dlq.threshold == 0 && aws_cloudwatch_metric_alarm.mail_send_dlq.alarm_actions == toset([aws_sns_topic.alerts.arn])
+    error_message = "Any message in the mail-send DLQ alarms."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.mail_send_age.dimensions["QueueName"] == "pitman-mail-send" && aws_cloudwatch_metric_alarm.mail_send_age.metric_name == "ApproximateAgeOfOldestMessage" && aws_cloudwatch_metric_alarm.mail_send_age.statistic == "Maximum" && aws_cloudwatch_metric_alarm.mail_send_age.threshold == 120 && aws_cloudwatch_metric_alarm.mail_send_age.alarm_actions == toset([aws_sns_topic.alerts.arn])
+    error_message = "A sign-in email older than 2 minutes on the mail queue alarms."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.mail_send_age.threshold < aws_sqs_queue.mail_send.message_retention_seconds
+    error_message = "The age alarm fires before SQS's retention silently deletes an unread email."
   }
 
   assert {

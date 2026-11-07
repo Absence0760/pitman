@@ -72,12 +72,12 @@ variable "lambda_timeout_seconds" {
 }
 
 variable "lambda_reserved_concurrency" {
-  description = "Reserved concurrency of the API Lambda: the most copies that can run at once, which caps worst-case spend (concurrency x memory x seconds). Lambda keeps 10 unreserved, so the account's concurrency quota must be at least this + 10; a new account's quota can be 10, so ask Service Quotas for more first (docs/deployment.md). At least 5: the mail-events queue's event source mapping runs up to 2 batches inside this cap, and AWS recommends reserved concurrency of 5 or more for an SQS trigger (below the mapping's maximum, Lambda throttles the queue's polls)."
+  description = "Reserved concurrency of the API Lambda: the most copies that can run at once, which caps worst-case spend (concurrency x memory x seconds). Lambda keeps 10 unreserved, so the account's concurrency quota must be at least this + 10; a new account's quota can be 10, so ask Service Quotas for more first (docs/deployment.md). At least 5: the two queues' event source mappings (mail events, ses.tf; sign-in mail, mail_queue.tf) each run up to 2 batches inside this cap, and AWS recommends reserved concurrency of 5 or more for an SQS trigger (below the mapping's maximum, Lambda throttles the queue's polls)."
   type        = number
   default     = 10
   validation {
     condition     = var.lambda_reserved_concurrency >= 5 && var.lambda_reserved_concurrency <= 50
-    error_message = "lambda_reserved_concurrency must be 5-50: at least 5 for the mail-events SQS trigger (AWS's minimum recommendation, above its maximum concurrency of 2), and there is deliberately no 'unreserved' (-1) option: the cap is the cost control."
+    error_message = "lambda_reserved_concurrency must be 5-50: at least 5 for the SQS triggers (AWS's minimum recommendation, above the two mappings' combined maximum concurrency of 4), and there is deliberately no 'unreserved' (-1) option: the cap is the cost control."
   }
 }
 
