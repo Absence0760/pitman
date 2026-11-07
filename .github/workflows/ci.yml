@@ -86,7 +86,7 @@ jobs:
           DYNAMODB_ENDPOINT: http://127.0.0.1:8000
         run: pnpm test
 
-      - name: Run repo tool tests (coverage summary, CSP check, CloudFront functions)
+      - name: Run repo tool tests (root-scripts guard, CI guards, coverage summary, CSP check, CloudFront functions)
         run: pnpm test:tools
 
   e2e:

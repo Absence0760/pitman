@@ -62,6 +62,7 @@ pnpm backend build        # esbuild bundle for Lambda
 pnpm test                 # all workspaces
 pnpm backend test         # backend only
 pnpm frontend test        # frontend only
+pnpm test:tools           # repo scripts + CI guards (scripts/ci-guards/), root-scripts guard first
 ```
 
 ## Using the app locally

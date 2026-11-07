@@ -20,7 +20,8 @@ pnpm check                   # typecheck all
 pnpm test                    # vitest run across workspaces
 pnpm test:frontend:e2e       # Playwright against the built site (first: pnpm --filter @pitman/frontend exec playwright install chromium)
 pnpm test:coverage           # the same with v8 coverage + a table of what no test reaches (a report, never a gate)
-pnpm test:tools              # node:test suites for scripts/ and infra/scripts/ (coverage summary, workflow guards, CSP check)
+pnpm test:tools              # test:scripts, then node:test suites for scripts/ and infra/scripts/ (coverage summary, CI guards, CSP check)
+pnpm test:scripts            # root-scripts guard: every root script target resolves, the //-- groups hold
 pnpm frontend <script>       # run a script in one workspace
 pnpm backend <script>
 ```
