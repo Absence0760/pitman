@@ -8,4 +8,4 @@
  * (`CI_RELEASE=1`, set by the deploy workflow) while it is still null.
  */
 
-export const PRIVACY_CONTACT = { name: 'Jared Howard', email: null as string | null };
+export const PRIVACY_CONTACT = { name: 'Jared Howard', email: 'privacy@jaredhoward.com' as string | null };
