@@ -110,6 +110,16 @@ variable "icwbt_account_id" {
   }
 }
 
+variable "icwbt_region" {
+  description = "Region of IC-WBT's buckets: the Lambda's DATA_REGION, the S3 client's region for every cross-account read. af-south-1 (docs/data.md § Cross-account access, 'Region'), and independent of aws_region, so moving Pitman (data_outside_south_africa) never points the reads at the wrong region."
+  type        = string
+  default     = "af-south-1"
+  validation {
+    condition     = can(regex("^[a-z]{2}(-[a-z]+)+-[0-9]$", var.icwbt_region))
+    error_message = "icwbt_region must be an AWS region name, such as af-south-1."
+  }
+}
+
 variable "chirps_bucket" {
   description = "IC-WBT's mirror bucket (water-management-mirror-<id>), holding the CHIRPS Zarr store under chirps_prefix. Empty: no CHIRPS grant, CHIRPS_BUCKET empty."
   type        = string
@@ -213,19 +223,60 @@ variable "waf_site_rate_limit_per_ip" {
 }
 
 variable "budget_monthly_usd" {
-  description = "Monthly cost budget in USD; SNS at forecasted 100 %, actual 50 % and 100 %. 0 skips it (only until IAM billing access is enabled on the account; aws_budgets_budget fails without it)."
+  description = "Monthly cost budget in USD; email + SNS at forecasted 100 %, actual 80 % and actual 100 % (80 %, not 50 %: the fixed baseline is about $11.80, about $13.60 with VAT, so a 50 % line on $25 would fire every month and teach the operator to ignore it). Credits and refunds are excluded, so new-account credits can't hide a runaway. Must be above 0; 0 is accepted only with no_budget_acknowledged = true (until IAM access to billing information is enabled on the account, docs/deployment.md § First deploy)."
   type        = number
   default     = 25
+  validation {
+    condition     = var.budget_monthly_usd >= 0
+    error_message = "budget_monthly_usd can't be negative."
+  }
+  validation {
+    condition     = var.budget_monthly_usd > 0 || var.no_budget_acknowledged
+    error_message = "budget_monthly_usd = 0 creates no budget, so nothing but the CloudWatch alarms watches spend. Set a budget, or (only until IAM access to billing information is enabled on the account) set no_budget_acknowledged = true as well."
+  }
+}
+
+variable "no_budget_acknowledged" {
+  description = "The explicit opt-out that lets budget_monthly_usd = 0 apply: the account has no IAM access to billing information yet, so aws_budgets_budget would fail with AccessDeniedException. Turn it back off, with a real budget, as soon as billing access is on (docs/deployment.md § First deploy)."
+  type        = bool
+  default     = false
 }
 
 variable "alert_email" {
-  description = "Email subscribed to both alert topics (budget, Lambda, CloudFront, WAF alarms). Empty: no subscription; alarms still show in the console. AWS emails a confirmation link the first time."
+  description = "Email subscribed to both alert topics (budget, Lambda, CloudFront, WAF alarms) and sent the budget directly. Required: with no address every alarm and the budget notify nobody. A real mailbox, never a reserved example domain (example.com/.org/.net, .example, .test, .invalid, .localhost); AWS emails a confirmation link per topic the first time, and both must be clicked."
   type        = string
-  default     = ""
+  validation {
+    condition     = can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.alert_email))
+    error_message = "alert_email must be an email address: every alarm and the budget notify it."
+  }
+  validation {
+    condition     = !can(regex("(?i)@(.*\\.)?(example\\.(com|org|net)|example|test|invalid|localhost)$", var.alert_email))
+    error_message = "alert_email is a placeholder on a reserved example domain; alarms sent there reach nobody. Use a real mailbox."
+  }
 }
 
 variable "lambda_invocations_alarm_per_hour" {
   description = "Alarm when the API Lambda is invoked more than this many times in an hour: the early sign of a flood the WAF lets through (spread over many IPs)."
   type        = number
   default     = 2000
+}
+
+variable "cloudfront_requests_alarm_per_hour" {
+  description = "Alarm when CloudFront serves more than this many requests in an hour (AWS/CloudFront Requests, us-east-1). The edge is the one spend path no cap bounds: a flood spread over many IPs stays under the per-IP WAF rules and is served from cache without touching the Lambda, at about $1.80 per million requests (WAF + CloudFront). An invite-only tool's handful of users make a few thousand an hour; 50 000 is about $0.09 an hour, so the alarm fires long before the money matters."
+  type        = number
+  default     = 50000
+  validation {
+    condition     = var.cloudfront_requests_alarm_per_hour > 0
+    error_message = "cloudfront_requests_alarm_per_hour must be above 0."
+  }
+}
+
+variable "cloudfront_gb_alarm_per_hour" {
+  description = "Alarm when CloudFront sends more than this many GB to viewers in an hour (AWS/CloudFront BytesDownloaded, us-east-1). The whole site is a few MB per cold visit; 5 GB is about $0.55 an hour of South African egress. Revisit it when /tiles/* lands (docs/data.md row 6)."
+  type        = number
+  default     = 5
+  validation {
+    condition     = var.cloudfront_gb_alarm_per_hour > 0
+    error_message = "cloudfront_gb_alarm_per_hour must be above 0."
+  }
 }

@@ -70,6 +70,10 @@ htmlcov/
 !*.tfvars.example
 .terraform.lock.hcl.bak
 crash.log
+# Saved plans (`plan -out=tfplan`) carry every random_password result in
+# plaintext; never commit one (docs/deployment.md removes it after apply).
+tfplan
+*.tfplan
 
 # Partial-backend config — embeds account-id in the bucket name, so
 # templates that use the bootstrap-aware partial-backend pattern keep

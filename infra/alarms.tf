@@ -4,13 +4,15 @@
 # The estate bootstrap deliberately creates no budget (a new member account
 # can't create one until "IAM access to billing information" is enabled in
 # it, a root-only toggle); each project owns its budget here. Until that
-# toggle is on, set budget_monthly_usd = 0 or the apply fails with
-# AccessDeniedException.
+# toggle is on, set budget_monthly_usd = 0 together with the explicit opt-out
+# no_budget_acknowledged = true (variables.tf refuses 0 without it), or the
+# apply fails with AccessDeniedException.
 #
 # Two topics, because a CloudWatch alarm can only notify an SNS topic in its
 # own region: `alerts` (primary region: Lambda alarms, the budget) and
 # `alerts_us_east_1` (CloudFront and WAF metrics exist only in us-east-1).
-# alert_email subscribes to both.
+# alert_email (required, and refused on a reserved example domain) subscribes
+# to both.
 # ----------------------------------------------------------------------------
 
 # Not SSE-encrypted: CloudWatch alarms can't publish to a topic under the
@@ -28,14 +30,12 @@ resource "aws_sns_topic" "alerts_us_east_1" {
 }
 
 resource "aws_sns_topic_subscription" "alerts_email" {
-  count     = var.alert_email != "" ? 1 : 0
   topic_arn = aws_sns_topic.alerts.arn
   protocol  = "email"
   endpoint  = var.alert_email
 }
 
 resource "aws_sns_topic_subscription" "alerts_us_east_1_email" {
-  count     = var.alert_email != "" ? 1 : 0
   provider  = aws.us_east_1
   topic_arn = aws_sns_topic.alerts_us_east_1.arn
   protocol  = "email"
@@ -88,23 +88,35 @@ resource "aws_budgets_budget" "monthly" {
   limit_unit   = "USD"
   time_unit    = "MONTHLY"
 
+  # Gross cost: AWS's default nets credits and refunds out, so new-account
+  # or promotional credits would hide a runaway until they ran out.
+  cost_types {
+    include_credit = false
+    include_refund = false
+  }
+
   # Forecasted is the only notification that catches a runaway during the
-  # month; actual lags by up to a day.
+  # month (though AWS needs some spend history before it forecasts, so it is
+  # quiet in the first weeks); actual lags by up to a day. The early actual
+  # line is 80 %, not 50 %: the fixed baseline is about $11.80 a month
+  # ($13.60 with VAT, infra/README.md § Cost), so 50 % of $25 would fire
+  # every month. The CloudWatch alarms are the fast layer; this is the
+  # backstop.
   notification {
     comparison_operator        = "GREATER_THAN"
     threshold                  = 100
     threshold_type             = "PERCENTAGE"
     notification_type          = "FORECASTED"
-    subscriber_email_addresses = var.alert_email != "" ? [var.alert_email] : []
+    subscriber_email_addresses = [var.alert_email]
     subscriber_sns_topic_arns  = [aws_sns_topic.alerts.arn]
   }
 
   notification {
     comparison_operator        = "GREATER_THAN"
-    threshold                  = 50
+    threshold                  = 80
     threshold_type             = "PERCENTAGE"
     notification_type          = "ACTUAL"
-    subscriber_email_addresses = var.alert_email != "" ? [var.alert_email] : []
+    subscriber_email_addresses = [var.alert_email]
     subscriber_sns_topic_arns  = [aws_sns_topic.alerts.arn]
   }
 
@@ -113,7 +125,7 @@ resource "aws_budgets_budget" "monthly" {
     threshold                  = 100
     threshold_type             = "PERCENTAGE"
     notification_type          = "ACTUAL"
-    subscriber_email_addresses = var.alert_email != "" ? [var.alert_email] : []
+    subscriber_email_addresses = [var.alert_email]
     subscriber_sns_topic_arns  = [aws_sns_topic.alerts.arn]
   }
 }
@@ -205,6 +217,52 @@ resource "aws_cloudwatch_metric_alarm" "cloudfront_5xx" {
   statistic           = "Average"
   threshold           = 1
   alarm_description   = "CloudFront 5xx rate above 1 % over 5 minutes."
+  alarm_actions       = [aws_sns_topic.alerts_us_east_1.arn]
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    DistributionId = aws_cloudfront_distribution.frontend.id
+    Region         = "Global"
+  }
+}
+
+# Traffic at the edge (us-east-1, free default CloudFront metrics). The one
+# spend path nothing caps: a flood spread over many IPs stays under every
+# per-IP WAF rule, is served from the edge cache and never reaches the
+# Lambda, so none of the Lambda alarms see it, and the budget lags by a day.
+# Each request costs about $1.80 per million (WAF + CloudFront) plus egress,
+# so these hourly sums are the early warning. Thresholds: variables.tf.
+resource "aws_cloudwatch_metric_alarm" "cloudfront_requests" {
+  provider            = aws.us_east_1
+  alarm_name          = "${local.project}-cloudfront-requests"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Requests"
+  namespace           = "AWS/CloudFront"
+  period              = 3600
+  statistic           = "Sum"
+  threshold           = var.cloudfront_requests_alarm_per_hour
+  alarm_description   = "CloudFront served more than cloudfront_requests_alarm_per_hour requests in an hour: far above an invite-only tool's traffic, likely a flood spread over many IPs (each request is billed; nothing caps it). Kill switch: docs/security.md § Incident playbook."
+  alarm_actions       = [aws_sns_topic.alerts_us_east_1.arn]
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    DistributionId = aws_cloudfront_distribution.frontend.id
+    Region         = "Global"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "cloudfront_bytes" {
+  provider            = aws.us_east_1
+  alarm_name          = "${local.project}-cloudfront-bytes"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "BytesDownloaded"
+  namespace           = "AWS/CloudFront"
+  period              = 3600
+  statistic           = "Sum"
+  threshold           = var.cloudfront_gb_alarm_per_hour * 1024 * 1024 * 1024
+  alarm_description   = "CloudFront sent more than cloudfront_gb_alarm_per_hour GB to viewers in an hour: egress far above an invite-only tool's traffic (billed per GB; nothing caps it). Kill switch: docs/security.md § Incident playbook."
   alarm_actions       = [aws_sns_topic.alerts_us_east_1.arn]
   treat_missing_data  = "notBreaching"
 

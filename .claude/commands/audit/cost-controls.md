@@ -33,8 +33,8 @@ Pitman's legitimate traffic is a handful of hydrologists. A finding is anything 
 
 `infra/alarms.tf`:
 
-- `aws_budgets_budget.monthly` exists when `budget_monthly_usd > 0`, with forecasted 100 %, actual 50 % and actual 100 % notifications. Forecasted is the only one that catches a runaway during the month; missing it is High. `budget_monthly_usd = 0` is allowed only until IAM billing access is on (say so as a manual check).
-- Alarms on Lambda invocations per hour (`lambda_invocations_alarm_per_hour`), throttles, errors and duration, CloudFront 5xx and WAF blocks, and the SES bounce and complaint rates; all publish to topics with `alert_email` subscribed. An alarm with no subscriber is Low (it still shows in the console).
+- `aws_budgets_budget.monthly` exists when `budget_monthly_usd > 0`, with forecasted 100 %, actual 80 % and actual 100 % notifications and `cost_types { include_credit = false, include_refund = false }`. Forecasted is the only one that catches a runaway during the month; missing it is High. The actual line must sit above the fixed baseline (about $11.80, $13.60 with VAT; `infra/README.md` § Cost) or it fires monthly and gets ignored. `budget_monthly_usd = 0` needs the explicit `no_budget_acknowledged = true` (variables.tf refuses it otherwise) and is allowed only until IAM billing access is on (say so as a manual check).
+- Alarms on Lambda invocations per hour (`lambda_invocations_alarm_per_hour`), throttles, errors and duration, CloudFront requests and bytes per hour (`cloudfront_requests_alarm_per_hour`, `cloudfront_gb_alarm_per_hour`: the edge is the one path no cap bounds), CloudFront 5xx and WAF blocks, and the SES bounce and complaint rates; all publish to topics with `alert_email` subscribed. `alert_email` is required and refused on reserved example domains (variables.tf); an unconfirmed subscription is a manual check (docs/deployment.md § First deploy fires a test alarm in each region).
 
 ### 5. Log retention
 

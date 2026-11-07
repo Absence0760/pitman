@@ -95,10 +95,12 @@ Produce a **worst-case table** first, then findings.
 7. **Silent fixed cost.** NAT gateway, VPC endpoints, provisioned
    concurrency, Secrets Manager secrets, WAF managed rule groups, public
    IPv4. Each must be deliberate and in `infra/README.md`'s cost notes.
-8. **Detection.** Budget exists (`budget_monthly_usd > 0`) with ACTUAL and
-   FORECASTED notifications and a subscriber in the example tfvars; alarms
-   for Lambda errors, throttles, duration near timeout, CloudFront 5xx and
-   bytes; every alarm notifies a subscribed SNS topic in its own region.
+8. **Detection.** Budget exists (`budget_monthly_usd > 0`, or 0 only with
+   `no_budget_acknowledged`) with ACTUAL and FORECASTED notifications and
+   credits excluded; `alert_email` required and refused on example domains
+   (variables.tf); alarms for Lambda errors, throttles, duration near
+   timeout, CloudFront requests, bytes and 5xx; every alarm notifies a
+   subscribed SNS topic in its own region.
    How long can the worst case run before a human is told?
 
 ### `iam`

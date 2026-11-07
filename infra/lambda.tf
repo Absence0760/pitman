@@ -177,8 +177,22 @@ resource "aws_lambda_function" "backend" {
 
   reserved_concurrent_executions = var.lambda_reserved_concurrency
 
-  # Names assumed for Round 4.2's backend (being written in parallel; to
-  # reconcile): docs/deployment.md § Lambda environment says what each means.
+  # JSON logs, so the platform's START/END/REPORT lines (three per
+  # invocation, about $50 a month of ingestion at the concurrency ceiling)
+  # can be dropped: system logs at WARN keep only platform warnings and
+  # errors (a timeout, an init failure). The backend logs with console.log
+  # (INFO) and console.error (ERROR), so INFO keeps every line it writes;
+  # never raise application_log_level above INFO, or the log-line alarms
+  # (auth.locked, mail.send_failed and the rest) go silent. Their
+  # quoted-term filters match inside the JSON `message` field (alarms.tf).
+  logging_config {
+    log_format            = "JSON"
+    application_log_level = "INFO"
+    system_log_level      = "WARN"
+    log_group             = aws_cloudwatch_log_group.lambda.name
+  }
+
+  # What each variable means: docs/deployment.md § Lambda environment.
   environment {
     variables = {
       ALLOWED_ORIGINS          = "https://${var.domain_name}"
@@ -190,7 +204,9 @@ resource "aws_lambda_function" "backend" {
       MAP_GRID_SOURCE          = local.map_grid_enabled ? "s3://${var.map_grid_bucket}/${var.map_grid_key}" : ""
       # The S3 client's region for IC-WBT's buckets, passed explicitly
       # (data.md: IC-WBT's `new S3Client({})` would take the Lambda's own).
-      DATA_REGION = var.aws_region
+      # Its own variable, not aws_region: the buckets stay where IC-WBT keeps
+      # them wherever Pitman runs.
+      DATA_REGION = var.icwbt_region
 
       # Users and sign-in (issue #28; docs/deployment.md § Lambda environment).
       # The two keys are random_password values (users.tf), in state only.

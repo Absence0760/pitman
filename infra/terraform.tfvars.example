@@ -21,6 +21,7 @@ lambda_reserved_concurrency = 10 # 5-50 (>= 5 for the SQS trigger); needs the ac
 lambda_log_retention_days   = 30
 
 # --- IC-WBT's buckets (leave empty until Round 4.1's grants are merged) ------
+# icwbt_region         = "af-south-1" # where IC-WBT's buckets are (DATA_REGION), not Pitman's region
 # icwbt_account_id     = "<12-digit IC-WBT account ID>"
 # chirps_bucket        = "water-management-mirror-<IC-WBT account ID>"
 # chirps_prefix        = "rnl"
@@ -34,13 +35,20 @@ dmarc_policy = "none"
 # dmarc_report_email = "you+pitman-dmarc@example.com"
 
 # --- Edge and cost -------------------------------------------------------------
-auth_waf_rate_limit_per_ip        = 100
-waf_api_rate_limit_per_ip         = 300
-waf_site_rate_limit_per_ip        = 2000
-lambda_invocations_alarm_per_hour = 2000
+auth_waf_rate_limit_per_ip         = 100
+waf_api_rate_limit_per_ip          = 300
+waf_site_rate_limit_per_ip         = 2000
+lambda_invocations_alarm_per_hour  = 2000
+cloudfront_requests_alarm_per_hour = 50000 # edge requests per hour; nothing else bounds a spread flood
+cloudfront_gb_alarm_per_hour       = 5     # edge egress per hour
 
-# 0 until "IAM access to billing information" is enabled in the account.
+# Must be above 0. Until "IAM access to billing information" is enabled in
+# the account (docs/deployment.md § First deploy), set 0 AND the explicit
+# opt-out below; turn it back off once billing access is on.
 budget_monthly_usd = 25
+# no_budget_acknowledged = true
 
-# Both alert topics and the budget email this address (confirm the SNS mails).
+# Both alert topics and the budget email this address (confirm both SNS
+# mails). Required, and refused on a reserved example domain, so this
+# placeholder fails the plan until it is replaced with a real mailbox.
 alert_email = "you+pitman-aws-alerts@example.com"

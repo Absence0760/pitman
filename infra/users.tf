@@ -14,8 +14,9 @@
 # The first admin is never created here: `pnpm admin:bootstrap` writes it with
 # the operator's credentials, so no address ever lands in Terraform state.
 #
-# Cost: on-demand, a handful of users; cents a month. PITR is $0.20 per GB-month
-# of a table measured in kilobytes.
+# Cost: on-demand, a handful of users; cents a month, capped by
+# on_demand_throughput below. PITR is $0.20 per GB-month of a table measured
+# in kilobytes.
 # ----------------------------------------------------------------------------
 
 # Encryption: the AWS-owned key (server_side_encryption omitted = DynamoDB's
@@ -28,6 +29,16 @@ resource "aws_dynamodb_table" "users" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "pk"
   range_key    = "sk"
+
+  # A ceiling on what on-demand will serve (and bill): a handful of users
+  # need single-digit units, so a flood hits the cap, the users-table
+  # throttle alarm fires, and writes can't cost more than about $81 a month
+  # at the cap (infra/README.md § Cost). Without it, the only bound is the
+  # Lambda's concurrency.
+  on_demand_throughput {
+    max_read_request_units  = 100
+    max_write_request_units = 50
+  }
 
   attribute {
     name = "pk"

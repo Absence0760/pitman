@@ -96,6 +96,12 @@ mock_provider "random" {
 }
 mock_provider "archive" {}
 
+# alert_email is required (variables.tf); a real-looking address so every run
+# plans. Runs that test its validation override it.
+variables {
+  alert_email = "alerts@pitman.jaredhoward.com"
+}
+
 # One distinct value per resource where a type has more than one.
 override_resource {
   target          = aws_sqs_queue.mail_events

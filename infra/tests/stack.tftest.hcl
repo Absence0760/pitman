@@ -32,6 +32,12 @@ mock_provider "aws" {
 mock_provider "random" {}
 mock_provider "archive" {}
 
+# alert_email is required (variables.tf); a real-looking address so every run
+# plans. Runs that test its validation override it.
+variables {
+  alert_email = "alerts@pitman.jaredhoward.com"
+}
+
 # --- defaults: nothing granted across accounts ------------------------------
 
 run "defaults_grant_nothing_cross_account" {

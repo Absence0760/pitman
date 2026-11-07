@@ -54,7 +54,7 @@ Pitman's blast radius runs through this stack: a permissive deploy policy makes 
 
 9. **SES** (`ses.tf`). DKIM, a custom MAIL FROM with SPF, DMARC; a configuration set routing bounces and complaints to SNS → SQS with a DLQ; queue policies scoped to the topic and the Lambda.
 
-10. **Budget and alarms** (`alarms.tf`). The monthly budget with forecasted and actual notifications (skipped only while `budget_monthly_usd = 0`); alarms on Lambda errors, throttles, invocations, duration, CloudFront 5xx, WAF blocks, SES rates, the user table, the mail-events DLQ and the auth log filters; both SNS topics subscribed to `alert_email`.
+10. **Budget and alarms** (`alarms.tf`). The monthly budget with forecasted and actual notifications, credits and refunds excluded (skipped only while `budget_monthly_usd = 0` with `no_budget_acknowledged = true`); alarms on Lambda errors, throttles, invocations, duration, CloudFront requests, bytes and 5xx, WAF blocks, SES rates, the user table, the mail-events DLQ and the auth log filters; both SNS topics subscribed to `alert_email`.
 
 11. **Secrets.** Production secrets live in `../infra-secrets/pitman/` (SOPS + KMS), never in this repo; `infra/terraform.tfvars` and `infra/backend.config` are gitignored; no `output` exposes a sensitive value without `sensitive = true`. The SOPS KMS key is provisioned by `infra-secrets`, not here.
 
