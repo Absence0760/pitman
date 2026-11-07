@@ -21,7 +21,7 @@
 		"check:wrsm": "pnpm --filter @pitman/wrsm run check",
 		"check:wrsm-cli": "pnpm --filter @pitman/wrsm-cli run check",
 		"check:doc-links": "node scripts/ci-guards/check_doc_links.mjs",
-		"//-- test --": "vitest. `test` runs every workspace (--no-bail); `test:<surface>` runs one. Engine tests use synthetic fixtures only. `test:coverage` = the same tests with v8 coverage, then a table of what no test reaches (a report, never a gate; HTML in each workspace's coverage/). `test:frontend:e2e` = Playwright against the built site (needs `pnpm --filter @pitman/frontend exec playwright install chromium` once). `test:tools` = node:test suites for the repo scripts under scripts/ and infra/scripts/ (the CSP check and CloudFront functions), and the workflow guards in scripts/ci-guards/ (the auth-kit token reaches only the install step).",
+		"//-- test --": "vitest. `test` runs every workspace (--no-bail); `test:<surface>` runs one. Engine tests use synthetic fixtures only. `test:coverage` = the same tests with v8 coverage, then a table of what no test reaches (a report, never a gate; HTML in each workspace's coverage/). `test:frontend:e2e` = Playwright against the built site (needs `pnpm --filter @pitman/frontend exec playwright install chromium` once). `test:tools` = node:test suites for the repo scripts under scripts/ and infra/scripts/ (the CSP check and CloudFront functions), and the guards in scripts/ci-guards/ (the auth-kit token reaches only the install step, fresh-clone.yml watches real paths, the doc-link checker).",
 		"test": "pnpm -r --no-bail run test",
 		"test:wrsm": "pnpm --filter @pitman/wrsm run test",
 		"test:wrsm-cli": "pnpm --filter @pitman/wrsm-cli run test",

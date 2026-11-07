@@ -1,0 +1,167 @@
+name: Fresh clone
+
+# The local-first promise (CLAUDE.md, docs/run-locally.md § Fresh clone): a
+# fresh clone runs with `pnpm install`, `pnpm dev:data:synthetic` once, then
+# `pnpm dev`, and no env setup. This checks out a clean tree, runs exactly
+# that with the Node version .tool-versions pins, checks the backend (:3001)
+# and the frontend (:7777, and its /api proxy to the backend) answer, and
+# stops them.
+#
+# Its own workflow, not a ci.yml job, so not behind `CI gate`: ci.yml already
+# installs, typechecks and tests on every push, and what only this catches
+# (a root script, the synthetic-data generator, a dev entry point, the
+# committed .env.development files, the pinned Node version) lives in the
+# paths below. It runs on a PR or a push to main that touches those, weekly
+# for the drift no path shows (a runner image, the npm registry, auth-kit's
+# tag), and by hand.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/fresh-clone.yml
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .tool-versions
+      - '*/package.json'
+      - packages/*/package.json
+      - backend/.env.development
+      - frontend/.env.development
+      - backend/src/server.ts
+      - backend/src/http/listen.ts
+      - backend/scripts/gen-synthetic-data.ts
+      - backend/fixtures/geo/**
+      - frontend/vite.config.ts
+      - frontend/src/app.html
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fresh-clone.yml
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .tool-versions
+      - '*/package.json'
+      - packages/*/package.json
+      - backend/.env.development
+      - frontend/.env.development
+      - backend/src/server.ts
+      - backend/src/http/listen.ts
+      - backend/scripts/gen-synthetic-data.ts
+      - backend/fixtures/geo/**
+      - frontend/vite.config.ts
+      - frontend/src/app.html
+  schedule:
+    # 07:00 UTC every Monday.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: fresh-clone-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  install-and-dev:
+    name: pnpm install && pnpm dev on a fresh clone
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      # No pnpm store cache: a fresh clone installs cold, as a new developer's
+      # does. The Node version is the one .tool-versions pins (asdf / mise),
+      # so a pin that drifts below package.json's engines fails here.
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .tool-versions
+
+      # auth-kit is a private git dependency (backend/package.json), fetched with a
+      # fine-grained, read-only token for that one repo (Absence0760/auth-kit#2).
+      # Missing, the job fails here with the setup link instead of at an opaque
+      # clone error. The token itself goes only to the install step below.
+      - name: Check the auth-kit read token is set
+        env:
+          AUTH_KIT_READ_TOKEN: ${{ secrets.AUTH_KIT_READ_TOKEN }}
+        run: |
+          if [ -z "$AUTH_KIT_READ_TOKEN" ]; then
+            echo "::error::AUTH_KIT_READ_TOKEN is not set, so CI can't fetch the private auth-kit. Operator setup: https://github.com/Absence0760/auth-kit/issues/2"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        # The one departure from a laptop, which reads auth-kit over the
+        # developer's SSH key. The token reaches git for this step only, as
+        # environment-only config (GIT_CONFIG_*) that rewrites auth-kit's URLs
+        # alone: nothing is written to ~/.gitconfig, so no later step can read it.
+        env:
+          GIT_CONFIG_COUNT: '3'
+          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.AUTH_KIT_READ_TOKEN }}@github.com/Absence0760/auth-kit.insteadOf
+          GIT_CONFIG_VALUE_0: ssh://git@github.com/Absence0760/auth-kit
+          GIT_CONFIG_KEY_1: url.https://x-access-token:${{ secrets.AUTH_KIT_READ_TOKEN }}@github.com/Absence0760/auth-kit.insteadOf
+          GIT_CONFIG_VALUE_1: git@github.com:Absence0760/auth-kit
+          GIT_CONFIG_KEY_2: url.https://x-access-token:${{ secrets.AUTH_KIT_READ_TOKEN }}@github.com/Absence0760/auth-kit.insteadOf
+          GIT_CONFIG_VALUE_2: https://github.com/Absence0760/auth-kit
+        run: pnpm install --frozen-lockfile
+
+      - name: pnpm dev:data:synthetic
+        run: |
+          pnpm dev:data:synthetic
+          for f in backend/.local/map-grid/synthetic.json backend/.local/dem/synthetic.pmtiles; do
+            [ -s "$f" ] || { echo "::error::pnpm dev:data:synthetic did not write $f"; exit 1; }
+          done
+          [ -d backend/.local/mirror ] || { echo "::error::pnpm dev:data:synthetic did not write backend/.local/mirror/"; exit 1; }
+
+      # `pnpm dev` in its own process group, so stopping it stops tsx watch
+      # and vite with it. Each wait is on the server answering, with a ceiling
+      # only so a server that never starts fails the job instead of hanging it.
+      - name: pnpm dev answers on :3001 and :7777
+        run: |
+          log="$RUNNER_TEMP/dev.log"
+          setsid pnpm dev > "$log" 2>&1 &
+          pid=$!
+          stop() { kill -- -"$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
+          trap stop EXIT
+          wait_for() {
+            for _ in $(seq 1 180); do
+              if curl -fs -o /dev/null "$1"; then return 0; fi
+              if ! kill -0 "$pid" 2>/dev/null; then echo "::error::pnpm dev exited before $1 answered"; cat "$log"; exit 1; fi
+              sleep 1
+            done
+            echo "::error::$1 did not answer within 180 s of pnpm dev starting"; cat "$log"; exit 1
+          }
+          # The backend listens on loopback only (src/http/listen.ts). /health is
+          # the one route that answers without a session (src/app.ts).
+          wait_for http://127.0.0.1:3001/health
+          health=$(curl -fsS http://127.0.0.1:3001/health)
+          [ "$health" = '{"ok":true}' ] || { echo "::error::/health answered $health"; exit 1; }
+          # The home page, server-rendered by vite, which compiles the root
+          # layout and page on the way (a broken Svelte or vite config fails here).
+          wait_for http://localhost:7777/
+          page=$(curl -fsS http://localhost:7777/)
+          case "$page" in *'<title>Pitman: '*) ;; *) echo "::error:::7777 did not render the home page"; cat "$log"; exit 1 ;; esac
+          # The browser reaches the backend as /api on the page's own origin
+          # (frontend/.env.development), through vite's proxy (vite.config.ts).
+          proxied=$(curl -fsS http://localhost:7777/api/health)
+          [ "$proxied" = '{"ok":true}' ] || { echo "::error::/api/health through vite answered $proxied"; exit 1; }
+          echo "Backend and frontend both answer."
+          stop
+          trap - EXIT
+          if curl -fs -o /dev/null http://127.0.0.1:3001/health; then echo "::error::the backend still answers after pnpm dev stopped"; exit 1; fi
+
+      - name: Upload the dev log
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fresh-clone-dev-log
+          path: ${{ runner.temp }}/dev.log
+          if-no-files-found: ignore
+          retention-days: 7

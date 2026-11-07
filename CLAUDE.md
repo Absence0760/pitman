@@ -129,6 +129,7 @@ These ship with placeholder examples and need per-project adaptation — see `.c
 - `.github/workflows/coverage.yml` — weekly `pnpm test:coverage` report (never a gate)
 - `.github/workflows/terraform.yml` — `infra/` fmt + validate + Trivy, credential-free
 - `.github/workflows/pr-mergeable.yml` — flags a conflicted PR on which `ci.yml` never ran (Dependabot's, while PRs are off)
+- `.github/workflows/fresh-clone.yml` — a clean checkout runs `pnpm install`, `pnpm dev:data:synthetic`, `pnpm dev` and both servers answer (setup-path changes, weekly, by hand; `docs/run-locally.md` § Fresh clone)
 - `.github/codeql/codeql-config.yml` — CodeQL paths-ignore (`docs/formats/examples/**`)
 - `.github/workflows/audit.yml` — weekly `pnpm audit` + auto-issue (base-owned)
 - `.github/workflows/security.yml` — CodeQL static analysis + container scanning (base-owned)

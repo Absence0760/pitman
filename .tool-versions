@@ -8,7 +8,7 @@
 # guarantee than `engines` in package.json or `requires-python` in
 # pyproject.toml because asdf shims the binary itself.
 
-nodejs 22
+nodejs 24
 
 # python 3.14
 # rust 1.84.0

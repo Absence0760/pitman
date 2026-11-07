@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Node.js 22.17 or later** (the Lambda runs 24) — check with `node --version`
+- **Node.js 24 or later** (`engines` in `package.json`; the Lambda runs 24 and auth-kit requires it; `.tool-versions` pins it for asdf / mise) — check with `node --version`
 - **pnpm 10** — the root `package.json` pins `pnpm@10.34.9` (`packageManager`);
   `corepack enable` picks it up, or run `npx pnpm@10.34.9 …`
 - **Read access to the private `Absence0760/auth-kit`** — the backend installs
@@ -216,6 +216,12 @@ licences: [`data.md` § Basemap and fonts](./data.md#basemap-and-fonts).
 - Exit codes: 0 ok, 1 a failed run or comparison, 2 a usage error.
 
 **Reference suite.** Point `WRSM_REFERENCE_DIR` at a folder of real WRSM2000 networks (never committed) and run `pnpm test:wrsm`: every reader then round-trips every real file, and `readBundle`/`writeBundle` round-trip every network folder byte for byte (`src/io/bundle.reference.test.ts`). Without the variable those tests skip. The whole-network and module comparisons (`src/compare/*.reference.test.ts`) write their detailed reports, which name reference folders and carry per-module figures, to `../pitman-private/reports/` beside the main checkout (override with `WRSM_PRIVATE_DIR`), and refuse a path inside the repo, so no private data lands in the working tree. Don't write `wrsm run` output into a reference folder you don't own: pass `--out`.
+
+## Fresh clone
+
+`.github/workflows/fresh-clone.yml` proves a fresh clone runs with the steps on this page and nothing else: a clean checkout, Node from `.tool-versions`, `pnpm install --frozen-lockfile`, `pnpm dev:data:synthetic`, then `pnpm dev`, until the backend answers `GET http://127.0.0.1:3001/health` with `{"ok":true}` (the one route that needs no session), the frontend renders the home page on `:7777`, and `/api/health` answers through Vite's proxy. It then stops `pnpm dev` and checks the backend is gone. The one difference from a laptop is how auth-kit is fetched: CI uses the read-only `AUTH_KIT_READ_TOKEN` on the install step alone, as `ci.yml` does ([`deployment.md` § Sign-in](./deployment.md#sign-in)).
+
+It is not behind `CI gate`. It runs on a PR or push to `main` that touches what only a fresh clone exercises (the `package.json` files, the lockfile, `pnpm-workspace.yaml`, `.tool-versions`, the committed `.env.development` files, `backend/src/server.ts`, `backend/scripts/gen-synthetic-data.ts`, `frontend/vite.config.ts`), weekly (Mondays 07:00 UTC) for drift no path shows, and by hand (`gh workflow run fresh-clone.yml`). `scripts/ci-guards/fresh-clone.test.mjs` (`pnpm test:tools`) fails if a watched path no longer exists or `.tool-versions` falls below the `engines` floor.
 
 ## Pushing straight to `main` (for now)
 

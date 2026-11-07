@@ -215,7 +215,7 @@ installed from git at a pinned tag (`backend/package.json`). Its operator
 setup is Absence0760/auth-kit#2; the pitman side:
 
 - **CI access.** Every workflow that runs `pnpm install` (`ci.yml`,
-  `audit.yml`, `coverage.yml`, `deploy-backend.yml`, `deploy-frontend.yml`,
+  `audit.yml`, `coverage.yml`, `deploy-backend.yml`, `deploy-frontend.yml`, `fresh-clone.yml`,
   `dependabot-lockfile.yml`) fetches auth-kit with the
   **`AUTH_KIT_READ_TOKEN`** secret: a fine-grained token limited to
   `Absence0760/auth-kit` with Contents read-only (write its expiry down). It
