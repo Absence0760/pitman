@@ -75,8 +75,8 @@ pitman/
 └── .github/
     └── workflows/
         ├── ci.yml                CI: typecheck, tests, e2e, doc links, env isolation, Claude tooling; CI gate
-        ├── deploy-frontend.yml   Build + sync to S3 + CloudFront invalidation
-        ├── deploy-backend.yml    esbuild bundle + zip + update Lambda
+        ├── deploy-frontend.yml   After CI passes: build + sync to S3 + CloudFront invalidation
+        ├── deploy-backend.yml    After CI passes: esbuild bundle + zip + update Lambda
         └── claude.yml            Claude Code issue/PR automation
 ```
 

@@ -41,7 +41,8 @@ export function parsePaths(text) {
 }
 
 /**
- * The commit the last successful deploy job shipped, or null if this workflow has never deployed.
+ * The commit the last successful deploy job shipped, or null if this workflow has never deployed (or not within
+ * its last 250 successful runs, most of them no-op runs on docs-only pushes: then the gate deploys, the safe side).
  * `api(path)` returns parsed JSON from the GitHub REST API. Runs come newest first.
  */
 export async function lastDeployedSha({ api, repo, workflowFile, deployJob, currentRunId }) {
