@@ -33,6 +33,16 @@ describe('sessionFetch', () => {
 		expect(heard).toBe(0);
 	});
 
+	it('states the body’s SHA-256 for CloudFront’s signed origin requests (issue #33)', async () => {
+		let seen: RequestInit | undefined;
+		const record = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+			seen = init;
+			return new Response('{}');
+		}) as typeof fetch;
+		await sessionFetch(record)('/api/map-grid/mean', { method: 'POST', body: '{}' });
+		expect((seen?.headers as Record<string, string>)['x-amz-content-sha256']).toBe('44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a');
+	});
+
 	it('only the newest handler hears it', async () => {
 		const heard: string[] = [];
 		const first = onUnauthorized(() => heard.push('first'));

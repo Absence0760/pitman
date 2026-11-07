@@ -42,6 +42,24 @@ describe('the sign-in calls', () => {
 		expect(b.calls[0]).toMatchObject({ url: '/api/auth/verify', method: 'POST', body: { email: 'someone@example.test', code: '123456' } });
 	});
 
+	it('state each body’s SHA-256, which CloudFront’s signed requests to the API need (issue #33)', async () => {
+		const { createHash } = await import('node:crypto');
+		const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+		const a = fake(202, {});
+		await requestCode('someone@example.test', a.options);
+		expect(a.calls[0]!.headers['x-amz-content-sha256']).toBe(sha256(JSON.stringify({ email: 'someone@example.test' })));
+		const b = fake(200, { user: USER });
+		await verifyCode('someone@example.test', '123456', b.options);
+		expect(b.calls[0]!.headers['x-amz-content-sha256']).toBe(sha256(JSON.stringify({ email: 'someone@example.test', code: '123456' })));
+		// A gated write too, and a POST with no body hashes zero bytes.
+		const c = fake(200, { user: USER });
+		await addUser('new@example.test', false, c.options);
+		expect(c.calls[0]!.headers['x-amz-content-sha256']).toBe(sha256(JSON.stringify({ email: 'new@example.test', isAdmin: false })));
+		const d = fake(204);
+		await removeUser('u1', d.options);
+		expect(d.calls[0]!.headers['x-amz-content-sha256']).toBe(sha256(''));
+	});
+
 	it('show the API’s own sentence for a 400 or 401', async () => {
 		expect((await refusal(requestCode('x', fake(400, { error: 'That is not an email address.' }).options))).message).toBe('That is not an email address.');
 		const wrong = await refusal(verifyCode('a@b.test', '000000', fake(401, { error: 'That code is wrong or has expired.' }).options));

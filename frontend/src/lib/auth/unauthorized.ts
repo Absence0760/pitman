@@ -10,6 +10,8 @@
  * when the user comes back signed in.
  */
 
+import { contentHashFetch } from '#lib/api/content-hash.js';
+
 export type UnauthorizedHandler = () => void;
 
 let handler: UnauthorizedHandler | undefined;
@@ -27,9 +29,12 @@ export function reportUnauthorized(): void {
 	handler?.();
 }
 
-/** `fetch` (or `inner`, a test's fake) that reports a 401 before handing the response back. */
+/**
+ * `fetch` (or `inner`, a test's fake) that reports a 401 before handing the response back. It also states
+ * each body's SHA-256 (`contentHashFetch`), which CloudFront's signed requests to the API need (issue #33).
+ */
 export function sessionFetch(inner?: typeof fetch): typeof fetch {
-	const doFetch = inner ?? globalThis.fetch.bind(globalThis);
+	const doFetch = contentHashFetch(inner);
 	return async (input, init) => {
 		const response = await doFetch(input, init);
 		if (response.status === 401) reportUnauthorized();

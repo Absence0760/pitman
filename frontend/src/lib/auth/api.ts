@@ -7,6 +7,7 @@
  */
 
 import { apiUrl } from '#lib/extend/api.js';
+import { contentHashFetch } from '#lib/api/content-hash.js';
 import { sessionFetch } from './unauthorized.js';
 
 export interface User {
@@ -110,7 +111,8 @@ async function call(
 	{ gated }: { gated: boolean }
 ): Promise<Response> {
 	// The sign-in routes answer 401 as part of their job (wrong code, not signed in): only the gated routes report it.
-	const doFetch = gated ? sessionFetch(options.fetch) : (options.fetch ?? globalThis.fetch.bind(globalThis));
+	// Both state the body's SHA-256, which CloudFront's signed requests to the API need (issue #33).
+	const doFetch = gated ? sessionFetch(options.fetch) : contentHashFetch(options.fetch);
 	let response: Response;
 	try {
 		response = await doFetch(apiUrl(options.baseUrl, path), {
