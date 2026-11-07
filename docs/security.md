@@ -136,4 +136,7 @@ above. The design, decided as A-AUTH-1 … 11 in `docs/decisions.md`:
   not blocked.
 - The CloudFront shared secret sits in the Lambda's environment and the
   Terraform state (both in-account, encrypted at rest), not Secrets Manager.
-- No automated dependency scanning (consider `pnpm audit` in CI).
+- Dependency scanning is weekly, not per change: `.github/workflows/audit.yml`
+  runs `pnpm audit --audit-level=moderate` every Monday and opens a
+  `dependency-audit` issue (closed by the next clean run), and Dependabot
+  raises update PRs. Low-severity findings are not reported.
