@@ -50,3 +50,11 @@ test('the Node .tool-versions pins satisfies package.json engines', () => {
 	assert.ok(pinned && floor, 'nodejs pin or engines floor not found');
 	assert.ok(Number(pinned[1]) >= Number(floor[1]), `.tool-versions pins ${pinned[1]}, engines needs ${floor[1]}`);
 });
+
+// actions/setup-node reads .tool-versions with `node-version-file`, and the template's commented-out
+// toolchain list made it resolve Node version '#' (the first fresh-clone run, 2026-11-07). Keep the file
+// to bare `<tool> <version>` lines.
+test('.tool-versions holds only `<tool> <version>` lines, no comments or blanks', () => {
+	const lines = readFileSync(new URL('.tool-versions', ROOT), 'utf8').replace(/\n$/, '').split('\n');
+	for (const line of lines) assert.match(line, /^[a-z][\w-]* \S+$/, `.tool-versions line ${JSON.stringify(line)}`);
+});
