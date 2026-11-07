@@ -503,6 +503,7 @@
 	<span>Your files stay in your browser.</span>
 	<span>Built from the WRC manuals TT 687, 689, 690 and 691.</span>
 	<a href="/methods">Methods</a>
+	<a href="/privacy">Privacy</a>
 	<span>Pitman {__PITMAN_VERSION__}</span>
 </footer>
 
