@@ -241,12 +241,12 @@ licences: [`data.md` § Basemap and fonts](./data.md#basemap-and-fonts).
 
 It is not behind `CI gate`. It runs on a PR or push to `main` that touches what only a fresh clone exercises (the `package.json` files, the lockfile, `pnpm-workspace.yaml`, `.tool-versions`, the committed `.env.development` files, `backend/src/server.ts`, `backend/scripts/gen-synthetic-data.ts`, `frontend/vite.config.ts`), weekly (Mondays 07:00 UTC) for drift no path shows, and by hand (`gh workflow run fresh-clone.yml`). `scripts/ci-guards/fresh-clone.test.mjs` (`pnpm test:tools`) fails if a watched path no longer exists, `.tool-versions` falls below the `engines` floor, or `.tool-versions` gains a comment or blank line (setup-node then reads `#` as the Node version, as the template copy did on the first run).
 
-## Pushing straight to `main` (for now)
+## Git hooks and pull requests
 
-Until PRs return (issue #22 steps 10–11), work is committed and pushed straight to `main`. The local gate needs no install: `pnpm install` sets `core.hooksPath` to `.githooks/` (the root `prepare` script, `scripts/git-hooks/install.mjs`), shared by every worktree of the clone. Then:
+Every change reaches `main` through a pull request from a branch (`CLAUDE.md` § Working alongside other Claude sessions); `main` is protected and merges a PR only once its `CI gate` check is green ([`deployment.md` § First deploy](./deployment.md#first-deploy-operator-runbook), steps 29–32). The local hooks need no install: `pnpm install` sets `core.hooksPath` to `.githooks/` (the root `prepare` script, `scripts/git-hooks/install.mjs`), shared by every worktree of the clone. Then:
 
 - `pre-commit` and `commit-msg` run the client terms guard on the staged changes and the message (a no-op until `../infra-secrets/pitman/client-terms.txt` exists; [`security.md` § Public repo hygiene](./security.md#public-repo-hygiene)), then the pre-commit framework's hooks (gitleaks and the file checks) if `pre-commit` is installed.
-- `pre-push` runs `pnpm check && pnpm test` before any push that touches more than docs, markdown or `.claude/`.
+- `pre-push` runs `pnpm check && pnpm test` before pushing a branch whose new commits touch more than docs, markdown or `.claude/` (a new branch is compared with where it left `origin/main`), so a red PR shows up a CI round-trip sooner. CI is still the gate. `scripts/git-hooks/pre-push.test.mjs` pins which pushes it checks.
 
 If you once copied the old `pre-push` into `.git/hooks/`, it is now ignored and can be deleted. If you keep your own hooks in `core.hooksPath`, the install leaves it alone and warns; this repo's hooks then don't run.
 
