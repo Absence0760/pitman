@@ -213,12 +213,30 @@ setup is Absence0760/auth-kit#2; the pitman side:
 
 - **CI access.** Every workflow that runs `pnpm install` (`ci.yml`,
   `audit.yml`, `coverage.yml`, `deploy-backend.yml`, `deploy-frontend.yml`,
-  `dependabot-lockfile.yml`) first rewrites auth-kit's git URLs to use the
+  `dependabot-lockfile.yml`) fetches auth-kit with the
   **`AUTH_KIT_READ_TOKEN`** secret: a fine-grained token limited to
   `Absence0760/auth-kit` with Contents read-only (write its expiry down). It
   must be stored twice, as an **Actions** secret and as a **Dependabot**
   secret, both named `AUTH_KIT_READ_TOKEN`. Without it those jobs fail at once
-  with the setup link. `dependabot.yml` reads it through its `github-auth-kit`
+  with the setup link (a check step that only tests the secret is set). The
+  token reaches git on the install step alone, as environment-only config
+  (`GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n`, an
+  `insteadOf` for auth-kit's three URL forms); nothing writes it to
+  `~/.gitconfig`, so the tests, Playwright, the builds and the deploy steps
+  that run later in the same job, beside the AWS session, can't read it.
+  `scripts/ci-guards/workflows.test.mjs` (`pnpm test:tools`) fails if a
+  workflow puts it anywhere else.
+- **The pnpm store cache holds auth-kit.** `actions/setup-node` with
+  `cache: pnpm` saves the pnpm store, auth-kit's built package included,
+  keyed on the lockfile. A `pull_request` run may restore caches saved on
+  `main`, and a fork's pull request runs the fork's own copy of the workflow,
+  so no condition in these files can stop a fork restoring that cache. While
+  the repo is private that needs a collaborator's fork and the "run workflows
+  from fork pull requests" setting, which is off. **Before the repo goes
+  public**, remove `cache: pnpm` from every workflow that installs auth-kit
+  (or move auth-kit out of the cached store), and delete the existing caches
+  (`gh cache delete --all`); fork pull requests must never be able to restore
+  a cache holding auth-kit. `dependabot.yml` reads it through its `github-auth-kit`
   registry, and `dependabot-lockfile.yml`'s regenerate job gets it (read-only,
   with `--ignore-scripts`) so it can resolve the lockfile. `claude.yml` doesn't
   get it, so Claude's own `pnpm install` there can't fetch auth-kit.
