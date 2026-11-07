@@ -271,7 +271,7 @@ store, the operator actions) are the private package `@absence0760/auth-kit`
 |---|---|
 | `config.ts` | Reads the environment (`docs/deployment.md` § Lambda environment); on Lambda any gap is a problem, and the gate answers 503 |
 | `store.ts` | auth-kit's memory store (`USER_STORE=memory`, local dev and tests) or its DynamoDB store (`dynamodb`, the Lambda or DynamoDB Local) |
-| `mail.ts` | The email text and the transports: `console` (dev, prints the code), `ses` (SES v2 with the configuration set; 2 attempts, 1 s each); `mail.smtp.ts` (nodemailer to Mailpit) is built by `server.ts` only, so it never enters the Lambda bundle |
+| `mail.ts` | The email text and the transports: `console` (dev, prints the code), `ses` (SES v2 with the configuration set; 2 attempts, 1 s each, stopped at the 4 s worst case); `mail.smtp.ts` (nodemailer to Mailpit) is built by `server.ts` only, so it never enters the Lambda bundle |
 | `cookies.ts` | `__Host-pitman_session` from auth-kit; the dev-only plain `pitman_session` |
 | `runtime.ts` | Binds auth-kit, mailer and cookie into the one object `createApp({ auth })` takes |
 | `middleware.ts` | The gate: `verifySession` on the cookie, sets `c.var.user`, 401 `{ error }` |
@@ -287,7 +287,7 @@ they were added, so everything registered after the gate needs a session.
 
 | Route | Session | Body → answer |
 |---|---|---|
-| `POST /auth/code` | no | `{ email }` → 202 `{}` for any well-formed address, listed or not, after a 1 s floor with the email sent inside it; 400; 429 + `Retry-After` (s) when throttled or locked |
+| `POST /auth/code` | no | `{ email }` → 202 `{}` for any well-formed address, listed or not, after a 4.5 s floor with the email sent inside it (the SES worst case of 4 s, rounded up; `auth/runtime.ts`); 400; 429 + `Retry-After` (s) when throttled or locked |
 | `POST /auth/verify` | no | `{ email, code }` → 200 `{ user: { id, email, isAdmin } }` + `Set-Cookie`; 400 for a body without both strings; 401 for a wrong, expired or spent code; 429 + `Retry-After` when locked |
 | `POST /auth/logout` | no | → 204, revokes the session if it is valid, clears the cookie |
 | `POST /auth/logout-everywhere` | yes | → 204, signs out every session of the user, clears the cookie |

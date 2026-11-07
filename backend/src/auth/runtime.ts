@@ -5,8 +5,17 @@
 import { createAuthKit, DEFAULT_MIN_LATENCY_MS, type AuthKit, type Clock, type Random, type Sleep, type Store } from '@absence0760/auth-kit';
 import { readAuthConfig } from './config.js';
 import { sessionCookieFor, type SessionCookie } from './cookies.js';
-import { createMailer, type Mailer, type SmtpMailerFactory } from './mail.js';
+import { createMailer, SES_SEND_WORST_CASE_MS, type Mailer, type SmtpMailerFactory } from './mail.js';
 import { createUserStore } from './store.js';
+
+/**
+ * POST /auth/code's floor. auth-kit's DEFAULT_MIN_LATENCY_MS (1 s) covers its own store work, but Pitman
+ * sends the email inside the floor too, and a slow SES send (SES_SEND_WORST_CASE_MS, 4 s) would carry a
+ * listed address's answer past 1 s while an unlisted one's never is. So the floor is the SES worst case
+ * rounded up to the next half second above it (4.5 s), leaving room for the store work; it moves with the
+ * SES options, and runtime.test.ts fails if it ever falls below them.
+ */
+export const CODE_REQUEST_MIN_LATENCY_MS = Math.max(DEFAULT_MIN_LATENCY_MS, (Math.floor(SES_SEND_WORST_CASE_MS / 500) + 1) * 500);
 
 export interface AuthReady {
 	ready: true;
@@ -54,7 +63,7 @@ export function createAuthRuntime(parts: AuthParts): AuthRuntime {
 		kit,
 		mail: parts.mail,
 		cookie: sessionCookieFor(parts.devCookie ?? false),
-		latency: { minMs: parts.minLatencyMs ?? DEFAULT_MIN_LATENCY_MS, ...(parts.clock ? { clock: parts.clock } : {}), ...(parts.sleep ? { sleep: parts.sleep } : {}) }
+		latency: { minMs: parts.minLatencyMs ?? CODE_REQUEST_MIN_LATENCY_MS, ...(parts.clock ? { clock: parts.clock } : {}), ...(parts.sleep ? { sleep: parts.sleep } : {}) }
 	};
 }
 

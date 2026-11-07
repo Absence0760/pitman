@@ -123,9 +123,15 @@ privacy notice and AWS account. Network files still never leave the browser.
   after 3 wrong tries; sends 60 s apart, 5 an hour, 10 a day; a lockout that
   doubles to 15 minutes. Expiry is checked in code, never left to TTL.
 - **Nothing reveals who is listed.** Every code request answers 202 with the
-  same body and headers inside `withMinimumLatency` (1 s), the email sent
+  same body and headers inside `withMinimumLatency`, the email sent
   inside it; listed and unlisted addresses do the same store work, and a
   failed send still answers 202. Strangers' addresses are stored only as HMACs.
+  The floor is 4.5 s (`CODE_REQUEST_MIN_LATENCY_MS` in `auth/runtime.ts`),
+  not auth-kit's 1 s default: only a listed address sends mail inside it, so
+  it has to outlast the slowest SES send (4 s, § SES send bounds), or a slow
+  SES would make a listed address answer later than an unlisted one. It is
+  derived from the SES options, and `auth/runtime.test.ts` fails if they ever
+  outgrow it.
 - **Sessions**: `__Host-pitman_session` (`Secure; HttpOnly; SameSite=Strict;
   Path=/`, no `Domain`), HS256 with `jti` and `kid`, 7 days, re-checked
   against the user record and revocations on every request, so a removal or
@@ -153,7 +159,7 @@ privacy notice and AWS account. Network files still never leave the browser.
 - **Logs**: an event name and at most a user id: `auth.locked` (when a lock
   starts on a listed address), `auth.send_capped` (a listed address has just
   spent its daily send budget), `auth.slow_code_request` (a `POST /auth/code`
-  ran past the 1 s floor, so its timing could tell a listed address from an
+  ran past the 4.5 s floor, so its timing could tell a listed address from an
   unlisted one), `mail.send_failed`, `mail.bounce` and `mail.complaint` (with counts flagged,
   unchanged and refused), `mail.record_failed`, `mail.events_unrecorded`,
   `auth.unconfigured`, `cloudfront_secret.unset`, and `unhandled_error` with
@@ -167,11 +173,16 @@ privacy notice and AWS account. Network files still never leave the browser.
   `capReached`, `limit` and `lockStarted`), used for these logs only: the HTTP
   answer never depends on it (`auth/routes.test.ts` checks every combination).
 - **SES send bounds**: the SES client makes at most 2 attempts, each cut off
-  after 1 s (0.5 s to connect), so a throttled or slow SES holds a listed
-  address's code request to about 2.5 s at worst instead of the SDK's
-  unbounded default (`SES_CLIENT_OPTIONS` in `auth/mail.ts`); a send that
-  fails is logged and still answers 202. The durable fix is to send off the
-  request path (a queue), so the floor never has to cover a send.
+  after 1 s (0.5 s to connect; `throwOnRequestTimeout`, without which the
+  SDK only warns at the request timeout), with at most 1 s of backoff between
+  them (the SDK's throttling base, 0.5 s, or 1 s under its 2026 retry
+  behaviour). That is 2 × (0.5 + 1) + 1 = 4 s at worst
+  (`SES_SEND_WORST_CASE_MS` in `auth/mail.ts`), inside the 4.5 s floor.
+  A `Retry-After` on a throttling answer can stretch the SDK's backoff by up
+  to 5 s, so the mailer also aborts any send still running at 4 s; that send
+  is logged as `mail.send_failed` and the request still answers 202. The
+  durable fix is to send off the request path (a queue), so the floor never
+  has to cover a send and can go back to 1 s.
 - **Operator actions** (`pnpm admin:bootstrap`, `admin:recover`,
   `admin:clear-lock`, `admin:erase`) run with the operator's AWS profile, read
   the address from stdin (never argv, so never shell history), read the code

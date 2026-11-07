@@ -8,7 +8,8 @@ import { createApp } from '../app.js';
 import { eventsLogged, guardLogs } from '../__tests__/logGuard.js';
 import { ADMIN, bootstrap, cookieFor, TEST_ORIGIN, testAuth, type TestAuth } from '../__tests__/session.js';
 import { NOT_CONFIGURED } from './middleware.js';
-import { authRuntimeFromEnv, type AuthRuntime } from './runtime.js';
+import { SES_SEND_WORST_CASE_MS } from './mail.js';
+import { authRuntimeFromEnv, CODE_REQUEST_MIN_LATENCY_MS, type AuthRuntime } from './runtime.js';
 import { AUTH_MESSAGES } from './routes.js';
 
 guardLogs();
@@ -110,7 +111,7 @@ describe('POST /auth/code and POST /auth/verify', () => {
 		expect(answers[0]!.status).toBe(202);
 		expect(calls[1]).toEqual(calls[0]);
 		// Each was padded to the whole floor (the test clock doesn't move during the work), and only the listed one was mailed.
-		expect(t.sleeps).toEqual([1000, 1000]);
+		expect(t.sleeps).toEqual([CODE_REQUEST_MIN_LATENCY_MS, CODE_REQUEST_MIN_LATENCY_MS]);
 		expect(t.outbox.map((m) => m.to)).toEqual([ADMIN]);
 		// The stranger's address is stored nowhere in clear.
 		expect(JSON.stringify(store.dump())).not.toContain(STRANGER);
@@ -122,7 +123,7 @@ describe('POST /auth/code and POST /auth/verify', () => {
 		const res = await askCode(app(t), ADMIN);
 		expect(res.status).toBe(202);
 		expect(eventsLogged()).toEqual([{ event: 'mail.send_failed', userId: admin.id, error: 'MessageRejected' }]);
-		expect(t.sleeps).toEqual([1000]);
+		expect(t.sleeps).toEqual([CODE_REQUEST_MIN_LATENCY_MS]);
 	});
 
 	it('refuses a wrong, an expired and a reused code with 401', async () => {
@@ -173,11 +174,11 @@ describe('POST /auth/code and POST /auth/verify', () => {
 		await bootstrap(t);
 		const a = app(t);
 		await askCode(a, ADMIN);
-		// The first request's 1 s floor moved the test clock too: the send was 21 s ago.
+		// The first request's floor moved the test clock too: the send was 20 s + the floor ago.
 		t.clock.advance(20_000);
 		const res = await askCode(a, ADMIN);
 		expect(res.status).toBe(429);
-		expect(res.headers.get('retry-after')).toBe('39');
+		expect(res.headers.get('retry-after')).toBe(String(Math.ceil((60_000 - 20_000 - CODE_REQUEST_MIN_LATENCY_MS) / 1000)));
 		expect(t.outbox).toHaveLength(1);
 	});
 
@@ -279,7 +280,7 @@ describe('the alarm signals (auth-kit listed / capReached / limit: logs only, ne
 	});
 
 	it('logs auth.slow_code_request, without the address, when a send runs past the floor, and still answers 202', async () => {
-		const t = testAuth({ mailDelayMs: 2_500 });
+		const t = testAuth({ mailDelayMs: CODE_REQUEST_MIN_LATENCY_MS + 1 });
 		await bootstrap(t);
 		const a = app(t);
 		const res = await askCode(a, ADMIN);
@@ -294,7 +295,23 @@ describe('the alarm signals (auth-kit listed / capReached / limit: logs only, ne
 		const t = testAuth({ mailDelayMs: 400 });
 		await bootstrap(t);
 		expect((await askCode(app(t), ADMIN)).status).toBe(202);
-		expect(t.sleeps).toEqual([600]);
+		expect(t.sleeps).toEqual([CODE_REQUEST_MIN_LATENCY_MS - 400]);
+		expect(eventsLogged()).toEqual([]);
+	});
+
+	it('pads even an SES send at its worst case to the floor, so the answer comes no later than an unlisted one', async () => {
+		// The review's case: a send at 2.5 s ran past auth-kit's 1 s floor. A send can now take up to
+		// SES_SEND_WORST_CASE_MS (then sesMailer stops it); the default floor sits above that.
+		const t = testAuth({ mailDelayMs: SES_SEND_WORST_CASE_MS });
+		await bootstrap(t);
+		const started = t.clock.now();
+		expect((await askCode(app(t), ADMIN)).status).toBe(202);
+		const listed = t.clock.now() - started;
+		const u = testAuth();
+		const s = u.clock.now();
+		expect((await askCode(app(u), STRANGER)).status).toBe(202);
+		expect(listed).toBe(u.clock.now() - s);
+		expect(listed).toBe(CODE_REQUEST_MIN_LATENCY_MS);
 		expect(eventsLogged()).toEqual([]);
 	});
 

@@ -44,13 +44,34 @@ export function consoleMailer(): Mailer {
 }
 
 /**
- * The SES client's bounds. The send runs inside /auth/code's 1 s floor, and the SDK's defaults (3 attempts
- * with backoff, no request timeout) could stretch a listed address's request well past it, which an
- * unlisted one never does. Two attempts, each cut off after 1 s (0.5 s to connect), keep the worst case
- * near 2.5 s; a request past the floor is logged as `auth.slow_code_request`, and a failed send as
- * `mail.send_failed`, still answering 202.
+ * The SES client's bounds. The send runs inside /auth/code's floor (CODE_REQUEST_MIN_LATENCY_MS in
+ * runtime.ts), and the SDK's defaults (3 attempts with backoff, no request timeout) could stretch a listed
+ * address's request well past it, which an unlisted one never does. Two attempts, each cut off after 1 s
+ * (0.5 s to connect). `throwOnRequestTimeout` is what makes `requestTimeout` a bound at all: without it
+ * @smithy/node-http-handler only logs a warning when a request runs past it. A request past the floor is
+ * logged as `auth.slow_code_request`, and a failed send as `mail.send_failed`, still answering 202.
  */
-export const SES_CLIENT_OPTIONS = { maxAttempts: 2, requestHandler: { connectionTimeout: 500, requestTimeout: 1_000 } } as const;
+export const SES_CLIENT_OPTIONS = { maxAttempts: 2, requestHandler: { connectionTimeout: 500, requestTimeout: 1_000, throwOnRequestTimeout: true } } as const;
+
+/**
+ * The longest backoff @smithy's standard retry strategy waits before the second attempt: a random fraction
+ * of its base delay × 2⁰ (capped at 20 s). The base is 100 ms for a transient error and 500 ms for
+ * throttling (SES's TooManyRequests); `SMITHY_NEW_RETRIES_2026=true` doubles the throttling base to 1 s.
+ * 1 s covers both. Read from @smithy/core 3.38.1 (submodules/retry, StandardRetryStrategy).
+ */
+export const SES_RETRY_BACKOFF_MAX_MS = 1_000;
+
+/**
+ * A send's worst case under SES_CLIENT_OPTIONS: every attempt spends its whole connect and request
+ * timeouts (an over-estimate, since the request timer runs from the start of the attempt), plus the longest
+ * backoff between attempts: 2 × (0.5 + 1) + 1 = 4 s. sesMailer also stops a send here, whatever the SDK does.
+ */
+export const SES_SEND_WORST_CASE_MS =
+	SES_CLIENT_OPTIONS.maxAttempts * (SES_CLIENT_OPTIONS.requestHandler.connectionTimeout + SES_CLIENT_OPTIONS.requestHandler.requestTimeout) +
+	(SES_CLIENT_OPTIONS.maxAttempts - 1) * SES_RETRY_BACKOFF_MAX_MS;
+
+/** The error's name when sesMailer stops a send at SES_SEND_WORST_CASE_MS. */
+export const SES_DEADLINE_ERROR = 'SesSendDeadlineExceeded';
 
 /** The Lambda's SES client: its region and role (SES lives in the same region, A-AUTH-7), bounded as above. */
 export const sesClient = () => new SESv2Client({ ...SES_CLIENT_OPTIONS, requestHandler: { ...SES_CLIENT_OPTIONS.requestHandler } });
@@ -59,19 +80,36 @@ export function sesMailer(options: { from: string; configurationSet: string; cli
 	const client = options.client ?? sesClient();
 	return async ({ to, code }) => {
 		const message = signInMessage(code);
-		await client.send(
-			new SendEmailCommand({
-				FromEmailAddress: options.from,
-				Destination: { ToAddresses: [to] },
-				ConfigurationSetName: options.configurationSet,
-				Content: {
-					Simple: {
-						Subject: { Data: message.subject, Charset: 'UTF-8' },
-						Body: { Text: { Data: message.text, Charset: 'UTF-8' } }
-					}
+		const command = new SendEmailCommand({
+			FromEmailAddress: options.from,
+			Destination: { ToAddresses: [to] },
+			ConfigurationSetName: options.configurationSet,
+			Content: {
+				Simple: {
+					Subject: { Data: message.subject, Charset: 'UTF-8' },
+					Body: { Text: { Data: message.text, Charset: 'UTF-8' } }
 				}
-			})
-		);
+			}
+		});
+		// A hard stop at the computed worst case. The options above bound each attempt, but a Retry-After
+		// header on a throttling answer can stretch the SDK's backoff by up to 5 s more, so the options alone
+		// don't bound a send. At the deadline the send is aborted and this throws (logged as mail.send_failed).
+		const abort = new AbortController();
+		const sending = client.send(command, { abortSignal: abort.signal });
+		sending.catch(() => undefined); // the race's loser must not become an unhandled rejection
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const deadline = new Promise<never>((_, reject) => {
+			timer = setTimeout(() => {
+				const e = Object.assign(new Error('the SES send ran past its deadline'), { name: SES_DEADLINE_ERROR });
+				abort.abort(e);
+				reject(e);
+			}, SES_SEND_WORST_CASE_MS);
+		});
+		try {
+			await Promise.race([sending, deadline]);
+		} finally {
+			clearTimeout(timer);
+		}
 	};
 }
 
