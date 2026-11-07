@@ -52,6 +52,9 @@ domain and stack), with every fact rewritten for Pitman.
 - **`audit/licenses.md`** — `/audit/licenses`: dependency licences (what ships in the SPA and Lambda bundles) plus data attribution and what must never be committed.
 - **`audit/docs-drift.md`** — `/audit/docs-drift`: README, `CLAUDE.md`, `docs/STACK.md`, `docs/*` and `.claude/` listings against the code, scripts, workflows and Terraform.
 
+### Skills
+- **`skills/steward/SKILL.md`** — drive a red CI run to green: every job in pitman's workflows with the exact local command that reproduces it, what counts as a flake, main moving under you, and when to ask the operator. Applies to a red run on `main` while PRs are off (issue #22 steps 10–11), and to PRs once they return. Adapted from IC-WBT's.
+
 ### Hooks
 - **`hooks/security-patterns.sh`** (PostToolUse on Edit/Write/MultiEdit) — grep rules for engine purity and determinism, float32 rounding in `src/io/` writers, private env in the frontend, `S3Client` with no region, and hard-coded machine paths. Runs after the edit, so it never blocks; findings reach the next turn. Bypass a line with `// noqa: <rule>`. Tests: `bash .claude/hooks/security-patterns.test.sh`.
 

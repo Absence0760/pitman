@@ -115,6 +115,7 @@ Pitman's own additions (listed in `.claude/README.md` § Pitman additions):
 
 - `/issue <n>` — one issue end to end: worktree, routing, gate, merge into `main` while PRs are off.
 - `/audit/licenses`, `/audit/docs-drift` — dependency and data licences; docs against the code.
+- Skill `steward` (`.claude/skills/steward/SKILL.md`): drive a red CI run on `main` (or a PR, once PRs return) to green, with the local command for every CI job.
 - Agents: `wrsm-engine-reviewer` (run it on every `packages/wrsm` change), `persona-hydrologist`, `za-legal-researcher`, `infra-auditor`, `ui-designer`.
 - Hook: `.claude/hooks/security-patterns.sh` flags engine-purity, float32-rounding, private-env, S3-region and machine-path patterns after each edit (never blocks).
 
