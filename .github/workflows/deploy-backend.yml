@@ -14,14 +14,25 @@ name: Deploy backend
 # Terraform outputs): AWS_DEPLOY_ROLE_ARN, AWS_REGION, LAMBDA_FUNCTION_NAME,
 # PUBLIC_SITE_URL (for the smoke check).
 
+# When it runs: only after CI has passed on the commit. It triggers on
+# `workflow_run` of CI, and the gate job requires that run to have succeeded,
+# on a push (not a pull request, not a fork) to main; it then checks out
+# exactly the commit CI tested (workflow_run.head_sha). The gate
+# (scripts/deploy/deploy-gate.mjs) deploys only when a file under
+# DEPLOY_PATHS changed since the commit the last successful deploy job
+# shipped, which each run records in its run-name; so a burst of pushes, a
+# CI run cancelled by a newer push, or a rejected approval never drops a
+# change. A manual run (`gh workflow run deploy-backend.yml`) always deploys, but
+# only from main and only a commit with a successful CI run.
+# docs/deployment.md § How a deploy happens.
+
+run-name: Deploy backend ${{ github.event.workflow_run.head_sha || github.sha }}
+
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
-    paths:
-      - 'backend/**'
-      - 'packages/wrsm/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
 
 concurrency:
@@ -32,15 +43,65 @@ permissions:
   contents: read
 
 jobs:
+  gate:
+    name: Decide whether to deploy
+    if: >-
+      vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_REGION != '' && vars.LAMBDA_FUNCTION_NAME != '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # this workflow's earlier runs and CI's runs
+    outputs:
+      deploy: ${{ steps.decide.outputs.deploy }}
+      sha: ${{ steps.decide.outputs.sha }}
+    steps:
+      - name: Checkout the commit CI passed
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Decide
+        id: decide
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          REF: ${{ github.ref }}
+          WORKFLOW_FILE: deploy-backend.yml
+          DEPLOY_JOB: Update Lambda code
+          CI_WORKFLOW: ci.yml
+          DEPLOY_PATHS: |
+            backend
+            packages/wrsm
+            pnpm-lock.yaml
+            pnpm-workspace.yaml
+            .github/workflows/deploy-backend.yml
+        run: node scripts/deploy/deploy-gate.mjs
+
   build:
     name: Build Lambda bundle
-    if: vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_REGION != '' && vars.LAMBDA_FUNCTION_NAME != ''
+    needs: gate
+    if: needs.gate.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.gate.outputs.sha }}
           persist-credentials: false
 
       - name: Set up pnpm
@@ -50,7 +111,9 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
+          # No `cache: pnpm`: the pnpm store holds the private auth-kit, and a
+          # fork's pull request can restore base-branch caches once the repo is
+          # public (docs/deployment.md § Sign-in; workflows.test.mjs guards it).
 
       # auth-kit is a private git dependency (backend/package.json), fetched with a
       # fine-grained, read-only token for that one repo (Absence0760/auth-kit#2).

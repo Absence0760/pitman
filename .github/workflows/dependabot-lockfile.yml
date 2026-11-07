@@ -108,7 +108,9 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
+          # No `cache: pnpm`: the pnpm store holds the private auth-kit, and a
+          # fork's pull request can restore base-branch caches once the repo is
+          # public (docs/deployment.md § Sign-in; workflows.test.mjs guards it).
 
       # auth-kit is a private git dependency (backend/package.json), fetched with a
       # fine-grained, read-only token for that one repo (Absence0760/auth-kit#2).

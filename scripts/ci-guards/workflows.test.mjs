@@ -104,3 +104,93 @@ test('the Claude tooling guard runs on docs-only changes, and the CI gate needs 
 	const needs = /^ {4}needs: \[([^\]]*)\]/m.exec(ciJobs.get('ci-gate') ?? '')?.[1].split(',').map((s) => s.trim()) ?? [];
 	assert.deepEqual([...needs].sort(), [...ciJobs.keys()].filter((id) => id !== 'ci-gate').sort());
 });
+
+// The pnpm store holds auth-kit's built package, and a fork's pull request can restore caches saved on main
+// once the repo is public, so no workflow that installs auth-kit may cache the store: no `cache:` input on
+// setup-node (or pnpm/action-setup), no actions/cache, no `pnpm store path` step (docs/deployment.md § Sign-in).
+const installers = workflows.filter((w) => w.text.includes(SECRET));
+
+test('no workflow that installs auth-kit caches the pnpm store', () => {
+	assert.ok(installers.length >= 7, `found ${installers.map((w) => w.name)}`);
+	for (const w of installers) {
+		const code = w.text
+			.split('\n')
+			.filter((l) => !/^\s*#/.test(l))
+			.join('\n');
+		assert.doesNotMatch(code, /^\s+cache:/m, `${w.name}: a cache: input`);
+		assert.doesNotMatch(code, /uses:\s*actions\/cache\b/, `${w.name}: actions/cache`);
+		assert.doesNotMatch(code, /pnpm store path/, `${w.name}: reads the pnpm store path (to cache it)`);
+	}
+});
+
+// The deploys run only after CI passed on the commit they ship: `workflow_run` of CI, completed, on main,
+// gated on success + a push from this repo, checking out the commit CI tested; the gate script
+// (scripts/deploy/deploy-gate.mjs, its own tests) decides whether the surface changed since the last
+// successful deploy job, whose commit each run records in its run-name. docs/deployment.md § How a deploy happens.
+/** Job ids of a workflow, each with the text of its block. */
+function jobsOf(text) {
+	return new Map(
+		(text.split(/^jobs:\n/m)[1] ?? '')
+			.split(/^(?= {2}[\w-]+:\n)/m)
+			.map((block) => [/^ {2}([\w-]+):/.exec(block)?.[1], block])
+			.filter(([id]) => id)
+	);
+}
+
+const ciName = /^name: (.+)$/m.exec(ci)?.[1];
+const RUN_SHA = '${{ github.event.workflow_run.head_sha || github.sha }}';
+
+for (const [file, surface, deployJob, mustDeployOn] of [
+	['deploy-backend.yml', 'backend', 'Update Lambda code', ['backend', 'packages/wrsm', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.github/workflows/deploy-backend.yml']],
+	['deploy-frontend.yml', 'frontend', 'Deploy to S3 + CloudFront', ['frontend', 'packages/wrsm', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'infra/csp.json', 'infra/scripts/check-csp.mjs', '.github/workflows/deploy-frontend.yml']]
+]) {
+	const text = workflows.find((w) => w.name === file)?.text ?? '';
+	const head = text.split(/^jobs:/m)[0];
+	const jobs = jobsOf(text);
+
+	test(`${file} triggers only on CI completing on main, or by hand`, () => {
+		assert.equal(ciName, 'CI');
+		const on = /^on:\n([\s\S]*?)^\S/m.exec(head)?.[1] ?? '';
+		assert.match(on, /^ {2}workflow_run:\n {4}workflows: \[CI\]\n {4}types: \[completed\]\n {4}branches: \[main\]\n/m);
+		assert.match(on, /^ {2}workflow_dispatch:/m);
+		assert.doesNotMatch(on, /^ {2}(push|pull_request|pull_request_target):/m, 'a push trigger would deploy alongside CI, not after it');
+		assert.ok(head.includes(`run-name: Deploy ${surface} ${RUN_SHA}`), 'the run-name records the commit (the gate reads it back)');
+	});
+
+	test(`${file}: the gate requires a successful CI run on a push to this repo's main, and checks out its commit`, () => {
+		assert.deepEqual([...jobs.keys()], ['gate', 'build', 'deploy']);
+		const gate = jobs.get('gate');
+		for (const cond of [
+			"github.event_name == 'workflow_dispatch'",
+			"github.event.workflow_run.conclusion == 'success'",
+			"github.event.workflow_run.event == 'push'",
+			"github.event.workflow_run.head_branch == 'main'",
+			'github.event.workflow_run.head_repository.full_name == github.repository',
+			"vars.AWS_DEPLOY_ROLE_ARN != ''"
+		])
+			assert.ok(gate.includes(cond), `gate if: missing ${cond}`);
+		assert.ok(gate.includes(`ref: ${RUN_SHA}`) && /fetch-depth: 0/.test(gate), 'the gate checks out the commit CI passed, with history');
+		assert.match(gate, /run: node scripts\/deploy\/deploy-gate\.mjs/);
+		assert.ok(gate.includes(`WORKFLOW_FILE: ${file}\n`) && gate.includes(`DEPLOY_JOB: ${deployJob}\n`) && gate.includes('CI_WORKFLOW: ci.yml\n'));
+		assert.ok(gate.includes(`SHA: ${RUN_SHA}\n`));
+		const paths = /DEPLOY_PATHS: \|\n((?: {12}\S.*\n)+)/
+			.exec(gate)?.[1]
+			.split('\n')
+			.map((l) => l.trim())
+			.filter(Boolean);
+		assert.deepEqual(paths, mustDeployOn);
+		assert.match(gate, /actions: read/);
+		assert.doesNotMatch(gate, /id-token|secrets\./, 'the gate mints no OIDC token and reads no secret');
+	});
+
+	test(`${file}: build waits for the gate and builds its commit; only the production deploy job mints a token`, () => {
+		const build = jobs.get('build');
+		assert.match(build, /^ {4}needs: gate\n {4}if: needs\.gate\.outputs\.deploy == 'true'\n/m);
+		assert.ok(build.includes('ref: ${{ needs.gate.outputs.sha }}'));
+		assert.doesNotMatch(build, /id-token/);
+		const deploy = jobs.get('deploy');
+		assert.match(deploy, new RegExp(`^ {4}name: ${deployJob.replace(/[+]/g, '\\+')}\n {4}needs: build\n`, 'm'), 'DEPLOY_JOB names this job');
+		assert.match(deploy, /^ {4}environment: production$/m);
+		assert.match(deploy, /id-token: write/);
+	});
+}

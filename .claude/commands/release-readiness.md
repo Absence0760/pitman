@@ -1,12 +1,12 @@
 ---
-description: Pre-deploy readiness gate. Pitman deploys on a push to main (each deploy waits for approval in the production environment), so this checks the working tree, main, CI status, and what each deploy workflow will ship since its last successful run. Reports a green/red checklist. Read-only; never pushes, approves or deploys.
+description: Pre-deploy readiness gate. Pitman deploys after CI passes on a push to main (each deploy waits for approval in the production environment), so this checks the working tree, main, CI status, and what each deploy workflow will ship since its last successful run. Reports a green/red checklist. Read-only; never pushes, approves or deploys.
 ---
 
 Run a readiness audit before pushing to `main` or approving a waiting deploy in the `production` environment. Report a green/red checklist; never push, approve a deployment, run a workflow or tag anything. The operator does that after reviewing the report.
 
 ## Why this exists
 
-Pitman has no release tags. `deploy-frontend.yml` and `deploy-backend.yml` run on a push to `main` that touches their paths (or by hand), build without AWS access, then wait for the operator's approval in the `production` environment before the deploy job may assume the OIDC role (`docs/deployment.md` § How a deploy happens). Approving with CI red, or without knowing what changed since the last deploy, means the deploy doesn't match what you think it does. Until the operator sets the repo variables, both workflows skip; say so rather than reporting red.
+Pitman has no release tags. `deploy-frontend.yml` and `deploy-backend.yml` run when CI completes successfully on a push to `main`, deploying only when their paths changed since the last successful deploy job (or by hand, from main, on a commit CI passed); they build without AWS access, then wait for the operator's approval in the `production` environment before the deploy job may assume the OIDC role (`docs/deployment.md` § How a deploy happens). Approving with CI red, or without knowing what changed since the last deploy, means the deploy doesn't match what you think it does. Until the operator sets the repo variables, both workflows skip; say so rather than reporting red.
 
 ## When to use
 
@@ -37,27 +37,29 @@ If `gh` isn't logged in, recommend `gh auth login` and skip the `gh` rows rather
 
 ### 3. What each deploy will ship
 
-For each deploy workflow, find the head SHA of its last successful run:
+For each deploy workflow, find the commit its last successful **deploy job** shipped. A successful run isn't enough (the gate may have decided nothing changed), and a run's `headSha` is main's head when it was triggered, not the commit it built: each run names its commit in its run-name (`Deploy backend <sha>`), which is what `scripts/deploy/deploy-gate.mjs` reads back. List recent successful runs with their titles, then take the newest whose deploy job (`Deploy to S3 + CloudFront` / `Update Lambda code`) succeeded:
 
 ```
-gh run list --workflow deploy-frontend.yml --status success --limit 1 --json headSha
-gh run list --workflow deploy-backend.yml --status success --limit 1 --json headSha
+gh run list --workflow deploy-frontend.yml --status success --limit 10 --json databaseId,displayTitle
+gh run view <databaseId> --json jobs --jq '.jobs[] | "\(.name) \(.conclusion)"'
 ```
+
+Do the same for `deploy-backend.yml`.
 
 Then list what changed on the workflow's trigger paths since that SHA (or since the first commit, if it has never deployed):
 
 ```
-# Frontend: frontend/, packages/wrsm/, pnpm-lock.yaml, infra/csp.json, infra/scripts/check-csp.mjs, the workflow
-git log --oneline <sha>..HEAD -- frontend/ packages/wrsm/ pnpm-lock.yaml infra/csp.json infra/scripts/check-csp.mjs .github/workflows/deploy-frontend.yml
+# Frontend: frontend/, packages/wrsm/, pnpm-lock.yaml, pnpm-workspace.yaml, infra/csp.json, infra/scripts/check-csp.mjs, the workflow
+git log --oneline <sha>..HEAD -- frontend/ packages/wrsm/ pnpm-lock.yaml pnpm-workspace.yaml infra/csp.json infra/scripts/check-csp.mjs .github/workflows/deploy-frontend.yml
 
-# Backend: backend/, packages/wrsm/, pnpm-lock.yaml, the workflow
-git log --oneline <sha>..HEAD -- backend/ packages/wrsm/ pnpm-lock.yaml .github/workflows/deploy-backend.yml
+# Backend: backend/, packages/wrsm/, pnpm-lock.yaml, pnpm-workspace.yaml, the workflow
+git log --oneline <sha>..HEAD -- backend/ packages/wrsm/ pnpm-lock.yaml pnpm-workspace.yaml .github/workflows/deploy-backend.yml
 
 # Infra: never deployed by CI; terraform apply is the operator's (docs/STACK.md: never without confirmation)
 git log --oneline <sha>..HEAD -- infra/
 ```
 
-Check the trigger paths above against the workflows' `on.push.paths` before relying on them; if they differ, the workflow wins and the drift is a finding for `docs/deployment.md`.
+Check the paths above against each workflow's `DEPLOY_PATHS` (the gate job's env) before relying on them; if they differ, the workflow wins and the drift is a finding for `docs/deployment.md`.
 
 Flag:
 - An `infra/` change since the last deploy that the code depends on (a new env var, a new grant, a CSP source) — the operator must `terraform apply` **before** approving the code deploy.

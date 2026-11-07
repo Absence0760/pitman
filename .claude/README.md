@@ -24,7 +24,7 @@ Claude Code resolves an agent by its frontmatter `name:`, not its path, so the f
 - **`safe-edit.md`** — coder ↔ `code-reviewer` loop for security-sensitive or load-bearing changes.
 - **`polish-ui.md`** — runs `ui-polisher` on one surface.
 - **`persona.md`** — runs one, several or all `persona-*` auditors and consolidates their reports.
-- **`release-readiness.md`** — go/no-go before pushing to `main` or approving a waiting production deploy (Pitman deploys on push, through the `production` environment; there are no release tags).
+- **`release-readiness.md`** — go/no-go before pushing to `main` or approving a waiting production deploy (Pitman deploys after CI passes on a push to `main`, through the `production` environment; there are no release tags).
 - **Hunts and loops** — `audit-and-fix.md`, `bug-hunt.md`, `coverage-hunt.md`, `perf-hunt.md`, `ux-hunt.md`, `a11y-hunt.md`, `improve-round.md`, `fix-ci.md`, `endpoint-inventory.md`: stack-agnostic workflows that discover the app first.
 - **`audit/`** — focused, read-only audits; `audit/README.md` is the index:
   - Security: `secrets.md`, `xss.md`, `auth.md` (route gating and admin checks)

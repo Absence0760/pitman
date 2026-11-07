@@ -20,22 +20,45 @@ SES bounces/complaints ─► SNS pitman-ses-events ─► SQS pitman-mail-event
 
 ## How a deploy happens
 
-Two workflows, each **build** (no AWS access) then **deploy** (gated on the
-`production` GitHub environment, so a required reviewer approves every run;
-only that job can mint an OIDC token, and the deploy role's trust policy only
-accepts tokens for that environment):
+Two workflows, each **gate** (decides, no secrets), **build** (no AWS
+access) then **deploy** (gated on the `production` GitHub environment, so a
+required reviewer approves every run; only that job can mint an OIDC token,
+and the deploy role's trust policy only accepts tokens for that environment).
 
-| Workflow | Runs on | Build | Deploy |
+**A deploy runs only after CI has passed on the commit it ships.** Neither
+workflow triggers on `push`: each triggers on `workflow_run` of CI, and its
+gate job runs only when that CI run succeeded, was a push (not a pull
+request, not a fork) and was on `main` in this repository. The gate checks
+out exactly the commit CI tested (`workflow_run.head_sha`) and the build
+uses that commit too, so a red CI run never reaches the approval prompt.
+
+The gate (`scripts/deploy/deploy-gate.mjs`, tested in
+`scripts/deploy/deploy-gate.test.mjs`) then deploys only if a file under the
+workflow's `DEPLOY_PATHS` changed between **the commit the last successful
+deploy job shipped** and this one. Not against the push's before-SHA: CI
+cancels a superseded run on `main`, and the reviewer may reject a deploy, so
+the previous commit isn't necessarily what is live; comparing with what is
+live means a burst of pushes, a cancelled CI run or a rejected approval
+never drops a change. Each run records its commit in its run-name
+(`Deploy backend <sha>`), which is how the gate reads that commit back. It
+never deploys a commit older than the live one (roll back by reverting on
+`main`), and deploys if nothing was ever deployed (the Terraform stub is
+live).
+
+| Workflow | Deploys when these changed | Build | Deploy |
 |---|---|---|---|
-| `deploy-frontend.yml` | push to `main` touching `frontend/`, `packages/wrsm/`, `pnpm-lock.yaml`, `infra/csp.json`, `infra/scripts/check-csp.mjs` or itself; or manual | `pnpm build`, then `infra/scripts/check-csp.mjs` (refuses a build whose inline scripts aren't hashed in SvelteKit's meta CSP, or with an inline style the header doesn't allow) | sync `_app/immutable/` (1-year immutable cache; old hashed files kept for open tabs), sync the rest with `--delete` (60 s cache), invalidate `/*` and wait |
-| `deploy-backend.yml` | push to `main` touching `backend/`, `packages/wrsm/`, `pnpm-lock.yaml` or itself; or manual | typecheck, esbuild bundle, zip | `update-function-code`, wait, then `GET /api/health` through CloudFront |
+| `deploy-frontend.yml` | `frontend/`, `packages/wrsm/`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `infra/csp.json`, `infra/scripts/check-csp.mjs` or itself | `pnpm build`, then `infra/scripts/check-csp.mjs` (refuses a build whose inline scripts aren't hashed in SvelteKit's meta CSP, or with an inline style the header doesn't allow) | sync `_app/immutable/` (1-year immutable cache; old hashed files kept for open tabs), sync the rest with `--delete` (60 s cache), invalidate `/*` and wait |
+| `deploy-backend.yml` | `backend/`, `packages/wrsm/`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` (auth-kit's `onlyBuiltDependencies` line) or itself | typecheck, esbuild bundle, zip | `update-function-code`, wait, then `GET /api/health` through CloudFront |
 
 **Until the operator wires CI, both are inert:** every job's `if:` needs the
 repo variables below, so before they exist each run shows *skipped*, not
 failed. Terraform owns the Lambda's configuration (memory, timeout,
 concurrency, environment); the workflow only ever replaces its code.
 
-Manual run: `gh workflow run deploy-backend.yml` / `gh workflow run deploy-frontend.yml`, then approve it in the Actions tab.
+Manual run: `gh workflow run deploy-backend.yml` / `gh workflow run deploy-frontend.yml`, then approve it in the Actions tab. A manual run always deploys (whatever changed), but the gate refuses it unless it runs from `main` and CI has a successful run on that commit.
+
+`scripts/ci-guards/workflows.test.mjs` pins the trigger, the gate's
+conditions, the commit each job checks out and the path lists.
 
 ### GitHub repo variables
 
@@ -229,17 +252,16 @@ setup is Absence0760/auth-kit#2; the pitman side:
   that run later in the same job, beside the AWS session, can't read it.
   `scripts/ci-guards/workflows.test.mjs` (`pnpm test:tools`) fails if a
   workflow puts it anywhere else.
-- **The pnpm store cache holds auth-kit.** `actions/setup-node` with
-  `cache: pnpm` saves the pnpm store, auth-kit's built package included,
-  keyed on the lockfile. A `pull_request` run may restore caches saved on
-  `main`, and a fork's pull request runs the fork's own copy of the workflow,
-  so no condition in these files can stop a fork restoring that cache. While
-  the repo is private that needs a collaborator's fork and the "run workflows
-  from fork pull requests" setting, which is off. **Before the repo goes
-  public**, remove `cache: pnpm` from every workflow that installs auth-kit
-  (or move auth-kit out of the cached store), and delete the existing caches
-  (`gh cache delete --all`); fork pull requests must never be able to restore
-  a cache holding auth-kit. `dependabot.yml` reads it through its `github-auth-kit`
+- **No pnpm store cache.** `actions/setup-node` with `cache: pnpm` would
+  save the pnpm store, auth-kit's built package included, keyed on the
+  lockfile. A `pull_request` run may restore caches saved on `main`, and a
+  fork's pull request runs the fork's own copy of the workflow, so no
+  condition in these files could stop a fork of the public repo restoring
+  that cache. So no workflow that installs auth-kit caches the store (no
+  `cache:` input, no `actions/cache`); `scripts/ci-guards/workflows.test.mjs`
+  fails if one does. Installs are a little slower for it. Caches saved before
+  the change must be deleted (`gh cache delete --all`) before the repo goes
+  public (§ First deploy). `dependabot.yml` reads it through its `github-auth-kit`
   registry, and `dependabot-lockfile.yml`'s regenerate job gets it (read-only,
   with `--ignore-scripts`) so it can resolve the lockfile. `claude.yml` doesn't
   get it, so Claude's own `pnpm install` there can't fetch auth-kit.
