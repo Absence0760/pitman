@@ -38,10 +38,15 @@ name: Dependabot lockfile sync
 # doesn't see those guards. The official safe pattern — and the one CodeQL
 # accepts — is to split the work into two jobs:
 #
-#   - regenerate: NO secrets. Runs `pnpm install --lockfile-only` against the
-#     PR-head code. The worst a malicious bump could do here is produce a
-#     bogus pnpm-lock.yaml — which would then fail ci.yml's frozen-lockfile
-#     check on the next run, so a human notices.
+#   - regenerate: one secret only, AUTH_KIT_READ_TOKEN (a fine-grained token
+#     that can read the private auth-kit and nothing else), because resolving
+#     the lockfile has to fetch that git dependency. Runs `pnpm install
+#     --lockfile-only --ignore-scripts` against the PR-head code, so no
+#     dependency code runs. The worst a malicious bump could do here is produce
+#     a bogus pnpm-lock.yaml — which would then fail ci.yml's frozen-lockfile
+#     check on the next run, so a human notices. (The operator's decision on
+#     this token is Absence0760/auth-kit#2; the other answer is to exempt
+#     auth-kit bumps from this workflow and sync them by hand.)
 #
 #   - push: NO PR-head code in the working tree. Has the PAT. Downloads the
 #     lockfile from job 1's artifact, validates the PR-head ref against the
@@ -65,9 +70,9 @@ jobs:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     # No `permissions:` override — this job inherits the workflow-level
-    # `contents: read` AND has no access to any secret. Even if pnpm
-    # install somehow executed attacker code, there's nothing here to
-    # exfiltrate.
+    # `contents: read`, and its one secret is the read-only auth-kit token
+    # (Dependabot secrets store). pnpm runs with --ignore-scripts, so no
+    # dependency code executes beside it.
     steps:
       # codeql[actions/untrusted-checkout/medium]
       #
@@ -82,7 +87,7 @@ jobs:
       # Checking out the PR head is the whole point of this job, and it is
       # safe here for reasons CodeQL's heuristic cannot see: the job runs on
       # `pull_request` (not `pull_request_target`), inherits the workflow's
-      # `contents: read`, is passed no secret at all, discards the token with
+      # `contents: read`, is passed only the read-only auth-kit token, discards the GITHUB_TOKEN with
       # `persist-credentials: false`, and the only thing it runs against the
       # tree is `pnpm install --lockfile-only --ignore-scripts` — which
       # executes no lifecycle scripts. The credential-bearing half of this
@@ -98,14 +103,28 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          version: 10
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
+
+      # auth-kit is a private git dependency (backend/package.json). A fine-grained,
+      # read-only token for that one repo (Absence0760/auth-kit#2) is passed through
+      # env only, and rewrites only auth-kit's URLs for this job's git. Missing, the
+      # job fails here with the setup link instead of at an opaque clone error.
+      - name: Give git read access to the private auth-kit
+        env:
+          AUTH_KIT_READ_TOKEN: ${{ secrets.AUTH_KIT_READ_TOKEN }}
+        run: |
+          if [ -z "$AUTH_KIT_READ_TOKEN" ]; then
+            echo "::error::AUTH_KIT_READ_TOKEN is not set, so CI can't fetch the private auth-kit. Operator setup: https://github.com/Absence0760/auth-kit/issues/2"
+            exit 1
+          fi
+          for from in "ssh://git@github.com/Absence0760/auth-kit" "git@github.com:Absence0760/auth-kit" "https://github.com/Absence0760/auth-kit"; do
+            git config --global --add url."https://x-access-token:${AUTH_KIT_READ_TOKEN}@github.com/Absence0760/auth-kit".insteadOf "$from"
+          done
 
       - name: Regenerate lockfile
         # --lockfile-only updates pnpm-lock.yaml without populating

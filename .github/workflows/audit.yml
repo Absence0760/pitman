@@ -25,14 +25,28 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          version: 10
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
+
+      # auth-kit is a private git dependency (backend/package.json). A fine-grained,
+      # read-only token for that one repo (Absence0760/auth-kit#2) is passed through
+      # env only, and rewrites only auth-kit's URLs for this job's git. Missing, the
+      # job fails here with the setup link instead of at an opaque clone error.
+      - name: Give git read access to the private auth-kit
+        env:
+          AUTH_KIT_READ_TOKEN: ${{ secrets.AUTH_KIT_READ_TOKEN }}
+        run: |
+          if [ -z "$AUTH_KIT_READ_TOKEN" ]; then
+            echo "::error::AUTH_KIT_READ_TOKEN is not set, so CI can't fetch the private auth-kit. Operator setup: https://github.com/Absence0760/auth-kit/issues/2"
+            exit 1
+          fi
+          for from in "ssh://git@github.com/Absence0760/auth-kit" "git@github.com:Absence0760/auth-kit" "https://github.com/Absence0760/auth-kit"; do
+            git config --global --add url."https://x-access-token:${AUTH_KIT_READ_TOKEN}@github.com/Absence0760/auth-kit".insteadOf "$from"
+          done
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

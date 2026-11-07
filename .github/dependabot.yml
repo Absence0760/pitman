@@ -1,5 +1,16 @@
 version: 2
 
+# auth-kit (backend/package.json) is a private git dependency. Dependabot reads
+# it with the read-only fine-grained token stored as a **Dependabot** secret
+# named AUTH_KIT_READ_TOKEN (Absence0760/auth-kit#2; the same token is also an
+# Actions secret, for CI).
+registries:
+  github-auth-kit:
+    type: git
+    url: https://github.com
+    username: x-access-token
+    password: ${{secrets.AUTH_KIT_READ_TOKEN}}
+
 updates:
   # GitHub Actions used in workflows.
   - package-ecosystem: github-actions
@@ -15,8 +26,17 @@ updates:
   # Each template branch should leave the ones it needs and remove the rest.
   - package-ecosystem: npm
     directory: "/"
+    registries:
+      - github-auth-kit
     schedule:
       interval: weekly
+    # Wait 7 days after a release before proposing it (most malicious releases
+    # are found and pulled within days); security updates are exempt. auth-kit
+    # is ours and its tags carry security fixes, so it is never held back.
+    cooldown:
+      default-days: 7
+      exclude:
+        - "@absence0760/auth-kit"
     open-pull-requests-limit: 10
     groups:
       minor-and-patch:

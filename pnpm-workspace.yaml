@@ -2,9 +2,16 @@ packages:
   - frontend
   - backend
   - packages/*
-# esbuild ships its binary through a postinstall script. pnpm 10 (CI) reads
-# onlyBuiltDependencies; pnpm 11+ reads allowBuilds.
+# Dependencies allowed to run install scripts. pnpm 10 (CI and `packageManager`)
+# reads onlyBuiltDependencies; pnpm 11+ reads allowBuilds.
+# - esbuild ships its binary through a postinstall script.
+# - auth-kit (private, from git) builds its dist/ through `prepare`. pnpm 10 accepts
+#   only the exact resolution, commit included, so this line changes with every tag
+#   bump (docs/deployment.md § auth-kit): a moved tag can't run new build code
+#   without a reviewed change here.
 onlyBuiltDependencies:
   - esbuild
+  - "@absence0760/auth-kit@git+ssh://git@github.com/Absence0760/auth-kit.git#048e5165a62bac6bf7c86ec6d65394d76a6831c8"
 allowBuilds:
   esbuild: true
+  "@absence0760/auth-kit@git+ssh://git@github.com/Absence0760/auth-kit.git#048e5165a62bac6bf7c86ec6d65394d76a6831c8": true
