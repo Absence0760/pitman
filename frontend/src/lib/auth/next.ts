@@ -17,6 +17,8 @@ export function isPublicPath(pathname: string): boolean {
 
 // A stand-in origin to resolve against: whatever `next` says, it must still be on this one.
 const HERE = 'https://pitman.invalid';
+// '//', '/\\', '/%2F' or '/%5C' at the start of a path.
+const LEADING_SECOND_SLASH = /^\/(?:[/\\]|%2f|%5c)/i;
 
 /** A same-site path to go to after signing in, or `/`. */
 export function safeNext(raw: string | null | undefined): string {
@@ -32,7 +34,12 @@ export function safeNext(raw: string | null | undefined): string {
 		return '/';
 	}
 	if (url.origin !== HERE) return '/';
+	// Check what is returned, not what came in: resolving '/.//host' or '/%2e//host' collapses the dot
+	// segment and leaves '//host', which a browser reads as another origin. A leading slash or backslash,
+	// literal or percent-encoded, after the first is refused too.
+	if (LEADING_SECOND_SLASH.test(url.pathname)) return '/';
 	const path = url.pathname + url.search + url.hash;
+	if (!path.startsWith('/') || new URL(path, HERE).origin !== HERE) return '/';
 	// Back to sign-in would loop.
 	if (url.pathname.replace(/\/+$/, '') === SIGN_IN_PATH) return '/';
 	return path;

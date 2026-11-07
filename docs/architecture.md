@@ -96,7 +96,9 @@ data call without a session. Every API client fetches through `sessionFetch`
 redirect navigates inside the app and leaves IndexedDB alone, so the working
 copy (written on every change) is restored after signing in. `next` is followed
 only when it is a path on this site (`lib/auth/next.ts`), so the sign-in page
-can't be used as an open redirect. The session is an HttpOnly cookie on the
+can't be used as an open redirect; the check runs on the resolved path it
+returns, so a dot segment that collapses to `//host` (`/.//host`, `/%2e//host`)
+is refused too. The session is an HttpOnly cookie on the
 site's own origin: in dev too, through Vite's `/api` proxy (A-AUTH-9). The app
 bar shows the address, **Users** for an admin and **Sign out**; `/users` lists,
 adds, promotes, demotes and removes users and shows the audit log, with the
