@@ -81,12 +81,12 @@ runs it.
 
 ## Planned: users and sign-in
 
-Not built. Issue #28 plans an admin-kept user list with email-code sign-in
+Being built (#28 P2–P6; decided 2026-11-07). Issue #28 plans an admin-kept user list with email-code sign-in
 gating `/api/*` (except `/health`). The sign-in, session and user-management
 code comes from the shared private package `Absence0760/auth-kit` at a pinned
 tag (decision A-AUTH-0); pitman keeps its own user table, admins, SES sender,
 privacy notice and AWS account. Until #28 lands the API is open, as described
-above. The design, proposed as A-AUTH-1 … 11 in `docs/decisions.md`:
+above. The design, decided as A-AUTH-1 … 11 in `docs/decisions.md`:
 
 - **What is gated.** Every `/api/*` route but `/health` answers 401 without a
   valid session. The static site, `/methods`, `/privacy`, `/sign-in` and
