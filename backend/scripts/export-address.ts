@@ -112,7 +112,8 @@ export function accessExport(table: AddressExport, suppression: SuppressionEntry
 			'Network files and the working copy stay in your browser; Pitman’s servers never receive them. The data API receives only area outlines.',
 			'Server logs record events with at most a user id, never an address, code or token, and are deleted after 30 days.',
 			'Sessions you signed out of are in revokedSessions while you are on the user list. Once you are removed, any still held name only a session id and a user id that no longer leads to your address, until they would have expired (7 days), so they cannot be found by address.',
-			'Deleted records stay in the database’s point-in-time recovery for 35 days, and are not restored from it.'
+			'Deleted records stay in the database’s point-in-time recovery for 35 days, and are not restored from it.',
+			'A sign-in code requested in the last day may still sit in the mail queue (or, if it could not be sent, its dead-letter queue for a day), sealed with your address so no one can read it, until it expires; it cannot be searched by address.'
 		]
 	};
 }

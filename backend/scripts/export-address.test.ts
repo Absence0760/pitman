@@ -93,6 +93,8 @@ describe('admin:export', () => {
 		expect(JSON.stringify(data)).not.toContain(ADMIN);
 		// POPIA s23(1)(b): who has or has had access, so the cover note can't forget it.
 		expect(data.recipients).toEqual([...RECIPIENTS]);
+		// The sign-in mail queue (A-AUTH-14) holds the address sealed, so the answer says so instead.
+		expect(data.notHeld.join(' ')).toMatch(/mail queue/);
 		expect(data.recipients.join(' ')).toMatch(/Amazon Web Services.*admins.*owner/s);
 		const audit = store.dump().filter((i) => i.pk === 'AUDIT' && i.action === 'export');
 		expect(audit.map((a) => [a.actor, a.target])).toEqual([['operator', USER]]);
