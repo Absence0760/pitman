@@ -291,7 +291,7 @@ they were added, so everything registered after the gate needs a session.
 | `POST /auth/verify` | no | `{ email, code }` → 200 `{ user: { id, email, isAdmin } }` + `Set-Cookie`; 400 for a body without both strings; 401 for a wrong, expired or spent code; 429 + `Retry-After` when locked |
 | `POST /auth/logout` | no | → 204, revokes the session if it is valid, clears the cookie |
 | `POST /auth/logout-everywhere` | yes | → 204, signs out every session of the user, clears the cookie |
-| `GET /auth/me` | yes | → 200 `{ user: { id, email, isAdmin } }` |
+| `GET /auth/me` | yes | → 200 `{ user: { id, email, isAdmin } }`; not counted by the per-instance auth limit (every page load calls it) |
 | `GET /users` | admin | → 200 `{ users: [{ id, email, isAdmin, addedBy, addedAt, undeliverable }] }`; `undeliverable` is `{ kind: 'bounce' \| 'complaint', at }` or null |
 | `POST /users` | admin | `{ email, isAdmin? }` → 201 `{ user }` |
 | `PATCH /users/:id` | admin | `{ isAdmin }` → 200 `{ user }` |

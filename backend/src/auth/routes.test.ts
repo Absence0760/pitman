@@ -507,6 +507,25 @@ describe('request checks', () => {
 		expect((await call(a, 'GET', '/health')).headers.get('cache-control')).toBeNull();
 	});
 
+	it('never counts GET /auth/me against the per-instance auth limit, which still bounds the code route', async () => {
+		const t = testAuth();
+		await bootstrap(t);
+		const a = createApp({ auth: t.auth, rateLimits: { chirps: many, mapGrid: many, auth: { limit: 5, windowMs: 10 * 60_000 } } });
+		const cookie = await signIn(t, a); // two requests of the five
+		for (let i = 0; i < 100; i++) {
+			const res = await call(a, 'GET', '/auth/me', { cookie });
+			expect(res.status, `request ${i}`).toBe(200);
+			expect(res.headers.get('cache-control')).toBe('no-store');
+		}
+		// Still gated: without a session it is 401, never 429, however many.
+		for (let i = 0; i < 10; i++) expect((await call(a, 'GET', '/auth/me')).status).toBe(401);
+		// The exemption is GET /auth/me only: the code route spends the three left, then 429s.
+		const codes = [];
+		for (let i = 0; i < 4; i++) codes.push((await askCode(a, `user${i}@example.test`)).status);
+		expect(codes).toEqual([202, 202, 202, 429]);
+		expect((await call(a, 'POST', '/auth/me', { cookie, body: {} })).status).toBe(429);
+	});
+
 	it('answers a CORS preflight without credentials, so the cookie is never sent cross-origin', async () => {
 		const a = app(testAuth());
 		const pre = await a.request('/users', { method: 'OPTIONS', headers: { origin: TEST_ORIGIN, 'access-control-request-method': 'POST' } });

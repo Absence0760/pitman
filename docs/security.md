@@ -151,7 +151,10 @@ privacy notice and AWS account. Network files still never leave the browser.
   credentials (the browser calls the API same-origin, through CloudFront or
   the dev proxy); `Cache-Control: no-store` on `/auth/*`, `/users*` and
   `/audit`; a per-instance limit of 60 requests per 10 minutes per client on
-  those paths.
+  those paths, except `GET /auth/me`: every page load calls it, so counting it
+  would lock a busy user, or everyone behind one NAT, out of sign-in. It is
+  exempt from the WAF auth rule for the same reason, and still answers 401
+  without a session.
 - **Fails closed**: on Lambda, a missing or short key (under 32 characters),
   equal keys, a missing table, `USER_STORE=memory`, a mail transport other
   than SES, or the dev cookie leaves sign-in unconfigured, and every gated

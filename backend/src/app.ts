@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { Hono } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { csrf } from 'hono/csrf';
@@ -144,8 +144,12 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	app.use('*', jsonOnly);
 
 	// Sign-in (docs/architecture.md § Sign-in). Never cached: these answers are one person's.
-	// One limiter for all of them, so the four paths share one count per client.
-	const authLimit = rateLimit({ ...(limits.auth ?? RATE_LIMITS.auth), now });
+	// One limiter for all of them, so the four paths share one count per client, except GET /auth/me:
+	// every page load asks it who is signed in, so counting it would lock a busy user (or everyone
+	// behind one NAT) out of sign-in. It is exempt from the WAF auth rule too (infra/waf.tf), and it
+	// still needs a session (401 without one) and is still no-store.
+	const authLimiter = rateLimit({ ...(limits.auth ?? RATE_LIMITS.auth), now });
+	const authLimit: MiddlewareHandler = (c, next) => (c.req.method === 'GET' && c.req.path === '/auth/me' ? next() : authLimiter(c, next));
 	for (const path of ['/auth/*', '/users', '/users/*', '/audit']) {
 		app.use(path, async (c, next) => {
 			await next();
