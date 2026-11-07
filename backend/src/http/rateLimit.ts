@@ -16,16 +16,30 @@ export interface RateLimitOptions {
 
 /**
  * The client's address. Behind CloudFront (the only way in once CLOUDFRONT_SHARED_SECRET is set),
- * CloudFront appends the viewer's address as the **last** X-Forwarded-For entry, so that one is
- * trusted, never the first (which the client can write). Locally there is no header: every request
- * shares one bucket.
+ * CloudFront appends the viewer's address to X-Forwarded-For, so the entries on the left are the
+ * client's own writing and never trusted. Whether the Function URL then appends the address that
+ * connected to it (the CloudFront edge) is not documented, so entries equal to that connecting address
+ * (the Lambda event's `requestContext.http.sourceIp`) are dropped from the right first: the key is the
+ * viewer either way, never the edge that many unrelated viewers share. Locally there is no header:
+ * every request shares one bucket.
  */
 export function clientKey(c: Context): string {
 	const viewer = c.req.header('cloudfront-viewer-address');
 	if (viewer) return viewer.replace(/:\d+$/, '');
-	const xff = c.req.header('x-forwarded-for');
-	const last = xff?.split(',').at(-1)?.trim();
-	return last || 'local';
+	const entries = (c.req.header('x-forwarded-for') ?? '')
+		.split(',')
+		.map((e) => e.trim())
+		.filter(Boolean);
+	const source = connectingAddress(c);
+	while (source && entries.length > 1 && entries.at(-1) === source) entries.pop();
+	return entries.at(-1) || 'local';
+}
+
+/** The address that opened the connection to the Function URL, from the Lambda event (hono/aws-lambda puts it on `c.env`). */
+function connectingAddress(c: Context): string | undefined {
+	const env = c.env as { event?: { requestContext?: { http?: { sourceIp?: unknown } } } } | undefined;
+	const ip = env?.event?.requestContext?.http?.sourceIp;
+	return typeof ip === 'string' && ip ? ip : undefined;
 }
 
 export function rateLimit(opts: RateLimitOptions): MiddlewareHandler {

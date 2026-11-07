@@ -209,7 +209,10 @@ privacy notice and AWS account. Network files still never leave the browser.
   credentials (the browser calls the API same-origin, through CloudFront or
   the dev proxy); `Cache-Control: no-store` on `/auth/*`, `/users*` and
   `/audit`; a per-instance limit of 60 requests per 10 minutes per client on
-  those paths, except `GET /auth/me`: every page load calls it, so counting it
+  those paths (the client is the viewer address CloudFront appends to
+  `X-Forwarded-For`, after dropping any trailing entry equal to the address
+  that connected to the Function URL, so it is never the shared CloudFront
+  edge; `backend/src/http/rateLimit.ts` `clientKey`), except `GET /auth/me`: every page load calls it, so counting it
   would lock a busy user, or everyone behind one NAT, out of sign-in. It is
   exempt from the WAF auth rule for the same reason, and still answers 401
   without a session.
