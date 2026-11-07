@@ -127,7 +127,7 @@ These are adapted to Pitman; `pnpm check:claude` fails on a template placeholder
 - `.github/workflows/gitleaks.yml` — secret scanning on push/PR (base-owned; also `workflow_call`ed by `gitleaks-sweep.yml`)
 - `.github/workflows/gitleaks-sweep.yml` — weekly full-history secret scan; opens a `secret-scan` issue on failure
 - `.github/workflows/coverage.yml` — weekly `pnpm test:coverage` report (never a gate)
-- `.github/workflows/terraform.yml` — `infra/` fmt + validate + Trivy, credential-free
+- `.github/workflows/terraform.yml` — `infra/` fmt + validate + Trivy + mocked `terraform test`, credential-free; called from `ci.yml` (job `terraform`, on every push to main and on PRs touching `infra/`), so `CI gate` waits on it
 - `.github/workflows/pr-mergeable.yml` — flags a conflicted PR on which `ci.yml` never ran (so "CI gate" never reported)
 - `.github/workflows/fresh-clone.yml` — a clean checkout runs `pnpm install`, `pnpm dev:data:synthetic`, `pnpm dev` and both servers answer (setup-path changes, weekly, by hand; `docs/run-locally.md` § Fresh clone)
 - `.github/codeql/codeql-config.yml` — CodeQL paths-ignore (`docs/formats/examples/**`)

@@ -117,6 +117,16 @@ test('a reusable workflow asks for no broad top-level permissions its callers wo
 	for (const w of reusable) assert.doesNotMatch(w.text, /^permissions:\s*(read|write)-all\b/m, `${w.name}: top-level permissions must be scoped`);
 });
 
+test('terraform.yml runs only as a ci.yml job, so the required CI gate waits on it', () => {
+	const tf = workflows.find((w) => w.name === 'terraform.yml').text;
+	assert.doesNotMatch(tf, /^\s+(push|pull_request):/m, 'no own push/PR triggers (it would run twice and never gate)');
+	assert.match(tf, /^\s+workflow_call:/m);
+	const ci = workflows.find((w) => w.name === 'ci.yml').text;
+	assert.match(ci, /\n {2}terraform:\n(?: {4}.*\n)*? {4}uses: \.\/\.github\/workflows\/terraform\.yml/);
+	assert.match(ci, /\n {2}terraform:\n(?: {4}.*\n)*? {4}if: needs\.changes\.outputs\.infra == 'true'/);
+	assert.match(ci, /\n {2}ci-gate:\n(?: {4}.*\n)*? {4}needs: \[[^\]]*\bterraform\b[^\]]*\]/);
+});
+
 test('no workflow that installs auth-kit caches the pnpm store', () => {
 	assert.ok(installers.length >= 7, `found ${installers.map((w) => w.name)}`);
 	for (const w of installers) {
