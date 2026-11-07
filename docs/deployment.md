@@ -258,10 +258,14 @@ setup is Absence0760/auth-kit#2; the pitman side:
 - **Locked out**: `pnpm admin:clear-lock` clears an address's lock without
   changing its role; `pnpm admin:recover` makes a listed address an admin
   again (break-glass). **Erasure**: `pnpm admin:erase`, part of
-  `docs/security.md` § Erasure. Each script reads the address from stdin and
-  is audited as `operator`; the operator's credentials need the
-  `DYNAMODB_IAM_ACTIONS` on the table and `lambda:GetFunctionConfiguration` on
-  the function.
+  `docs/security.md` § Erasure. **Access request** (POPIA s23):
+  `pnpm admin:export`, part of `docs/security.md` § Access requests; it asks
+  for an absolute path outside the repository and writes the JSON there.
+  Each script reads the address from stdin and is audited as `operator`; the
+  operator's credentials need the `DYNAMODB_IAM_ACTIONS` on the table and
+  `lambda:GetFunctionConfiguration` on the function, plus
+  `ses:DeleteSuppressedDestination` for `admin:erase` and
+  `ses:GetSuppressedDestination` for `admin:export`.
 
 ## Changing the infrastructure
 

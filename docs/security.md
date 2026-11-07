@@ -249,11 +249,13 @@ privacy notice and AWS account. Network files still never leave the browser.
   durable fix is to send off the request path (a queue), so the floor never
   has to cover a send and can go back to 1 s.
 - **Operator actions** (`pnpm admin:bootstrap`, `admin:recover`,
-  `admin:clear-lock`, `admin:erase`) run with the operator's AWS profile, read
-  the address from stdin (never argv, so never shell history), read the code
-  key from the Lambda's environment rather than having anyone type it, and
-  are audited as `operator`. `admin:erase` also clears the address's SES
-  suppression itself (§ Erasure), so no command ever carries an address.
+  `admin:clear-lock`, `admin:erase`, `admin:export`) run with the operator's
+  AWS profile, read the address from stdin (never argv, so never shell
+  history), read the code key from the Lambda's environment rather than
+  having anyone type it, and are audited as `operator`. `admin:erase` also
+  clears the address's SES suppression itself (§ Erasure), and
+  `admin:export` reads it (§ Access requests), so no command ever carries an
+  address.
 
 - **Bounces and complaints are flagged.** A permanent bounce or a spam
   complaint from SES (SNS → SQS → the Lambda, the only caller) flags the
@@ -294,6 +296,93 @@ privacy notice and AWS account. Network files still never leave the browser.
   production access can take days; signing keys are visible in the Lambda's
   environment and Terraform state, the same accepted gap as the CloudFront
   secret.
+
+## Access requests
+
+A request under POPIA s23 to confirm whether Pitman holds personal
+information about someone, and for a copy of it. There is no self-serve
+"download my data"; the operator answers, in order:
+
+1. **Acknowledge it and start the clock.** Note the date it arrived. Answer
+   within 30 days (the period PAIA s56 sets for a private body; POPIA s25
+   brings PAIA's procedure to an access request); if that can't be met, tell the
+   requester before it runs out, why, and the new date, at most 30 days
+   later (PAIA s57). There is no fee: confirming whether information is held
+   is free under s23(1)(a), and Pitman charges nothing for the copy.
+2. **Verify who is asking.** Answer only to the mailbox the request is
+   about. A request from that address counts once the requester replies from
+   it to the operator's acknowledgement (which proves they read that
+   mailbox, not just that they typed it as the sender). A listed user can
+   instead sign in once after asking: the Users page's audit log then shows
+   their `signin` at that time. A request from anywhere else (another
+   address, someone acting for the person) needs proof of identity and,
+   for a representative, written authority, before anything is sent; never
+   send the answer anywhere but the address it is about. If it can't be
+   verified, send nothing and tell the requester why.
+3. **The operator runs `pnpm admin:export`**, types the address when asked,
+   then a file path outside the repository: an absolute path or one
+   starting `~/` (the script runs in `backend/`, so it refuses a relative
+   one), such as `~/github/pitman-private/access/<date>.json`. Name the file
+   by date, not by the person. `-` prints to stdout instead. It never
+   overwrites a file and writes it readable by the operator only (0600). It
+   is audited as `export` before it reads anything (target: the address if
+   listed, `unlisted:<hmac>` if not, as `clear-lock` does), so every export
+   is on record and appears in the export itself. The profile needs auth-kit's
+   `DYNAMODB_IAM_ACTIONS` on the table, `lambda:GetFunctionConfiguration`
+   and `ses:GetSuppressedDestination`; without the last it still writes the
+   export, with SES marked "not checked", says so and exits 1. The export is
+   JSON, one section per kind of record in
+   `backend/scripts/personal-records.ts`, each with what it is in words and
+   how many were found; times are UTC ISO 8601 and audit actions are in words:
+
+   | Section | What it holds |
+   |---|---|
+   | `user` | The user item: id, address, admin or not, who added them and when, when they last signed out everywhere, the delivery-problem flag |
+   | `address` | The address index item (address → user id) |
+   | `code` | A live sign-in code's expiry and wrong tries (never its hash) |
+   | `throttle` | Codes sent in the last 24 h, wrong codes in a row, the last wrong code, any lock |
+   | `auditActor` | Audit rows where they acted: sign-ins, wrong codes, user-list changes, under their address or as `unlisted:<hmac>` / `erased:<hmac>` |
+   | `auditTarget` | Audit rows about them: added, made or unmade admin, removed, mail bounced or complained, flag cleared, lock cleared, an earlier export |
+   | `addedBy` | Users they added (when, and whether as admin); those users' addresses withheld |
+   | `sesSuppression` | SES's suppression entry: reason (`BOUNCE` / `COMPLAINT`) and when, or none |
+
+   Another person's address in any of these (the admin who added them, a
+   user they added) reads "another person (withheld)"; `operator` and
+   `system` stay as they are. The export also lists what is *not* held:
+   network files (they never leave the browser), log lines (no address),
+   signed-out session ids (user id only, 7 days), and point-in-time recovery
+   (35 days). Its coverage is the erasure's: `personal-records.test.ts` runs
+   `admin:erase` over a store holding every kind and fails if erasure touches
+   any record the export doesn't report.
+4. **Check what sits outside the table.** Nothing here should name the
+   address; a hit is a bug (A-AUTH-11) to fix, and to mention in the answer.
+   Read the address into a variable so it never lands in shell history:
+   - **The bounce queue's DLQ** (`pitman-mail-events-dlq`, 14 days): an SES
+     bounce or complaint that failed 5 times keeps SES's notification, which
+     names the recipient.
+     `aws sqs get-queue-attributes --queue-url "$(aws sqs get-queue-url --queue-name pitman-mail-events-dlq --region af-south-1 --profile pitman --query QueueUrl --output text)" --attribute-names ApproximateNumberOfMessages --region af-south-1 --profile pitman`
+     prints how many it holds: if not 0, the DLQ alarm is already open; read the
+     messages for that alarm and, if one names the address, add its event
+     type and time to the answer. The main queue (4 days) is drained in
+     seconds.
+   - **The Lambda's logs** (`/aws/lambda/pitman-backend`, 30 days):
+     `read -r A && aws logs filter-log-events --log-group-name /aws/lambda/pitman-backend --filter-pattern "\"$A\"" --region af-south-1 --profile pitman --query 'length(events)'`
+     prints how many lines hold the address (expected 0) without printing
+     any of them.
+   - **SES** keeps nothing else per recipient for Pitman: the configuration
+     set publishes only bounces and complaints, to SNS → SQS (`infra/ses.tf`).
+   Not yet checked (no account, #22): whether CloudTrail records the address
+   as a request parameter of `GetSuppressedDestination` or of the log
+   search; check it at the first access request and note the answer here
+   and in § Erasure.
+5. **Send it** to the verified address only: the export file, and a short
+   cover note saying what each section is, that other people's addresses
+   are withheld, what is not held, and that they may ask for correction
+   (POPIA s23(2) requires saying so) or deletion (§ Erasure) or complain to the Information Regulator (the
+   privacy notice's contacts). Then delete the operator's copy; the `export`
+   audit row is the record that it was made.
+6. **Record it**: the dates received, verified and answered, that steps 3
+   and 4 were done, and anything found outside the table (not the address).
 
 ## Erasure
 

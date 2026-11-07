@@ -175,6 +175,19 @@ show the containers; `pnpm dev:auth:down` stops them, and DynamoDB Local runs
 in memory, so the table goes with it (seed again after the next `up`).
 auth-kit's own `pnpm dynamo:up` uses port 8000 too: run one at a time.
 
+The operator scripts (`pnpm admin:*`, `docs/deployment.md` § Sign-in) run
+against DynamoDB Local when `DYNAMODB_ENDPOINT` is set, taking the table and
+code key from the environment instead of the Lambda's (they don't read
+`.env.development`), and skip SES. To try an access export
+(`docs/security.md` § Access requests) on the seeded table:
+
+```bash
+DYNAMODB_ENDPOINT=http://127.0.0.1:8000 USERS_TABLE=pitman-users-local AUTH_CODE_KEY=dev-only-code-key-not-a-secret-0123456789 pnpm admin:export
+```
+
+Type `admin@example.test`, then a path outside the repository such as
+`/tmp/export.json` (or `-` for stdout).
+
 The backend's DynamoDB tests (`src/auth/dynamo.test.ts`, the sign-in races)
 run when `DYNAMODB_ENDPOINT` is set and skip, saying so, when it isn't:
 
