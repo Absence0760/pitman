@@ -46,7 +46,7 @@ mark planned pieces that have no Terraform yet as **not yet built**:
 ```
 browser → CloudFront (+ WAF) → S3 (SPA, Pitman's bucket)
                             → /tiles/* → IC-WBT tiles bucket (cross-account OAC, tiles_range function)
-        → API Lambda (Function URL today; CloudFront /api/* later)
+                            → /api/* → API Lambda (Function URL, AWS_IAM via the lambda OAC + shared secret)
               → IC-WBT mirror bucket rnl/ (CHIRPS Zarr), reference bucket (WAAS MAP grid), tiles bucket (terrain.pmtiles)
               → Pitman's own bucket (CHELSA MAP grid, D-5; quaternary boundaries once licensed, D-1)
               → Cape Farm Mapper (ArcGIS REST, token from Secrets Manager)
@@ -79,11 +79,12 @@ Produce a **worst-case table** first, then findings.
 3. **Caching.** Responses that are pure functions of (dataset revision,
    geometry, dates) should be cacheable at CloudFront or in the Lambda;
    flag a hot path that refetches the same chunks per request.
-4. **Edge and abuse.** The WAF covers CloudFront only; the Function URL is
-   reached directly (`infra/README.md` § Architecture note) and
-   `authorization_type = "NONE"` still invokes and bills the Lambda on every
-   hit: what bounds that (reserved concurrency, a CloudFront `/api/*`
-   behaviour with a shared secret or OAC for Lambda URLs)? Unauthenticated
+4. **Edge and abuse.** The WAF covers CloudFront only, so the Function URL
+   must not be reachable around it: it is `AWS_IAM` behind the `lambda` OAC
+   (R4-I6, #33), so a direct hit is refused before it invokes or bills the
+   Lambda, with the app's shared-secret check behind that. Flag anything that
+   reopens it (a `NONE` URL, a public or unscoped invoke permission, an OAC
+   set to `never`). Unauthenticated
    routes that do expensive work (delineation, a large CHIRPS read) before
    validating input.
 5. **Egress.** `/tiles/*` from Pitman's distribution: the 2 MiB-per-request

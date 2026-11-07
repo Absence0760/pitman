@@ -110,14 +110,35 @@ runs it.
   cannot change IAM, configuration or anything else.
 - **S3 site bucket** blocks public access, enforces TLS, and is readable only
   by this distribution through OAC (`AWS:SourceArn`).
-- **The API is reachable only through CloudFront.** The Function URL is
-  public by AWS design; CloudFront adds `X-CloudFront-Shared-Secret` (a
-  Terraform-generated 48-character value) and the app answers 403 to any
-  request without it, so the WAF and its rate limits cover the API. On
-  Lambda an unset or empty secret fails closed: every request is 503 and
-  `{"event":"cloudfront_secret.unset"}` is logged at start (`app.ts`), so a
-  lost variable can't open the Function URL past the WAF. Not
-  Lambda OAC: it would need the viewer to sign every POST body's hash.
+- **The API is reachable only through CloudFront, behind two locks**
+  (issue #33, decision R4-I6):
+  1. **Origin access control.** The Function URL is `AWS_IAM`: Lambda
+     admits only SigV4-signed requests, and its resource policy lets only
+     `cloudfront.amazonaws.com` sign, on behalf of this distribution
+     (`source_arn`), for both `lambda:InvokeFunctionUrl` and
+     `lambda:InvokeFunction` (`infra/s3_cloudfront.tf`). A call that skips
+     CloudFront is refused by Lambda's front end with 403 before the
+     function runs, so it is never billed, never reaches the app and never
+     bypasses the WAF; the Lambda invocation metrics don't count it. The
+     cost of this: CloudFront signs the body hash the viewer states, and
+     Lambda takes no unsigned payloads, so the frontend sends
+     `x-amz-content-sha256` (Web Crypto SHA-256 of the exact body) on
+     every request other than GET and HEAD
+     (`frontend/src/lib/api/content-hash.ts`, used by `sessionFetch` and the
+     sign-in client). A client that leaves it off, or states a wrong hash,
+     gets 403 from Lambda, not from the app. A forged hash buys nothing: it
+     only makes the caller's own request fail.
+  2. **The shared secret.** CloudFront adds `X-CloudFront-Shared-Secret` (a
+     Terraform-generated 48-character value) and the app answers 403 to any
+     request without it. On Lambda an unset or empty secret fails closed:
+     every request is 503 and `{"event":"cloudfront_secret.unset"}` is
+     logged at start (`app.ts`). Kept although the OAC makes it redundant
+     on a correct stack, because it still holds when the first lock
+     doesn't: an OAC detached or set to `never` sign, the URL put back on
+     `NONE` (by mistake, or on purpose to rule the OAC out during an
+     incident), or a resource-policy statement added by hand. It costs
+     nothing and needs no client change; retire it only with a reason
+     recorded against R4-I6.
 - **WAF** (us-east-1): per-IP rate limits, 100 per 5 minutes on
   `/api/auth/*` except `/api/auth/me` (which every page load calls), 300 on
   `/api/*` and 2 000 on every path. Before matching, the path is URL-decoded,

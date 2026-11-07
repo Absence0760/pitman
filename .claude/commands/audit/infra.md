@@ -36,7 +36,7 @@ Pitman's blast radius runs through this stack: a permissive deploy policy makes 
 4. **CloudFront** (`s3_cloudfront.tf`, `security_headers.tf`, `csp.json`).
    - `redirect-to-https`; `minimum_protocol_version` TLSv1.2_2021 or stricter; OAC on the S3 origin.
    - A response-headers policy on every behaviour: HSTS (2 years), nosniff, `DENY` framing, COOP, Permissions-Policy, and the strict CSP. The site CSP has no `'unsafe-eval'`, no style `'unsafe-inline'`, `connect-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`; the API's is `default-src 'none'`. `infra/tests/stack.tftest.hcl` (`site_csp_is_strict`) and `infra/scripts/check-csp.mjs` pin it; a new source needs its reason in `docs/security.md`.
-   - The `/api/*` origin sends `X-CloudFront-Shared-Secret` (a `random_password`) and strips `/api` (`functions/api_strip_prefix.js`); `origin_read_timeout` equals the Lambda timeout.
+   - The `/api/*` origin is signed by the `lambda` OAC (`signing_behavior = "always"`), sends `X-CloudFront-Shared-Secret` (a `random_password`) and strips `/api` (`functions/api_strip_prefix.js`); `origin_read_timeout` equals the Lambda timeout; the behaviour keeps `Managed-AllViewerExceptHostHeader` (a forwarded viewer Host breaks the OAC signature).
    - Every prerendered page has a `PAGES` entry in `functions/spa_rewrite.js` (tested by `infra/scripts/cloudfront-functions.test.mjs`).
    - `price_class` is `PriceClass_200` (or `_100`), not `_All`.
 
@@ -45,7 +45,7 @@ Pitman's blast radius runs through this stack: a permissive deploy policy makes 
 6. **Lambda** (`lambda.tf`).
    - `runtime = "nodejs24.x"`, `architectures = ["arm64"]`; memory, timeout and `reserved_concurrent_executions` from `variables.tf`, whose validations reject an unreserved function, a timeout outside 25–30 s and unbounded log retention (pinned by `infra/tests/stack.tftest.hcl`).
    - The role may write only its own log group, the user table's six auth-kit actions, `ses:SendEmail` on the identity and configuration set, receive/delete on the mail-events queue, and the cross-account reads. Never `Scan`, `Batch*` or `ses:DeleteSuppressedDestination`.
-   - The Function URL is `NONE` auth by design; the shared secret in the app is the gate.
+   - The Function URL is `AWS_IAM` behind the `lambda` OAC on the `/api/*` origin (R4-I6, #33), and its only resource-policy grants are CloudFront's `lambda:InvokeFunctionUrl` and `lambda:InvokeFunction`, each with `source_arn` = this distribution (`s3_cloudfront.tf`, pinned by `api_origin_access_control`). A `NONE` URL, a public `aws_lambda_permission` or an unscoped CloudFront grant is High. The app's shared-secret check stays as the second lock.
    - `lifecycle.ignore_changes` is minimal (the code the deploy workflow replaces), nothing that hides configuration drift.
 
 7. **Cross-account grants** (`lambda.tf`, `docs/data.md` § Cross-account access). `GetObject` on the CHIRPS mirror's `rnl/*` (and the root `zarr.json` when enabled) and one MAP-grid key; `ListBucket` only under `rnl/`; every statement conditioned on `s3:ResourceAccount` = IC-WBT's account. No KMS, no other prefix. With no IC-WBT account configured, nothing is granted (`defaults_grant_nothing_cross_account`).

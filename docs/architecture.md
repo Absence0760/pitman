@@ -51,6 +51,7 @@ pitman/
 │       ├── lib/results/      Results and plots: logic in targets, analysis, charts, statistics-table, downloads (.ts, unit-tested); plot.ts is the uPlot action; spec docs/theory/statistics.md
 │       ├── lib/shell/        The frame around the steps: app bar, landing page, step rail (steps.ts holds its wording), the fold round each optional card, the design-token guards; rules in docs/design/ui-playbook.md
 │       ├── lib/auth/         Sign-in on the frontend (#28 P5): api.ts (the /auth, /users and /audit client), session.svelte.ts (who is signed in, runes; store.ts holds the app's one), next.ts (the public routes and the open-redirect guard on `next`), unauthorized.ts (`sessionFetch`: every API client reports a 401 through it), audit.ts (the audit log in words)
+│       ├── lib/api/          content-hash.ts: `x-amz-content-sha256` (the body's SHA-256) on every request but GET and HEAD, which the API's origin access control needs (#33, R4-I6); `sessionFetch` and the sign-in client fetch through it
 │       ├── lib/privacy/      contact.ts: the POPIA responsible party's name and contact address, read only by the privacy notice
 │       └── routes/           +layout.svelte: the sign-in gate; +page.svelte: the app shell; methods/, privacy/, sign-in/ and users/ (each prerendered; each needs a PAGES entry in infra/functions/spa_rewrite.js)
 ├── backend/
@@ -68,7 +69,7 @@ pitman/
 │   ├── main.tf               Providers, state backend
 │   ├── variables.tf
 │   ├── outputs.tf
-│   ├── s3_cloudfront.tf      Bucket + OAC + cert + CloudFront + Route 53
+│   ├── s3_cloudfront.tf      Bucket + both OACs (site, API) + CloudFront's invoke permissions + cert + CloudFront + Route 53
 │   ├── lambda.tf             Function + exec role + log group + Function URL
 │   ├── oidc.tf               Deploy policy on the estate bootstrap's GitHub OIDC role
 │   └── terraform.tfvars.example
@@ -92,7 +93,11 @@ public. Every other route asks `GET /api/auth/me` when it loads
 page renders meanwhile: the gate is for convenience, and the API refuses every
 data call without a session. Every API client fetches through `sessionFetch`
 (`lib/auth/unauthorized.ts`), so a 401 from any of them later does the same;
-`unauthorized.test.ts` refuses a client that builds an API URL without it. The
+`unauthorized.test.ts` refuses a client that builds an API URL without it.
+`sessionFetch` also states each body's SHA-256 (`lib/api/content-hash.ts`),
+which CloudFront's signed requests to the `AWS_IAM` Function URL need in
+production (#33, R4-I6); the sign-in client's ungated calls fetch through the
+same wrapper. Locally the header goes to the dev server, which ignores it. The
 redirect navigates inside the app and leaves IndexedDB alone, so the working
 copy (written on every change) is restored after signing in. `next` is followed
 only when it is a path on this site (`lib/auth/next.ts`), so the sign-in page
@@ -278,7 +283,8 @@ store, the operator actions) are the private package `@absence0760/auth-kit`
 | `routes.ts` | The routes below |
 | `mailEvents.ts` | SES bounce and complaint notifications from SQS: flags the listed user (`recordDeliveryProblem`), fails a record to redeliver on a 409 |
 
-Middleware order in `app.ts`: the CloudFront shared secret → CORS → `csrf()`
+Middleware order in `app.ts` (in production behind Lambda's own check of
+CloudFront's OAC signature, R4-I6): the CloudFront shared secret → CORS → `csrf()`
 → same-origin writes (`http/sameOrigin.ts`: a non-GET/HEAD/OPTIONS request
 needs `Sec-Fetch-Site: same-origin` or an allowed `Origin`) → `GET /health` → body limit → JSON only (415) → `no-store` and a rate limit
 on `/auth/*`, `/users*`, `/audit` → the public sign-in routes → **the gate**
@@ -362,7 +368,8 @@ Layout, by topic:
 - `src/http/`: the `{ area }` body check, the result cache, the rate limit,
   error responses.
 
-Request path: CloudFront shared secret (timing-safe compare) → CORS → 2 MiB
+Request path: Lambda's own IAM check of CloudFront's OAC signature (before
+the function runs; R4-I6) → CloudFront shared secret (timing-safe compare) → CORS → 2 MiB
 body limit → per-client rate limit → geometry check (≤ 50 000 positions,
 ≤ 1 000 rings, bounded check work) → the result cache, keyed by (geometry
 hash, copy, manifest revision) for CHIRPS and (geometry hash, grids) for the
@@ -389,7 +396,11 @@ cells route isn't cached: it is a slice of memory.
 - **Frontend**: S3 bucket (private) + CloudFront with OAC. ACM cert in
   `us-east-1`. Route 53 A + AAAA alias records for `pitman.jaredhoward.com`
   (no `www`).
-- **Backend**: AWS Lambda with Function URL (no API Gateway). Single
+- **Backend**: AWS Lambda with Function URL (no API Gateway), `AWS_IAM`
+  auth behind CloudFront's origin access control: only this distribution's
+  signed requests invoke it, and the browser states each body's SHA-256 in
+  `x-amz-content-sha256` for the signature (issue #33, R4-I6;
+  `docs/security.md` § Infrastructure). Single
   `dist/lambda.mjs` ESM bundle via esbuild. A second trigger, an SQS event
   source mapping, delivers SES bounces and complaints to the same function.
 - **Users (#28)**: DynamoDB table `pitman-users` and an SES sender

@@ -13,7 +13,7 @@ Pitman's legitimate traffic is a handful of hydrologists. A finding is anything 
 ### 1. Who can call the costly routes
 
 - Every data route sits behind the session gate (`requireSession` in `backend/src/app.ts`): an anonymous flood gets 401 before any read. `backend/src/auth/routes.test.ts` proves it by enumerating `app.routes`.
-- The Function URL answers only CloudFront: the shared-secret check in `backend/src/app.ts` (403 without it, 503 on Lambda when unset), so the WAF can't be bypassed.
+- The Function URL answers only CloudFront: it is `AWS_IAM` behind the `lambda` OAC (`infra/s3_cloudfront.tf`, R4-I6), so a direct hit is refused by Lambda before it is invoked or billed; behind that, the shared-secret check in `backend/src/app.ts` (403 without it, 503 on Lambda when unset). The WAF can't be bypassed.
 
 ### 2. Per-instance and per-IP limits
 
