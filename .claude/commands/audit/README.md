@@ -1,6 +1,6 @@
 # Audit commands
 
-Project-curated slash commands for running security, dependency, infra, and cost-control audits across the repo. Each is read-only by default — they report findings, they don't apply fixes without explicit confirmation.
+Slash commands for focused, read-only audits of Pitman. Each reports findings; none applies a fix without explicit confirmation.
 
 Invoke from a Claude Code session as `/audit/<name>`.
 
@@ -10,56 +10,68 @@ Invoke from a Claude Code session as `/audit/<name>`.
 
 | Command | What it checks |
 |---|---|
-| [/audit/secrets](secrets.md) | SOPS encryption status, plaintext-in-git history, server-only env in client paths, GitHub Actions secret hygiene |
-| [/audit/xss](xss.md) | Svelte `{@html}`, portable-text rendering, dynamic href/src, server-rendered email HTML |
+| [/audit/secrets](secrets.md) | No secret file in this repo, plaintext in git history, server-only env in the client bundle, the auth-kit token's reach in CI, workflow secret hygiene |
+| [/audit/xss](xss.md) | Loaded network files, GeoJSON areas and upstream strings rendered by Svelte; `{@html}`, href/src, SVG; the strict CSP |
+| [/audit/auth](auth.md) | The session gate and its `PUBLIC` list, admin checks on `/users*` and `/audit`, cookie flags, fail-closed config |
 
 ### Health
 
 | Command | What it checks |
 |---|---|
-| [/audit/deps](deps.md) | `pnpm audit` per workspace, Dependabot coverage, GitHub Actions pin status, pnpm override hygiene |
-| [/audit/infra](infra.md) | Terraform stacks under `infra/` — IAM least-privilege, OIDC subject conditions, S3 PAB, CloudFront security headers, KMS, drift hygiene, cost guardrails |
-| [/audit/cost-controls](cost-controls.md) | Per-IP rate limits, API Gateway throttling, AWS budget alarms, <email-service> / <CMS> quota headroom, denial-of-wallet paths |
+| [/audit/deps](deps.md) | `pnpm audit`, Dependabot coverage, the auth-kit pin, action SHA pinning, install-script allowlist, Node/runtime agreement |
+| [/audit/infra](infra.md) | `infra/` — the deploy policy, buckets and OAC, CloudFront headers and CSP, WAF, Lambda bounds, cross-account grants, the user table, SES, alarms |
+| [/audit/cost-controls](cost-controls.md) | Reserved concurrency, per-instance and WAF limits on the costly data routes, budget and alarms, log retention, CloudFront egress, SES volume |
+| [/audit/licenses](licenses.md) | Dependency licences in the shipped bundles, data attribution, what must never be committed |
+| [/audit/docs-drift](docs-drift.md) | README, `CLAUDE.md`, `docs/` and `.claude/` against the code, scripts, workflows and Terraform |
+
+### Privacy and accessibility
+
+| Command | What it checks |
+|---|---|
+| [/audit/popia](popia.md) | POPIA posture: the privacy notice against what the code keeps, lawful basis, retention, residency, data-subject rights |
+| [/audit/data-export-completeness](data-export-completeness.md) | Whether a POPIA access request can be answered completely |
+| [/audit/account-deletion-completeness](account-deletion-completeness.md) | The erasure procedure in `docs/security.md` § Erasure against the code |
+| [/audit/third-party-data-flows](third-party-data-flows.md) | Every outbound hop that carries personal data, as a sub-processor list |
+| [/audit/cookie-consent](cookie-consent.md) | The one strictly necessary cookie and no third-party loads |
+| [/audit/accessibility](accessibility.md) | WCAG 2.2 AA on Pitman's screens |
 
 ### Dispatcher
 
 | Command | What it does |
 |---|---|
-| [/audit/all](all.md) | Spawns the full sweep in parallel + consolidated report. Optional arg: `security` / `deps` / `infra` / `cost`. |
+| [/audit/all](all.md) | Runs secrets, xss, deps, infra and cost-controls in parallel and consolidates one report. Optional arg: `security` / `deps` / `infra` / `cost`. |
 
 ## Conventions
 
-- Every audit is **read-only by default**. The deliverable is a findings report, not a diff.
-- Findings are grouped by severity: **Critical / High / Medium / Low**.
-- Each command is a **self-contained prompt** — runnable from a fresh session with no prior context.
-- Cross-references: findings tie back to `docs/security.md § Risk <n>` whenever they map to the documented risk register, and to the per-workspace `CLAUDE.md` rules they violate.
+- Every audit is **read-only**. The deliverable is a findings report, not a diff.
+- Findings are grouped by severity: **Critical / High / Medium / Low**, and every report ends with a clean list.
+- Each command is a **self-contained prompt**, runnable from a fresh session.
+- Findings cite the rule they break: a `docs/security.md` section, a `docs/decisions.md` ID, or a CLAUDE.md rule.
+- No audit decrypts, prints or reads a secret value, calls AWS or load-tests the API.
 
 ## Agent delegation
 
-The **secrets** and **xss** commands delegate to the `repo-security-auditor` agent (under `.claude/agents/`). That agent has the six trust boundaries baked in (frontend ↔ user, backend ↔ caller, backend ↔ the <CMS>, backend ↔ <payment-processor>, backend ↔ <email-service>, CI/CD ↔ AWS) plus the audit-area routing table — it picks up the project's conventions without re-reading them every run.
-
-The **deps**, **infra**, and **cost-controls** commands use a `general-purpose` agent with the command body as the prompt — they cross-cut code + IaC + docs and don't fit a specialised auditor.
-
-`/audit/all` spawns one agent per area in parallel.
+- `repo-security-auditor`: secrets, xss, auth. It has Pitman's trust boundaries baked in.
+- `infra-auditor`: infra and cost-controls, in more depth on spend and the cross-account grants.
+- `compliance-auditor`: popia, data-export-completeness, account-deletion-completeness, third-party-data-flows, cookie-consent, accessibility.
+- A `general-purpose` agent with the command body as the prompt: deps, licenses. `Explore`: docs-drift.
 
 ## Diff-time enforcement (complementary)
 
-For per-PR enforcement (as opposed to periodic broad sweeps), use:
-
-- [/check](../check.md) — pre-commit gate: `code-reviewer` + `test-gap-checker` + `doc-hygiene-checker` in parallel against the working diff.
-- [/safe-edit](../safe-edit.md) — coder ↔ reviewer loop for non-trivial changes (~2-3x cost; use for security-sensitive or order-flow changes).
-- [/release-readiness](../release-readiness.md) — pre-tag gate before publishing a release (working tree, CI, per-workspace deltas, open audit signals).
-
-These are for per-PR / pre-deploy enforcement; the audit commands here are for periodic broad sweeps.
+- [/check](../check.md) — pre-commit gate: `code-reviewer` + `test-gap-checker` + `doc-hygiene-checker` in parallel on the working diff.
+- [/safe-edit](../safe-edit.md) — coder ↔ reviewer loop for load-bearing changes.
+- [/release-readiness](../release-readiness.md) — before pushing to `main` or approving a production deploy.
+- `wrsm-engine-reviewer` — for any `packages/wrsm` change.
 
 ## When to run
 
-- **Before a release** — `/audit/all` once, fix Critical / High before tagging. Then `/release-readiness`.
-- **After bumping a dependency major** — `/audit/deps` + `/audit/secrets`.
+- **Before approving a production deploy with infra or auth changes** — `/audit/infra` and `/audit/auth`, then `/release-readiness`.
+- **After bumping a dependency major or the auth-kit tag** — `/audit/deps` + `/audit/secrets`.
 - **After editing anything under `infra/`** — `/audit/infra` before `terraform apply`.
-- **After adding a new backend route or email path** — `/audit/secrets` (catches new env-var leaks) + `/audit/xss` (catches new HTML email surfaces).
-- **Periodically (monthly)** — `/audit/all` to catch slow-moving drift. The scheduled `audit.yml` workflow covers `pnpm audit` weekly; `/audit/all` adds the other audits to the picture.
+- **After adding a data route** — `/audit/auth` + `/audit/cost-controls`.
+- **After changing what is stored about a user** — `/audit/popia` + `/audit/account-deletion-completeness`.
+- **Periodically (monthly)** — `/audit/all`. The scheduled `audit.yml` covers `pnpm audit` weekly.
 
 ## What's intentionally not here
 
-Stack-specific audits (Postgres RLS, Edge Function JWTs, mobile-twin parity, paywall gates, privacy-zone clipping, schema-codegen drift, metadata-key registries, architecture-guard tests, etc.) are deliberately omitted from this base set. Add them as your project grows in that direction — start by writing the checklist as `.claude/commands/audit/<area>.md` and delegate to `repo-security-auditor` (for security surfaces) or `compliance-auditor` (for privacy / legal surfaces).
+The template's database (RLS, migrations), WebSocket-hub and LLM-endpoint audits: Pitman has none of those surfaces. Add an audit as `.claude/commands/audit/<area>.md` when a new surface appears, delegate it to the matching agent, list it here and in `.claude/README.md`, and keep `pnpm check:claude` green.

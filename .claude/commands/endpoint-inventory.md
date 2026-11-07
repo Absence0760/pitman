@@ -41,7 +41,7 @@ Then two short cross-reference sections against the client/consumers:
 
 ## Notes
 
-- This is a generator, not an audit. It records the current state; it does not grade auth coverage or tenant-isolation discipline. For findings, pair it with **`/audit/auth`** (route gating + tenant-scope discipline), and hand the table to the **`persona-integrator`** agent, which consumes the integrator-facing surface it surfaces.
+- This is a generator, not an audit. It records the current state; it does not grade auth coverage or tenant-isolation discipline. For findings, pair it with **`/audit/auth`** (route gating and admin checks; Pitman has no tenants), and hand the table to the **`persona-integrator`** agent, which consumes the integrator-facing surface it surfaces.
 - An **API-contract** check (request/response shapes matching across the backend types ↔ client ↔ data model, where there's no codegen) is the natural companion when one exists.
 - **Re-run after adding or moving routes** — a new mount or a new handler makes the inventory stale immediately, and any consumer working from it starts from an out-of-date list.
 

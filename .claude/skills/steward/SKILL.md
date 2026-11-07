@@ -33,11 +33,12 @@ workflows prove nothing. Resolve the conflict first.
 
 ## Docs-only changes
 
-`.github/workflows/ci.yml` skips a PR that touches only `docs/**`, `**/*.md` or `.claude/**`
-(`paths-ignore`); `.github/workflows/ci-gate-docs.yml` runs instead, with
-the same `doc-links` job and a `CI gate` that waits on it. A push to `main`
-always runs the whole of `.github/workflows/ci.yml`. So a docs or `.claude/` change is checked
-by `pnpm check:doc-links`: run it before pushing.
+`.github/workflows/ci.yml` runs on every PR. Its `changes` job skips the heavy jobs
+(`test`, `e2e`) on a PR that touches only `docs/**`, `.claude/**` or `*.md`;
+`doc-links`, `env-isolation` and `claude-tooling` always run, and the `CI gate`
+waits on all of them (a skipped job counts as passing). A push to `main` always
+runs everything. So before pushing a docs or `.claude/` change, run
+`pnpm check:doc-links && pnpm check:claude`.
 
 ## Reproduce a failed job locally
 
@@ -50,7 +51,7 @@ Run the same command the job runs, scoped to what failed. Install once with
 |---|---|
 | `.github/workflows/ci.yml` / Test and typecheck (`test`) | `pnpm check`, then `pnpm test` (one workspace: `pnpm test:wrsm`, `pnpm test:wrsm-cli`, `pnpm backend test`, `pnpm frontend test`), then `pnpm test:tools`. CI runs `pnpm test` with DynamoDB Local, so `backend/src/auth/dynamo.test.ts` runs there and skips locally unless you start it: `pnpm dev:auth:up && DYNAMODB_ENDPOINT=http://127.0.0.1:8000 pnpm backend test` |
 | `.github/workflows/ci.yml` / End-to-end (`e2e`) | `pnpm --filter @pitman/frontend exec playwright install chromium` once, then the failing spec only: `pnpm --filter @pitman/frontend exec playwright test e2e/<spec>.spec.ts > e2e.log 2>&1` (all of them: `pnpm test:frontend:e2e`). It builds the site and serves it with `vite preview` on 8888 (`frontend/playwright.config.ts`) |
-| `.github/workflows/ci.yml` and `.github/workflows/ci-gate-docs.yml` / Doc links (`doc-links`) | `pnpm check:doc-links`. Fix the link at the source (the failure names the slug to write for a numbered heading); never add an exemption for a real dead link |
+| `.github/workflows/ci.yml` / Doc links (`doc-links`) | `pnpm check:doc-links`. Fix the link at the source (the failure names the slug to write for a numbered heading); never add an exemption for a real dead link |
 | `.github/workflows/terraform.yml` / fmt, validate (`check`) | the version in `infra/.terraform-version`, then `terraform fmt -check -recursive -diff infra`, `terraform -chdir=infra init -backend=false -input=false && terraform -chdir=infra validate`, `terraform -chdir=infra test` (mocked providers, no credentials; `infra/tests/`), `node --test infra/scripts/*.test.mjs`. Never `apply` |
 | `.github/workflows/terraform.yml` / Trivy IaC scan (`trivy-iac`) | `trivy config --severity CRITICAL,HIGH .` from the repo root if Trivy is installed (it isn't on the workstation by default; the private-repo run writes its findings to the job summary instead). Report-only (exit code 0); an accepted finding carries `#trivy:ignore:<ID>` with the reason beside the resource |
 | `.github/workflows/fresh-clone.yml` / `install-and-dev` | in a clean clone with Node from `.tool-versions`: `pnpm install --frozen-lockfile && pnpm dev:data:synthetic && pnpm dev`, then `curl -fsS http://127.0.0.1:3001/health` (`{"ok":true}`), `curl -fsS http://localhost:7777/` and `curl -fsS http://localhost:7777/api/health`. The dev log is the `fresh-clone-dev-log` artifact (`docs/run-locally.md` § Fresh clone) |

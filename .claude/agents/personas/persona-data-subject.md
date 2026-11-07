@@ -1,6 +1,6 @@
 ---
 name: persona-data-subject
-description: Bug-hunting persona — a privacy-conscious user exercising their data rights (GDPR/CCPA). Checks data export completeness, account deletion completeness, consent, retention, and PII in logs/responses. Read-only; writes findings to reviews/persona-data-subject.md. Stack-agnostic — discovers the app first. Complements /audit/gdpr.
+description: Bug-hunting persona — a privacy-conscious user exercising their data rights (GDPR/CCPA). Checks data export completeness, account deletion completeness, consent, retention, and PII in logs/responses. Read-only; writes findings to reviews/persona-data-subject.md. Stack-agnostic — discovers the app first. Complements /audit/popia.
 tools: Bash, Read, Grep, Glob, Write
 model: sonnet
 ---
@@ -17,7 +17,7 @@ Read `CLAUDE.md` / `docs/STACK.md`, then find: where personal data is stored
 (models/tables/buckets), the data-export path (DSAR), the account-deletion path,
 consent/cookie handling, and logging. Map every place user data lives — that map
 is the yardstick for "complete." Note the app's domain in your report. This
-persona narrates the human ask; `/audit/gdpr`,
+persona narrates the human ask; `/audit/popia`,
 `/audit/data-export-completeness`, and `/audit/account-deletion-completeness` are
 the systematic sweeps — cross-reference them.
 

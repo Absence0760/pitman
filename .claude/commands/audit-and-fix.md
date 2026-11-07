@@ -54,7 +54,7 @@ Pick the right layer per the repo's conventions — the project's test layers (u
 
 - Run the project's type/lint gate for the layer you touched (e.g. `pnpm check`) and the **new** tests.
 - Run the **nearby existing** tests that exercise the same path to prove no regression — report the pass/fail counts faithfully.
-- If the change is **load-bearing** (auth, tenancy, migrations, the money/payment path, webhook handlers, PII, approval/RBAC), run the `code-reviewer` agent on the diff — and `repo-security-auditor` for a security-sensitive area — and apply or push back on its findings before committing. For migration work, route through `/safe-migration` / the `migration-coordinator` agent.
+- If the change is **load-bearing** (sign-in and the admin routes, the session gate, the SES bounce handler, personal data, the CloudFront shared secret, the cross-account data reads), run the `code-reviewer` agent on the diff — and `repo-security-auditor` for a security-sensitive area — and apply or push back on its findings before committing. For engine work (`packages/wrsm`), also run the `wrsm-engine-reviewer` agent.
 
 ### 6. Commit (scoped) — never push
 

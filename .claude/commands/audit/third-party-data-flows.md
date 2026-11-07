@@ -1,45 +1,40 @@
 ---
-description: Map every outbound personal-data hop into a sub-processor list ready for the Privacy Policy
+description: Map every outbound personal-data hop into a sub-processor list ready for the privacy notice
 ---
 
-Audit every outbound flow of personal data to a third-party processor. Output is the input to a GDPR Art 30 Record of Processing Activities and the sub-processor list of a Privacy Policy.
+Audit every outbound flow from Pitman and what personal data, if any, it
+carries. The output is the sub-processor list behind the privacy notice's
+"Where" section (`frontend/src/routes/privacy/+page.svelte`).
 
 ## Goal
 
-A regulator's first ask in any incident is "show me your sub-processor list". A user's most-clicked Privacy Policy section is "who does my data go to?". Both need the same artefact: a table of provider × data × purpose × region × DPA + opt-out path. This audit produces it by walking the codebase.
+The Information Regulator's first question in an incident, and a user's
+first question in the notice, is "who gets my data?". Pitman's answer today is
+"AWS only". This audit checks the code still makes that true.
 
 ## What to check
 
-1. **Provider inventory.** Grep for every outbound endpoint by base URL:
-   - `strava.com`, `connect.garmin.com`, `parkrun.com`
-   - `api.anthropic.com`, `api.openai.com` (or `OPENAI_BASE_URL` for local Ollama)
-   - `api.revenuecat.com`, `api.stripe.com`
-   - `api.maptiler.com`, `*.tiles.mapbox.com` if any
-   - `sentry.io`, `*.ingest.sentry.io`
-   - an external weather API (`api.open-meteo.com` — elevation for route builder)
-   - Google APIs (`googleapis.com`, `accounts.google.com`)
-   - Apple (`appleid.apple.com`)
-   - AWS endpoints (S3, CloudFront, Lambda, KMS, Route 53) — surfaced via Terraform
-   - the auth/data platform
-   - <hosted-worker-platform> (your worker host) — Go worker + the routing service internal
-2. **Per-flow analysis.** For each:
-   - What user data leaves? (email, IP, sensor data, payment intent, prompt text, error stack — list yours)
-   - From where? (web client, backend route, Go worker, mobile native)
-   - To which region? (US east-1, EU west-1, ap-southeast-2)
-   - DPA / SCC URL?
-   - Opt-out mechanism if any? (user disconnects integration, disables session-replay (if used), etc.)
-   - Legal basis? (consent / contract / legitimate interest)
-3. **Tiles.** the map provider logs the requesting IP + viewport coordinates. Every web map render → the map provider log. Treat tile fetches as a personal-data hop.
-4. **Coach prompts.** `an AI-call entrypoint (e.g. an LLM streaming endpoint)` + the Lambda variant build a prompt that includes <sensitive-data summary built for the AI call>. That's HEALTH data sent to the AI provider. Confirm:
-   - JWT-gated (only owner's data goes out)
-   - Region of the API endpoint
-   - the AI provider's data-retention statement
-   - alternate-provider fallback (if used) data-retention statement
-5. **the error monitor.** the error monitor sees `user_id` (pseudonymous uuid), URL paths, error stack traces. Replay (if enabled) sees DOM. Confirm replay is OFF by default + opt-in.
-6. **Third-party webhook payloads.** A third-party service POSTs event ids to our webhook endpoint. Each event triggers a fetch of the full activity. The data goes from external service → backend worker → the data platform. The flow direction is *inbound*, but it creates a *retention* obligation here that mirrors the upstream source.
-7. **OAuth handoffs.** social OAuth ID tokens are presented to the auth provider, which validates against the provider. Personal data exposed = email + uid + provider profile fields. Confirm the validation flow doesn't log the token.
-8. **Email.** Local dev uses the local mail capture tool. Prod uses the email provider — confirm which (<email-service>? another transactional email provider? in-house?). Each is a sub-processor.
-9. **Sub-sub-processors.** AWS uses sub-processors of its own (CloudFront edge nodes by region). The project's Privacy Policy needs to point users to AWS's sub-processor list rather than enumerate it.
+1. **Inventory.** Grep `backend/src/` and `frontend/src/` for `fetch(`, AWS
+   SDK clients (`@aws-sdk/*`), `nodemailer` and hard-coded `https://` hosts.
+   Expect: DynamoDB (the user table), SES (sign-in mail, `backend/src/auth/mail.ts`),
+   S3 (the CHIRPS mirror and MAP grid, read cross-account from IC-WBT's
+   buckets), the DEM, and Cape Farm Mapper's ArcGIS layers
+   (`backend/src/cfm/arcgis.ts`). In the browser: only the site's own origin
+   (`infra/csp.json`, `connect-src 'self'`).
+2. **Per flow.** What leaves (an address, a code, an IP, an area outline)?
+   From where (browser, Lambda)? To which region? Under which terms (AWS's
+   DPA; Cape Farm Mapper's terms)?
+3. **Area outlines.** The data API and Cape Farm Mapper receive geometry
+   only, never a network file or a user id. Confirm nothing personal (the
+   address, the session) is forwarded upstream.
+4. **CloudFront and the WAF.** Every request passes through them worldwide
+   (IP, cookie); sampled requests are off. Confirm in `infra/waf.tf` and that
+   the notice discloses it.
+5. **Mail.** SES in af-south-1; bounces and complaints come back through SNS
+   and SQS (`infra/ses.tf`). Local dev uses Mailpit or the console, never a
+   real service.
+6. **Sub-sub-processors.** AWS's own; the notice should point to AWS rather
+   than enumerate them.
 
 ## Report
 
@@ -47,22 +42,20 @@ Output two artefacts:
 
 ### (A) Sub-processor table
 
-| Provider | Data | Region | Purpose | DPA / SCC | Opt-out |
+| Provider | Data | Region | Purpose | Terms | Notice line |
 |---|---|---|---|---|---|
-
-One row per flow. The user pastes this into the Privacy Policy.
 
 ### (B) Findings
 
-- **Critical** — a sub-processor on the list that the user does not currently disclose anywhere.
-- **High** — a flow that bypasses an opt-out the user has asserted in Settings (e.g. user disabled the error monitor but it still fires).
-- **Medium** — missing region detail or unclear data-retention period.
-- **Low** — undocumented sub-sub-processor chain.
+- **Critical**: a flow carrying personal data to a provider the notice doesn't name.
+- **High**: personal data forwarded upstream to a data source (Cape Farm Mapper, IC-WBT's buckets).
+- **Medium**: a region or retention the notice gets wrong.
+- **Low**: an undocumented sub-sub-processor chain.
 
-End with a **clean** section: outbound endpoints in the codebase where you confirmed no personal data leaves.
+End with a **clean** section: outbound endpoints where you confirmed no personal data leaves.
 
 ## Delegate to
 
-Use the `compliance-auditor` agent: `"Map every outbound personal-data flow in this monorepo into a sub-processor list."`
+Use the `compliance-auditor` agent: `"Audit area: third-party-data-flows."`
 
-Read-only. Output the table + findings. Don't recommend a default Privacy Policy — that's `intl-legal-doc-reviewer`'s job once the user drafts one.
+Read-only. Output the table and findings. Legal readings of a provider's terms go to `za-legal-researcher`.

@@ -25,3 +25,18 @@
 .claude/agents/persona-international-user.md
 .claude/agents/persona-new-user.md
 .claude/agents/persona-power-user.md
+
+# Template pieces with no meaning in pitman, deleted on purpose (2026-11-07,
+# with the `check:claude` guard): no SQL database (so no migration
+# coordinator), no WebSocket hub, no LLM endpoint; the GDPR audit is POPIA's
+# here (`.claude/commands/audit/popia.md`).
+.claude/commands/safe-migration.md
+.claude/commands/audit/websocket-hub.md
+.claude/commands/audit/llm-endpoint.md
+.claude/commands/audit/gdpr.md
+
+# ci.yml always runs on pull requests and skips its heavy jobs on docs-only
+# changes itself (its `changes` job, as in project-water-management), so the
+# docs-only stand-in gate isn't needed, and it would let a .claude/-only PR
+# merge without the `claude-tooling` guard.
+.github/workflows/ci-gate-docs.yml

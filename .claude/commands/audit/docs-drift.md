@@ -49,9 +49,12 @@ delta.
 6. **`.claude/README.md` and `CLAUDE.md` § Available Claude tooling**
    against `.claude/agents/`, `.claude/commands/`, `.claude/hooks/` and
    `.claude/settings.json`: every listed item exists, every item that
-   exists is listed, and template placeholders (`<payment-processor>`,
-   `<CMS>`, `<email-service>`) are flagged where a Pitman tool relies on
-   them.
+   exists is listed. `pnpm check:claude`
+   (`scripts/ci-guards/check_claude_tooling.mjs`) already fails on a
+   leftover template placeholder or a cited path that doesn't exist; run it
+   and report what it says, then look for what it can't see: an agent that
+   describes a service, route or rule Pitman doesn't have in words the
+   guard doesn't match.
 
 7. **Specs and decisions.** IDs cited in code comments and docs
    (`D…`, `OQ-…`, `U-…`, `A…`, `B…`) exist in `docs/decisions.md` or the

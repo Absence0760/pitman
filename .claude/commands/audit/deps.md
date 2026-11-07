@@ -6,85 +6,67 @@ Sweep dependencies across every workspace for known CVEs and version drift; veri
 
 ## What this is
 
-The repo has four workspaces with their own `package.json`:
+One pnpm workspace (`pnpm-workspace.yaml`) with four packages:
 
-- `frontend/` — SvelteKit 5, Vite, vitest
-- `backend/` — Hono, `<cms-client>`, esbuild, vitest
-- `studio/` — <CMS> Studio v5, React 19
-- `infra/` — no Node deps (Terraform); skip
+- `frontend/` (`@pitman/frontend`) — SvelteKit 5, Vite, MapLibre, uPlot, fflate, vitest, Playwright; ships to the public static bundle
+- `backend/` (`@pitman/backend`) — Hono, the AWS SDK v3 clients (S3, DynamoDB, SESv2), zarrita, the private `@absence0760/auth-kit` (git dependency at a pinned tag), esbuild, vitest; ships in the Lambda bundle
+- `packages/wrsm` (`@pitman/wrsm`) — the engine; no runtime dependencies by design
+- `packages/wrsm-cli` (`@pitman/wrsm-cli`) — the `wrsm` command
+- `infra/` — Terraform, no Node dependencies; its providers are pinned in `infra/main.tf` and `infra/.terraform.lock.hcl`
 
 Plus:
 
-- **Root `package.json`** — workspace orchestration + pnpm overrides (currently `js-yaml@<3.14.2` and `cookie@<0.7.0`)
-- **GitHub Actions** — `.github/workflows/*.yml` — action SHA pinning vs `@v6` floating tags
-- **Dependabot config** — `.github/dependabot.yml` — must cover every workspace + GitHub Actions
+- **`pnpm-workspace.yaml`** — the install-script allowlist (`onlyBuiltDependencies` / `allowBuilds`: esbuild, and auth-kit at its exact commit)
+- **GitHub Actions** — `.github/workflows/*.yml`, every `uses:` pinned by SHA with a version comment
+- **Dependabot** — `.github/dependabot.yml`
 
-There's already a scheduled `audit.yml` workflow that runs `pnpm audit` weekly and files an issue on findings. This command does the equivalent sweep on demand plus the supply-chain checks the scheduled job doesn't cover (Dependabot config drift, workflow pinning).
+The scheduled `.github/workflows/audit.yml` runs `pnpm audit` weekly and files an issue on findings. This command does the same sweep on demand plus the supply-chain checks the scheduled job doesn't cover.
 
 ## What to check
 
-1. **`pnpm audit` per workspace.** Run from the repo root:
-   ```
-   pnpm -r --filter @pitman/frontend audit --audit-level=moderate
-   pnpm -r --filter @pitman/backend  audit --audit-level=moderate
-   pnpm -r --filter @pitman/studio   audit --audit-level=moderate
-   ```
-   Collect moderate+ findings. For each: package, version, CVE, fix version, manifest path. The canonical resolution shape in this repo is the cookie override added in commit `79befae` — a transitive that upstream hasn't fixed gets pinned via the root `package.json`'s `pnpm.overrides` block.
+1. **`pnpm audit`.** From the repo root: `pnpm audit --audit-level=moderate` (the lockfile is shared, so one run covers every workspace). For each moderate+ finding: package, version, advisory, fix version, which workspace pulls it in (`pnpm why <pkg> -r`), and whether it reaches a shipped bundle (frontend build, Lambda bundle) or only dev tooling.
 
-2. **Open audit issue.**
-   ```
-   gh issue list --label dependency-audit --state open
-   ```
-   If one exists, surface its title — that's the scheduled `audit.yml`'s most recent flagged set. Confirm whether the findings match what `pnpm audit` returns today.
+2. **Open audit issue.** `gh issue list --label dependency-audit --state open`: if one exists, compare its findings with today's.
 
-3. **Dependabot coverage.** Read `.github/dependabot.yml`. The expected shape is:
-   - `package-ecosystem: "npm"` × 3 — one entry per workspace at `/frontend`, `/backend`, `/studio`.
-   - `package-ecosystem: "github-actions"` × 1 — `directory: "/"` (Dependabot scans `.github/workflows/` from this root).
-   - Schedule weekly; grouped where it reduces PR churn (svelte-ecosystem, <cms>, types, <backend-framework>).
-   - **No npm entry at `/`** — the root `package.json` only holds workspace orchestration + pnpm overrides; nothing for Dependabot to bump.
-   - Flag any missing workspace entry, any non-weekly schedule, or any ungrouped flood of related packages.
+3. **Dependabot coverage.** Read `.github/dependabot.yml`:
+   - `npm` at `/` (one root lockfile covers every workspace), with the `github-auth-kit` registry so auth-kit tag bumps arrive, and a cooldown that excludes auth-kit.
+   - `github-actions` at `/`.
+   - `terraform` at `/infra`.
+   - An ecosystem with no manifest in the repo (for example `pip` with no Python files) is noise; flag it as Low.
+   - Weekly schedules, grouped minor/patch updates.
 
-4. **Lockfile-sync workflow exists.** Dependabot edits `<workspace>/package.json` but never touches the root `pnpm-lock.yaml`, which breaks `ci.yml`'s `pnpm install --frozen-lockfile`. The compensating workflow is `.github/workflows/dependabot-lockfile.yml` — it regenerates the lockfile on every Dependabot PR and commits the result back so CI retriggers and the PR can go green without manual intervention. Verify:
-   - The workflow file exists.
-   - It uses `DEPENDABOT_LOCKFILE_PAT` (a fine-grained PAT with `Contents: Write`), not `GITHUB_TOKEN` — GitHub blocks the latter from retriggering `pull_request` events.
-   - The PAT is scoped to this repo and has an expiry. If it's stale or revoked, dep PRs pile up unmerged.
+4. **Lockfile-sync workflow.** Dependabot can't regenerate the root `pnpm-lock.yaml` when it needs the private auth-kit; `.github/workflows/dependabot-lockfile.yml` does, using the `DEPENDABOT_LOCKFILE_PAT` Dependabot secret (pushes made with `GITHUB_TOKEN` don't retrigger CI). Confirm it exists and is wired; the PAT's expiry is a manual check for the operator (don't read it).
 
-5. **GitHub Actions pinning.** Grep `.github/workflows/` for `uses: <action>@<ref>`.
-   - Floating refs (`@main`, `@v6`) are supply-chain risks for actions that can be force-pushed by the publisher.
-   - SHA pins (`@<sha>`) are the safer default for workflows that touch `${{ secrets.* }}` or deploy.
-   - Flag floating refs on `deploy-frontend.yml`, `deploy-backend.yml`, `deploy-studio.yml`, and `claude.yml` (which has access to project tokens). `ci.yml`, `security.yml`, `audit.yml` are lower-stakes but worth surfacing too.
+5. **Auth-kit pin.** `backend/package.json` pins `github:Absence0760/auth-kit#v<tag>`; the commit in `pnpm-workspace.yaml`'s allowlist matches the lockfile's resolution, so a moved tag can't run new build code without a reviewed change.
 
-6. **Override hygiene.** Read the root `package.json` `pnpm.overrides` block. For each override:
-   - Confirm it's still needed — has upstream shipped a fix that lets us drop the override? Pull the latest version of the package from npm and check.
-   - Confirm the override range is tight (e.g. `^0.7.0` not `>=0.7.0` — see the cookie override discussion).
-   - Confirm there's a comment or commit message explaining *why* (the original CVE).
+6. **GitHub Actions pinning.** Grep `.github/workflows/` for `uses:`. Every third-party action pinned to a 40-character SHA with a `# vX.Y.Z` comment. A floating ref (`@v6`, `@main`) on a deploy workflow (`deploy-frontend.yml`, `deploy-backend.yml`) or `claude.yml` is High; elsewhere Medium.
 
-7. **Node engines.** Root `package.json` declares `"engines": { "node": ">=22" }`. Confirm:
-   - CI workflows use `node-version: 22` (not `18`, not `20`, not unspecified).
-   - Lambda runtime in `infra/lambda.tf` matches (`nodejs22.x` or newer; `nodejs20.x` deprecates 2026-Q2).
+7. **Install scripts.** Only the packages in the `pnpm-workspace.yaml` allowlist may run install scripts; a new entry needs a reason in the comment above it.
 
-8. **Local toolchain drift.** Optional but worth flagging if obvious: check the user's `~/.bashrc.d/` setup gives a recent enough pnpm + node. The `update-all` function in `~/.bashrc.d/32-functions-update.sh` covers system tools; if local node/pnpm versions are wildly out of sync with what CI uses, flag it.
+8. **Node and runtimes.** Root `package.json` `engines.node` (`>=24`), every workflow's `node-version`, and the Lambda's `runtime` in `infra/lambda.tf` (`nodejs24.x`) agree; the backend's esbuild `--target` doesn't fall behind the runtime by more than it must.
+
+9. **TypeScript majors.** `docs/STACK.md` § Conventions and gotchas explains why the frontend stays on TypeScript 6 while the other workspaces use 7. A Dependabot bump that moves the frontend to 7 before sveltejs/kit#17537 and sveltejs/language-tools#3063 land is a finding, not an upgrade.
+
+10. **Licences.** Out of scope here; `/audit/licenses` covers them.
 
 ## Report
 
-- **Critical** — known-exploited CVE in a runtime path (the production Lambda or the deployed frontend bundle), not just a dev-only transitive.
-- **High** — a CVE with a fix available; a deploy workflow using a floating action ref; Dependabot missing an entire workspace.
-- **Medium** — version drift with no CVE but the upgrade is overdue; loose override range; Node engines mismatch between repo and Lambda runtime.
-- **Low** — undocumented override, floating ref in a non-deploy workflow, dependabot grouping that could be tightened.
+- **Critical**: a known-exploited CVE in a shipped path (the Lambda bundle or the frontend bundle), not a dev-only transitive.
+- **High**: a CVE with a fix available in a shipped path; a deploy workflow on a floating action ref; Dependabot missing an ecosystem the repo uses.
+- **Medium**: overdue upgrade with no CVE; Node version mismatch between `engines`, CI and the Lambda runtime; an install-script allowlist entry with no reason.
+- **Low**: a Dependabot ecosystem with nothing to update; a floating ref in a non-deploy workflow; grouping that could be tightened.
 
-For each finding: package + version + advisory link + the file to change + the upgrade command (or the override expression).
+For each finding: package + version + advisory link + the file to change + the upgrade command.
 
 ## Useful starting points
 
-- `package.json` (root) — workspace orchestration + overrides
-- `frontend/package.json`, `backend/package.json`, `studio/package.json`
-- `.github/workflows/*.yml`
-- `.github/dependabot.yml`
-- `infra/lambda.tf` — runtime declaration
-- The latest `audit.yml` workflow run for the current findings set
+- `package.json` (root), `pnpm-workspace.yaml`, `pnpm-lock.yaml`
+- `frontend/package.json`, `backend/package.json`, `packages/wrsm/package.json`, `packages/wrsm-cli/package.json`
+- `.github/workflows/*.yml`, `.github/dependabot.yml`
+- `infra/lambda.tf`, `infra/main.tf`
 
 ## Delegate to
 
-Use a `general-purpose` agent — the work is mostly running each tool in turn and reading the output. Pass this file as the prompt body.
+Use a `general-purpose` agent: the work is mostly running each tool in turn and reading the output. Pass this file as the prompt body.
 
 Read-only audit. Recommend upgrades; don't apply them without instruction (a major bump is its own conversation).

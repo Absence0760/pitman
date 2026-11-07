@@ -234,13 +234,15 @@ test('the byte-exact WRSM examples are never read (CLAUDE.md rule 6)', () => {
 	assert.ok(SKIPPED_TREES.includes('docs/formats/examples/'));
 });
 
-// ci.yml skips docs-only PRs (paths-ignore) and ci-gate-docs.yml covers them, so each must run the
-// checker and gate on it; a template sync that resets ci-gate-docs.yml to its trivial gate fails here.
-for (const name of ['ci.yml', 'ci-gate-docs.yml']) {
+// ci.yml runs on every PR (a `changes` job skips only the heavy jobs on a docs-only one), so the
+// doc-link job must run there with no `changes` gate, and the CI gate must wait on it.
+for (const name of ['ci.yml']) {
 	test(`${name} runs the doc-link check and its CI gate waits on it`, () => {
 		const text = readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), 'utf8');
 		assert.match(text, /\n {2}doc-links:\n/);
 		assert.match(text, /run: node scripts\/ci-guards\/check_doc_links\.mjs\n/);
 		assert.match(text, /\n {2}ci-gate:\n(?: {4}.*\n)*? {4}needs: \[[^\]]*\bdoc-links\b[^\]]*\]/);
+		const job = text.slice(text.indexOf('\n  doc-links:\n'), text.indexOf('\n  env-isolation:\n'));
+		assert.doesNotMatch(job, /\bif:|needs:/, 'doc-links must not wait on or be skipped by `changes`');
 	});
 }
