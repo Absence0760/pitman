@@ -96,7 +96,9 @@ data call without a session. Every API client fetches through `sessionFetch`
 redirect navigates inside the app and leaves IndexedDB alone, so the working
 copy (written on every change) is restored after signing in. `next` is followed
 only when it is a path on this site (`lib/auth/next.ts`), so the sign-in page
-can't be used as an open redirect. The session is an HttpOnly cookie on the
+can't be used as an open redirect; the check runs on the resolved path it
+returns, so a dot segment that collapses to `//host` (`/.//host`, `/%2e//host`)
+is refused too. The session is an HttpOnly cookie on the
 site's own origin: in dev too, through Vite's `/api` proxy (A-AUTH-9). The app
 bar shows the address, **Users** for an admin and **Sign out**; `/users` lists,
 adds, promotes, demotes and removes users and shows the audit log, with the
@@ -252,29 +254,33 @@ add `dotenv` imports to any module reachable from `lambda.ts`.
 `server.ts` or the synthetic-data writers end up in it.
 
 `lambda.ts` also takes SQS batches: SES bounce and complaint notifications
-(SES configuration set → SNS → SQS) go to `auth/mailEvents.ts`, which logs
-each as `mail.bounce` or `mail.complaint` without the address; anything else
-goes to the Hono app.
+(SES configuration set → SNS → SQS) go to `auth/mailEvents.ts`, which flags
+each permanently bounced or complaining recipient on the user list (auth-kit's
+`recordDeliveryProblem`, at SES's event time) and logs the record as
+`mail.bounce` or `mail.complaint` with counts, never the address. A 409 or a
+store error puts the record in `batchItemFailures`, so SQS redelivers it;
+anything else goes to the Hono app.
 
 ### Sign-in
 
 Issue #28, A-AUTH-0 … 11. The rules (codes, sessions, the user list, the
 store, the operator actions) are the private package `@absence0760/auth-kit`
-(`v0.1.2`, installed from git); `src/auth/` is only pitman's wiring:
+(`v0.2.0`, installed from git); `src/auth/` is only pitman's wiring:
 
 | Module | Does |
 |---|---|
 | `config.ts` | Reads the environment (`docs/deployment.md` § Lambda environment); on Lambda any gap is a problem, and the gate answers 503 |
 | `store.ts` | auth-kit's memory store (`USER_STORE=memory`, local dev and tests) or its DynamoDB store (`dynamodb`, the Lambda or DynamoDB Local) |
-| `mail.ts` | The email text and the transports: `console` (dev, prints the code), `ses` (SES v2 with the configuration set); `mail.smtp.ts` (nodemailer to Mailpit) is built by `server.ts` only, so it never enters the Lambda bundle |
+| `mail.ts` | The email text and the transports: `console` (dev, prints the code), `ses` (SES v2 with the configuration set; 2 attempts, 1 s each); `mail.smtp.ts` (nodemailer to Mailpit) is built by `server.ts` only, so it never enters the Lambda bundle |
 | `cookies.ts` | `__Host-pitman_session` from auth-kit; the dev-only plain `pitman_session` |
 | `runtime.ts` | Binds auth-kit, mailer and cookie into the one object `createApp({ auth })` takes |
 | `middleware.ts` | The gate: `verifySession` on the cookie, sets `c.var.user`, 401 `{ error }` |
 | `routes.ts` | The routes below |
-| `mailEvents.ts` | SES bounce and complaint notifications from SQS |
+| `mailEvents.ts` | SES bounce and complaint notifications from SQS: flags the listed user (`recordDeliveryProblem`), fails a record to redeliver on a 409 |
 
 Middleware order in `app.ts`: the CloudFront shared secret → CORS → `csrf()`
-→ `GET /health` → body limit → JSON only (415) → `no-store` and a rate limit
+→ same-origin writes (`http/sameOrigin.ts`: a non-GET/HEAD/OPTIONS request
+needs `Sec-Fetch-Site: same-origin` or an allowed `Origin`) → `GET /health` → body limit → JSON only (415) → `no-store` and a rate limit
 on `/auth/*`, `/users*`, `/audit` → the public sign-in routes → **the gate**
 → the session routes and every data route. Hono runs handlers in the order
 they were added, so everything registered after the gate needs a session.
@@ -286,10 +292,11 @@ they were added, so everything registered after the gate needs a session.
 | `POST /auth/logout` | no | → 204, revokes the session if it is valid, clears the cookie |
 | `POST /auth/logout-everywhere` | yes | → 204, signs out every session of the user, clears the cookie |
 | `GET /auth/me` | yes | → 200 `{ user: { id, email, isAdmin } }` |
-| `GET /users` | admin | → 200 `{ users: [{ id, email, isAdmin, addedBy, addedAt }] }` |
+| `GET /users` | admin | → 200 `{ users: [{ id, email, isAdmin, addedBy, addedAt, undeliverable }] }`; `undeliverable` is `{ kind: 'bounce' \| 'complaint', at }` or null |
 | `POST /users` | admin | `{ email, isAdmin? }` → 201 `{ user }` |
 | `PATCH /users/:id` | admin | `{ isAdmin }` → 200 `{ user }` |
 | `DELETE /users/:id` | admin | → 204 |
+| `POST /users/:id/clear-delivery-problem` | admin | `{}` → 200 `{ user }` with `undeliverable: null` (auth-kit's `clearDeliveryProblem`, audited as `mail.cleared`; a user with no flag is answered as is) |
 | `GET /audit?limit=N` | admin | → 200 `{ rows: [{ at, actor, action, target?, admin? }] }`, newest first (N from 1 to 1000, default 500) |
 
 auth-kit's refusals keep their status and message as `{ error }`: 400 (bad

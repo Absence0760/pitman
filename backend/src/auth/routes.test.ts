@@ -9,6 +9,7 @@ import { eventsLogged, guardLogs } from '../__tests__/logGuard.js';
 import { ADMIN, bootstrap, cookieFor, TEST_ORIGIN, testAuth, type TestAuth } from '../__tests__/session.js';
 import { NOT_CONFIGURED } from './middleware.js';
 import { authRuntimeFromEnv, type AuthRuntime } from './runtime.js';
+import { AUTH_MESSAGES } from './routes.js';
 
 guardLogs();
 
@@ -214,6 +215,104 @@ describe('POST /auth/code and POST /auth/verify', () => {
 	});
 });
 
+describe('the alarm signals (auth-kit listed / capReached / limit: logs only, never the answer)', () => {
+	/** The runtime with some of auth-kit's calls replaced. */
+	const withKit = (t: TestAuth, kit: Partial<TestAuth['auth']['kit']>): { auth: AuthRuntime } => ({ auth: { ...t.auth, kit: { ...t.auth.kit, ...kit } } });
+	const answer = async (res: Response) => ({ status: res.status, retryAfter: res.headers.get('retry-after'), body: await res.json() });
+
+	/** Ten sends a day apart enough to pass the 60 s gap and the hourly limit: the day's budget. */
+	async function spendTheDay(t: TestAuth, a: App, email: string) {
+		const answers = [];
+		for (let i = 0; i < 10; i++) {
+			answers.push(await answer(await askCode(a, email)));
+			t.clock.advance(i === 4 ? 60 * 60_000 : 61_000);
+		}
+		t.clock.advance(60 * 60_000);
+		answers.push(await answer(await askCode(a, email)));
+		return answers;
+	}
+
+	it('logs auth.send_capped on the send that spends a listed address’s day, and answers exactly as for an unlisted one', async () => {
+		const t = testAuth();
+		await bootstrap(t);
+		const a = app(t);
+		const unlisted = await spendTheDay(t, a, STRANGER);
+		expect(eventsLogged()).toEqual([]);
+		const listed = await spendTheDay(t, a, ADMIN);
+		expect(eventsLogged()).toEqual([{ event: 'auth.send_capped' }]);
+		expect(t.outbox).toHaveLength(10);
+		expect(listed.map((r) => ({ ...r, retryAfter: r.retryAfter && 'set' }))).toEqual(unlisted.map((r) => ({ ...r, retryAfter: r.retryAfter && 'set' })));
+		expect(listed.slice(0, 10).every((r) => r.status === 202)).toBe(true);
+		expect(listed[10]).toMatchObject({ status: 429, body: { error: AUTH_MESSAGES.throttled } });
+	});
+
+	it('logs auth.locked for a listed address’s lock only, and answers the same either way', async () => {
+		const t = testAuth();
+		await bootstrap(t);
+		const a = app(t);
+		const lock = async (email: string) => {
+			for (let i = 0; i < 4; i++) await verify(a, email, '000000');
+			return answer(await verify(a, email, '000000'));
+		};
+		const unlisted = await lock(STRANGER);
+		expect(eventsLogged()).toEqual([]);
+		const listed = await lock(ADMIN);
+		expect(eventsLogged()).toEqual([{ event: 'auth.locked' }]);
+		expect(listed).toEqual(unlisted);
+		expect(listed).toEqual({ status: 429, retryAfter: '60', body: { error: AUTH_MESSAGES.locked } });
+	});
+
+	it('never lets listed, capReached or limit change an answer', async () => {
+		const t = testAuth();
+		const codeAnswer = async (r: unknown) => answer(await askCode(app(withKit(t, { requestCode: async () => r as never })), ADMIN));
+		const verifyAnswer = async (r: unknown) => answer(await verify(app(withKit(t, { verifyCode: async () => r as never })), ADMIN, '000000'));
+		const groups = [
+			[{ status: 'accepted', delivery: null, listed: false }, { status: 'accepted', delivery: null, listed: true }, { status: 'accepted', delivery: null, capReached: true, listed: true }, { status: 'accepted', delivery: null, capReached: true, listed: false }].map(codeAnswer),
+			(['interval', 'hour', 'day'] as const).flatMap((limit) => [true, false].map((listed) => codeAnswer({ status: 'throttled', retryAfterMs: 61_000, limit, listed }))),
+			[true, false].map((listed) => codeAnswer({ status: 'locked', retryAfterMs: 61_000, listed })),
+			[true, false].flatMap((listed) => [true, false].map((lockStarted) => verifyAnswer({ status: 'locked', retryAfterMs: 61_000, lockStarted, listed })))
+		];
+		for (const group of groups) {
+			const answers = await Promise.all(group);
+			for (const a of answers) expect(a).toEqual(answers[0]);
+		}
+	});
+
+	it('logs auth.slow_code_request, without the address, when a send runs past the floor, and still answers 202', async () => {
+		const t = testAuth({ mailDelayMs: 2_500 });
+		await bootstrap(t);
+		const a = app(t);
+		const res = await askCode(a, ADMIN);
+		expect(res.status).toBe(202);
+		expect(await res.json()).toEqual({});
+		expect(t.outbox).toHaveLength(1);
+		expect(t.sleeps).toEqual([]);
+		expect(eventsLogged()).toEqual([{ event: 'auth.slow_code_request' }]);
+	});
+
+	it('logs nothing when the send fits inside the floor', async () => {
+		const t = testAuth({ mailDelayMs: 400 });
+		await bootstrap(t);
+		expect((await askCode(app(t), ADMIN)).status).toBe(202);
+		expect(t.sleeps).toEqual([600]);
+		expect(eventsLogged()).toEqual([]);
+	});
+
+	it('logs an unexpected error by name and code, never its message, which may hold an address', async () => {
+		const t = testAuth();
+		const admin = await bootstrap(t);
+		const failing = withKit(t, {
+			listUsers: async () => {
+				throw Object.assign(new Error(`ConditionalCheckFailed for user ${ADMIN}`), { name: 'TransactionCanceledException', code: 'TransactionCanceledException' });
+			}
+		});
+		const res = await call(app(failing), 'GET', '/users', { cookie: await cookieFor(t, admin) });
+		expect(res.status).toBe(500);
+		expect(await res.json()).toEqual({ error: 'Internal server error' });
+		expect(eventsLogged()).toEqual([{ event: 'unhandled_error', error: 'TransactionCanceledException', code: 'TransactionCanceledException' }]);
+	});
+});
+
 describe('signing out', () => {
 	it('revokes the session and clears the cookie; a request without one is still 204', async () => {
 		const t = testAuth();
@@ -332,6 +431,43 @@ describe('request checks', () => {
 		expect(sameOrigin.status).toBe(415);
 		expect((await call(a, 'POST', '/chirps/monthly', { headers: { 'content-type': 'application/xml' }, body: '<a/>' })).status).toBe(415);
 		expect(t.outbox).toEqual([]);
+	});
+
+	it('refuses every state-changing request, JSON included, unless it comes from the site (Origin or Sec-Fetch-Site)', async () => {
+		const t = testAuth();
+		await bootstrap(t);
+		const a = app(t);
+		const cookie = await signIn(t, a);
+		const evil = 'https://evil.example';
+		const refusals = [
+			// The review's probe: a valid cookie, JSON, from another origin. Stopped today by the preflight and
+			// SameSite=Strict in a browser; refused here whatever the browser does.
+			await call(a, 'POST', '/users', { cookie, origin: evil, body: { email: 'new@example.test' } }),
+			await call(a, 'POST', '/auth/logout-everywhere', { cookie, origin: evil }),
+			await call(a, 'POST', '/auth/logout', { cookie, origin: evil }),
+			await call(a, 'PATCH', '/users/x', { cookie, origin: evil, body: { isAdmin: true } }),
+			await call(a, 'DELETE', '/users/x', { cookie, origin: evil }),
+			await call(a, 'POST', '/auth/code', { origin: evil, body: { email: ADMIN } }),
+			// No Origin and no Sec-Fetch-Site (not a browser on the site), and a sibling subdomain.
+			await call(a, 'POST', '/users', { cookie, origin: null, body: { email: 'new@example.test' } }),
+			await call(a, 'POST', '/users', { cookie, origin: null, headers: { 'sec-fetch-site': 'same-site' }, body: { email: 'new@example.test' } }),
+			await call(a, 'POST', '/users', { cookie, origin: null, headers: { 'sec-fetch-site': 'none' }, body: { email: 'new@example.test' } }),
+			await call(a, 'POST', '/users', { cookie, origin: 'https://other.jaredhoward.com', headers: { 'sec-fetch-site': 'same-site' }, body: { email: 'new@example.test' } })
+		];
+		for (const res of refusals) {
+			expect(res.status).toBe(403);
+			expect(await res.json()).toEqual({ error: 'cross-origin request refused' });
+		}
+		expect((await t.store.listUsers()).map((u) => u.email)).toEqual([ADMIN]);
+		expect(t.outbox).toHaveLength(1);
+
+		// From the site: an allowed Origin, or Sec-Fetch-Site: same-origin without one (the dev proxy on another port).
+		expect((await call(a, 'POST', '/users', { cookie, body: { email: 'one@example.test' } })).status).toBe(201);
+		expect((await call(a, 'POST', '/users', { cookie, origin: null, headers: { 'sec-fetch-site': 'same-origin' }, body: { email: 'two@example.test' } })).status).toBe(201);
+		expect((await call(a, 'POST', '/users', { cookie, origin: 'http://127.0.0.1:7777', headers: { 'sec-fetch-site': 'same-origin' }, body: { email: 'three@example.test' } })).status).toBe(201);
+		// Reads need neither.
+		expect((await call(a, 'GET', '/users', { cookie, origin: null })).status).toBe(200);
+		expect((await call(a, 'GET', '/health', { origin: evil })).status).toBe(200);
 	});
 
 	it('marks every sign-in, user and audit answer no-store, refusals included', async () => {

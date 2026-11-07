@@ -10,6 +10,7 @@ import { createApp } from '../app.js';
 import { main as bootstrapScript } from '../../scripts/bootstrap-admin.js';
 import { guardLogs } from '../__tests__/logGuard.js';
 import { TEST_ORIGIN } from '../__tests__/session.js';
+import { handleMailEvents } from './mailEvents.js';
 import { createAuthRuntime, type AuthReady } from './runtime.js';
 import { dynamoClient } from './store.js';
 import { Readable, Writable } from 'node:stream';
@@ -117,4 +118,25 @@ describe.skipIf(!endpoint)('sign-in on DynamoDB Local', () => {
 		expect((expires.getUTCFullYear() - at.getUTCFullYear()) * 12 + expires.getUTCMonth() - at.getUTCMonth()).toBe(24);
 		expect(admin.isAdmin).toBe(true);
 	}, 20_000);
+	it('a permanent bounce from SQS flags the user on the real store, and an admin clears it through the route', async () => {
+		const { auth, as, admin, add } = await setUp();
+		const user = await add('bounced@example.test', false);
+		// After the user was added, before the clear below (events are ordered by time).
+		const at = new Date(Math.max(Date.now(), Date.parse(user.addedAt))).toISOString();
+		const body = JSON.stringify({ Type: 'Notification', Message: JSON.stringify({ eventType: 'Bounce', bounce: { bounceType: 'Permanent', timestamp: at, bouncedRecipients: [{ emailAddress: user.email }] } }) });
+		const event = { Records: [{ eventSource: 'aws:sqs', messageId: 'm0', body }] } as never;
+		expect(await handleMailEvents(event, auth)).toEqual({ batchItemFailures: [] });
+		// Redelivered: unchanged, still no failure.
+		expect(await handleMailEvents(event, auth)).toEqual({ batchItemFailures: [] });
+		const req = await as(admin);
+		const users = (await (await req('GET', '/users')).json()) as { users: { id: string; undeliverable: unknown }[] };
+		expect(users.users.find((u) => u.id === user.id)!.undeliverable).toEqual({ kind: 'bounce', at });
+		const cleared = await req('POST', `/users/${user.id}/clear-delivery-problem`, {});
+		expect(cleared.status).toBe(200);
+		expect(await cleared.json()).toEqual({ user: expect.objectContaining({ id: user.id, undeliverable: null }) });
+		// The same event again is from before the clear: it stays cleared.
+		expect(await handleMailEvents(event, auth)).toEqual({ batchItemFailures: [] });
+		const after = (await (await req('GET', '/users')).json()) as { users: { id: string; undeliverable: unknown }[] };
+		expect(after.users.find((u) => u.id === user.id)!.undeliverable).toBeNull();
+	});
 });

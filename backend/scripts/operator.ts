@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url';
 import { createAuthKit, cryptoRandom, randomSecret, type AuthKit } from '@absence0760/auth-kit';
 import { dynamoStore } from '@absence0760/auth-kit/dynamodb';
 import { dynamoClient } from '../src/auth/store.js';
+import { errorSummary } from '../src/http/logError.js';
 
 export interface OperatorIO {
 	stdin: Readable;
@@ -81,7 +82,8 @@ export function runIfMain(metaUrl: string, main: (io: OperatorIO, kit: () => Pro
 	main(processIO(), () => operatorKit())
 		.then((code) => process.exit(code))
 		.catch((e: unknown) => {
-			console.error(e instanceof OperatorError ? e.message : e);
+			// Anything unexpected by name and code only: an AWS error's message can carry the address.
+			console.error(e instanceof OperatorError ? e.message : `Failed: ${JSON.stringify(errorSummary(e))}`);
 			process.exit(1);
 		});
 }

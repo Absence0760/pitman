@@ -28,7 +28,13 @@ middleware. Only listed origins receive `access-control-allow-origin` headers,
 and never `access-control-allow-credentials`: the browser calls the API
 same-origin, so the session cookie never needs CORS. Hono `csrf()` refuses an
 unsafe request with a form-like body from any other origin (403), and every
-body must be JSON (415).
+body must be JSON (415). On top of both, every request other than GET, HEAD
+and OPTIONS, whatever its content type, must say it comes from the site:
+`Sec-Fetch-Site: same-origin`, or an `Origin` in `ALLOWED_ORIGINS`; anything
+else, a request with neither header included, is 403
+(`backend/src/http/sameOrigin.ts`). So cross-origin JSON doesn't depend on the
+browser's preflight and the cookie's `SameSite=Strict` alone, and a sibling
+`*.jaredhoward.com` (`Sec-Fetch-Site: same-site`) can't write.
 
 ## Infrastructure
 
@@ -49,7 +55,10 @@ runs it.
 - **The API is reachable only through CloudFront.** The Function URL is
   public by AWS design; CloudFront adds `X-CloudFront-Shared-Secret` (a
   Terraform-generated 48-character value) and the app answers 403 to any
-  request without it, so the WAF and its rate limits cover the API. Not
+  request without it, so the WAF and its rate limits cover the API. On
+  Lambda an unset or empty secret fails closed: every request is 503 and
+  `{"event":"cloudfront_secret.unset"}` is logged at start (`app.ts`), so a
+  lost variable can't open the Function URL past the WAF. Not
   Lambda OAC: it would need the viewer to sign every POST body's hash.
 - **WAF** (us-east-1): per-IP rate limits, 100 per 5 minutes on
   `/api/auth/*` except `/api/auth/me` (which every page load calls), 300 on
@@ -96,7 +105,7 @@ runs it.
 
 Issue #28, decided as A-AUTH-0 … 11 in `docs/decisions.md` (2026-11-07). The
 sign-in, session and user-management code comes from the shared private
-package `Absence0760/auth-kit` at a pinned tag (A-AUTH-0, `v0.1.2`); pitman
+package `Absence0760/auth-kit` at a pinned tag (A-AUTH-0, `v0.2.0`); pitman
 keeps its own routes, gate, mail, cookie, user table, admins, SES sender,
 privacy notice and AWS account. Network files still never leave the browser.
 
@@ -130,7 +139,9 @@ privacy notice and AWS account. Network files still never leave the browser.
   demoting each other, or the same third; a double bootstrap) run against
   DynamoDB Local in CI (`auth/dynamo.test.ts`).
 - **Request checks**: Hono `csrf()` on `ALLOWED_ORIGINS` (a cross-origin form,
-  multipart or text/plain body is 403); JSON bodies only (415); CORS without
+  multipart or text/plain body is 403); every state-changing request must
+  carry `Sec-Fetch-Site: same-origin` or an allowed `Origin`, JSON included
+  (403, § CORS and cross-site requests); JSON bodies only (415); CORS without
   credentials (the browser calls the API same-origin, through CloudFront or
   the dev proxy); `Cache-Control: no-store` on `/auth/*`, `/users*` and
   `/audit`; a per-instance limit of 60 requests per 10 minutes per client on
@@ -140,21 +151,43 @@ privacy notice and AWS account. Network files still never leave the browser.
   than SES, or the dev cookie leaves sign-in unconfigured, and every gated
   route answers 503 (`auth/config.ts`).
 - **Logs**: an event name and at most a user id: `auth.locked` (when a lock
-  starts), `mail.send_failed`, `mail.bounce`, `mail.complaint`,
-  `auth.unconfigured`, `auth.send_capped`. `auth.locked`, `mail.send_failed`
-  (SES refused a code, which the user can't see: `/auth/code` still answers
-  202), `auth.unconfigured` and `auth.send_capped` each raise an alarm
-  (`infra/alarms.tf`). Never an address, a code or a token; every auth test
+  starts on a listed address), `auth.send_capped` (a listed address has just
+  spent its daily send budget), `auth.slow_code_request` (a `POST /auth/code`
+  ran past the 1 s floor, so its timing could tell a listed address from an
+  unlisted one), `mail.send_failed`, `mail.bounce` and `mail.complaint` (with counts flagged,
+  unchanged and refused), `mail.record_failed`, `mail.events_unrecorded`,
+  `auth.unconfigured`, `cloudfront_secret.unset`, and `unhandled_error` with
+  the error's name and code only. Every one but `mail.bounce`,
+  `mail.complaint` and `unhandled_error` raises an alarm (`infra/alarms.tf`).
+  Never an address, a code, a token or an
+  error message (SES puts the recipient in its messages); every auth test
   file fails if any line it logs holds an address
   (`src/__tests__/logGuard.ts`). The console transport (dev) masks the address.
+  Whether an address is listed comes from auth-kit's `listed` (beside
+  `capReached`, `limit` and `lockStarted`), used for these logs only: the HTTP
+  answer never depends on it (`auth/routes.test.ts` checks every combination).
+- **SES send bounds**: the SES client makes at most 2 attempts, each cut off
+  after 1 s (0.5 s to connect), so a throttled or slow SES holds a listed
+  address's code request to about 2.5 s at worst instead of the SDK's
+  unbounded default (`SES_CLIENT_OPTIONS` in `auth/mail.ts`); a send that
+  fails is logged and still answers 202. The durable fix is to send off the
+  request path (a queue), so the floor never has to cover a send.
 - **Operator actions** (`pnpm admin:bootstrap`, `admin:recover`,
   `admin:clear-lock`, `admin:erase`) run with the operator's AWS profile, read
   the address from stdin (never argv, so never shell history), read the code
   key from the Lambda's environment rather than having anyone type it, and
-  are audited as `operator`.
+  are audited as `operator`. `admin:erase` also clears the address's SES
+  suppression itself (§ Erasure), so no command ever carries an address.
 
-Bounced addresses are logged now, and flagged on the Users page once auth-kit
-v0.2.0 lands.
+- **Bounces and complaints are flagged.** A permanent bounce or a spam
+  complaint from SES (SNS → SQS → the Lambda, the only caller) flags the
+  listed user through auth-kit's `recordDeliveryProblem`, at SES's event
+  time, audited as `system`; the Users page shows it until an admin clears it
+  (`POST /users/:id/clear-delivery-problem`, audited as `mail.cleared`). A
+  transient bounce is only logged. Events are ordered by time, so a
+  redelivered or late one changes nothing; a 409 (contention) or a store error
+  fails just that SQS record, which is redelivered and dead-lettered after 5
+  tries (the mail-events DLQ alarm). An unlisted recipient stores nothing.
 
 - **Data residency**: the table and SES live in af-south-1; Terraform refuses
   another region unless `data_outside_south_africa = true` and the privacy
@@ -173,7 +206,15 @@ v0.2.0 lands.
   codes and locks, and changes the `erased:` pseudonym of later erasures).
 - **Known risks**: anyone can lock out an admin by failing codes against
   their address (alarm on `auth.locked`; `pnpm admin:clear-lock`, or
-  `pnpm admin:recover` to restore admin rights; keep two admins); SES
+  `pnpm admin:recover` to restore admin rights; keep two admins). Worse and
+  quieter: anyone can spend an address's daily send budget (5 code requests,
+  an hour's wait, 5 more) and the address then gets no code for up to 24 h,
+  and again the next day; existing 7-day sessions hide it until they expire.
+  It is logged as `auth.send_capped` (on the send that spends a listed
+  address's day) for an alarm beside `auth.locked`; the remedy is the same
+  `pnpm admin:clear-lock`, which deletes the address's send counters as well
+  as its lock. The durable fix is in auth-kit: a requester must not be able
+  to spend an address's whole daily budget. SES
   production access can take days; signing keys are visible in the Lambda's
   environment and Terraform state, the same accepted gap as the CloudFront
   secret.
@@ -189,12 +230,20 @@ A request to erase a person's address (POPIA), in order:
    It removes the user if still listed (refused if they are the last admin),
    deletes the code and lock items, and replaces the address with
    `erased:<hmac>` in every audit row and in other users' "added by". It is
-   audited as `erase`.
-3. **The operator removes the address from SES's account-level suppression
-   list**, typing it into the command the script prints (a
-   `NotFoundException` means it was never suppressed):
-   `aws sesv2 delete-suppressed-destination --email-address ADDRESS --profile pitman --region af-south-1`.
-   The Lambda has no permission to do this.
+   audited as `erase`. If rows naming the address keep appearing while it
+   works, auth-kit stops after 5 passes and the script says "Not finished":
+   run it again with the same address.
+3. **The same script removes the address from SES's account-level
+   suppression list** (SES v2 `DeleteSuppressedDestination` in af-south-1,
+   with the operator's profile), using the address it already read, so the
+   address is never typed into a shell command or kept in shell history. It
+   prints whether the address was removed or was never on the list
+   (`NotFoundException`). If SES refuses (the profile needs
+   `ses:DeleteSuppressedDestination`), it says so by error name and exits 1;
+   run it again with the same address once fixed (step 2 is safe to repeat).
+   The Lambda has no permission to do this. Not yet checked (no account,
+   #22): whether CloudTrail records the address as the call's request
+   parameter; check it at the first erasure and note the answer here.
 4. **Record it**: the date, and that steps 1 to 3 are done (not the
    address). Erasure is complete 35 days later, when point-in-time recovery
    no longer holds the deleted items.
@@ -207,8 +256,8 @@ A request to erase a person's address (POPIA), in order:
    rotate all secrets if `kms:Decrypt` was available.
 3. **AWS account compromised** — full account recovery, rotate everything,
    re-provision infrastructure.
-4. **Someone is locked out of sign-in** (an `auth.locked` alarm, or a user
-   reports it) — `pnpm admin:clear-lock` clears the lock without changing
+4. **Someone is locked out of sign-in** (an `auth.locked` or
+   `auth.send_capped` alarm, or a user reports it) — `pnpm admin:clear-lock` clears the lock without changing
    their role; `pnpm admin:recover` also makes them an admin (the way back in
    when no admin can sign in). Both are audited.
 5. **A session or an admin's mailbox is compromised** — another admin removes

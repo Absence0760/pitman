@@ -28,9 +28,31 @@ describe('safeNext: only a path on this site', () => {
 		['users'],
 		['evil.example'],
 		['/sign-in'],
-		['/sign-in/?next=/users']
+		['/sign-in/?next=/users'],
+		// A dot segment that resolves away and leaves '//host' (the check runs on the result, not the input).
+		['/.//evil.example'],
+		['/..//evil.example'],
+		['/%2e//evil.example'],
+		['/%2E%2E//evil.example'],
+		['/a/..//evil.example'],
+		['/x/../..//evil.example/path?q#h'],
+		['/./%2F/evil.example'],
+		['/%2F/evil.example'],
+		['/%5C/evil.example'],
+		['/./%5c/evil.example'],
+		['/.\\/evil.example'],
+		['/%2e/\\evil.example']
 	])('refuses %j and goes home', (raw) => {
 		expect(safeNext(raw)).toBe('/');
+	});
+
+	it('never returns anything that resolves to another origin', () => {
+		const hostile = ['/.//evil.example', '/%2e//evil.example', '/./%2F/evil.example', '/a/b/../../..//evil.example', '/.%2F/evil.example'];
+		for (const raw of hostile) {
+			const got = safeNext(raw);
+			expect(got.startsWith('//')).toBe(false);
+			expect(new URL(got, 'https://pitman.example').origin).toBe('https://pitman.example');
+		}
 	});
 });
 

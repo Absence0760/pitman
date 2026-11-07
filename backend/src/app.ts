@@ -4,6 +4,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { csrf } from 'hono/csrf';
 import { HTTPException } from 'hono/http-exception';
+import { onLambda } from './auth/config.js';
 import { requireSession } from './auth/middleware.js';
 import { publicAuthRoutes, sessionRoutes } from './auth/routes.js';
 import { type AuthRuntime, authRuntimeFromEnv } from './auth/runtime.js';
@@ -16,6 +17,8 @@ import { DemSource, demLocationFromEnv } from './delineation/source.js';
 import { MAX_BODY_BYTES } from './http/area.js';
 import { jsonOnly } from './http/jsonOnly.js';
 import { rateLimit } from './http/rateLimit.js';
+import { logUnexpected } from './http/logError.js';
+import { CROSS_ORIGIN_REFUSED, sameOriginWrites } from './http/sameOrigin.js';
 import { mapGridRoutes } from './mapgrid/routes.js';
 import { MapGridCatalog, mapGridSourcesFromEnv } from './mapgrid/source.js';
 import { quaternaryRoutes } from './quaternaries/routes.js';
@@ -36,6 +39,9 @@ export const RATE_LIMITS = {
 	// and auth-kit's per-address send limits and lockout the real ones.
 	auth: { limit: 60, windowMs: 10 * 60_000 }
 } as const;
+
+/** The answer to every request on a Lambda whose CloudFront shared secret is unset. */
+export const SHARED_SECRET_UNSET = 'this server is not configured (CLOUDFRONT_SHARED_SECRET is not set)';
 
 /** What the data routes read; tests pass their own, the app builds them from the environment. */
 export interface AppDeps {
@@ -79,9 +85,15 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	//
 	// Local dev leaves CLOUDFRONT_SHARED_SECRET unset → the check no-ops,
 	// because the Hono dev server (port 3001) is reached directly by the
-	// dev frontend (port 7777) without CloudFront in the path.
+	// dev frontend (port 7777) without CloudFront in the path. On Lambda an
+	// unset or empty secret fails closed instead (503 on everything, like
+	// sign-in's config, A-AUTH-8): the bare Function URL must never answer
+	// past the WAF because a variable went missing.
 	const sharedSecret = process.env.CLOUDFRONT_SHARED_SECRET ?? '';
-	if (sharedSecret) {
+	if (!sharedSecret && onLambda(process.env)) {
+		console.error(JSON.stringify({ event: 'cloudfront_secret.unset' }));
+		app.use('*', async (c) => c.json({ error: SHARED_SECRET_UNSET }, 503));
+	} else if (sharedSecret) {
 		const expected = Buffer.from(sharedSecret);
 		app.use('*', async (c, next) => {
 			const provided = Buffer.from(c.req.header('x-cloudfront-shared-secret') ?? '');
@@ -113,6 +125,9 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	// A cross-origin form-like body (form, multipart, text/plain) is refused with 403 (A-AUTH-9). Cross-origin
 	// JSON is stopped by the CORS preflight and the session cookie's SameSite=Strict.
 	app.use('*', csrf({ origin: allowedOrigins }));
+	// And any state-changing request, whatever its type, must come from the site itself (http/sameOrigin.ts):
+	// Sec-Fetch-Site: same-origin or an allowed Origin, so the browser's preflight isn't the only check.
+	app.use('*', sameOriginWrites(allowedOrigins));
 
 	app.get('/health', (c) => c.json({ ok: true }));
 
@@ -164,8 +179,9 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 
 	app.onError((err, c) => {
 		// csrf() throws a 403.
-		if (err instanceof HTTPException && err.status === 403) return c.json({ error: 'cross-origin request refused' }, 403);
-		console.error('Unhandled error', err);
+		if (err instanceof HTTPException && err.status === 403) return c.json({ error: CROSS_ORIGIN_REFUSED }, 403);
+		// Name and code only: a message can carry a request's values, an address among them (A-AUTH-11).
+		logUnexpected('unhandled_error', err);
 		return c.json({ error: 'Internal server error' }, 500);
 	});
 

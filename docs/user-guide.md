@@ -51,6 +51,11 @@ their role, and who added them when.
 - Pitman always keeps at least one admin, and you can't remove yourself or your
   own admin rights. When the server refuses a change it says why, and the page
   shows that sentence as it is.
+- **Mail bounced on … / Mail complaint on …** beside an address means a
+  sign-in code to it bounced for good, or its owner marked Pitman's mail as
+  spam, at that date. Codes may not reach them until it's fixed: check the
+  address with them (remove and re-add it if it was mistyped), or ask them to
+  mark Pitman's mail as not spam, then choose **Clear**.
 - **Recent changes and sign-ins** lists the latest 50 entries of the audit log,
   newest first, in your time zone. Entries are kept for about 24 months.
 

@@ -54,6 +54,10 @@
 				<strong>An audit record</strong> of each change to the user list (who added, removed or changed whom, and when) and of each sign-in, successful or
 				not. A failed sign-in by an address that isn’t on the list is recorded without that address.
 			</li>
+			<li>
+				<strong>Whether mail to you bounced or was reported as spam</strong>, and when, as Amazon SES reports it, until an admin clears it: so an admin
+				knows a sign-in code may not reach you. The record of it goes in the audit record above.
+			</li>
 			<li><strong>Short-lived sign-in items:</strong> the code emailed to you (kept only as a one-way hash) and counts that limit how often codes can be sent.</li>
 			<li>
 				<strong>Your IP address, briefly,</strong> to limit how many requests one address can make. It is held in memory by the web firewall and the server

@@ -11,8 +11,8 @@ importers:
   backend:
     dependencies:
       '@absence0760/auth-kit':
-        specifier: github:Absence0760/auth-kit#v0.1.2
-        version: git+ssh://git@github.com/Absence0760/auth-kit.git#048e5165a62bac6bf7c86ec6d65394d76a6831c8(@aws-sdk/client-dynamodb@3.1161.0)(@aws-sdk/lib-dynamodb@3.1161.0(@aws-sdk/client-dynamodb@3.1161.0))
+        specifier: github:Absence0760/auth-kit#v0.2.0
+        version: git+ssh://git@github.com/Absence0760/auth-kit.git#1a739cd8b4ae8614892d70d22b9d0f0c8c945481(@aws-sdk/client-dynamodb@3.1161.0)(@aws-sdk/lib-dynamodb@3.1161.0(@aws-sdk/client-dynamodb@3.1161.0))
       '@aws-sdk/client-dynamodb':
         specifier: 3.1161.0
         version: 3.1161.0
@@ -170,9 +170,9 @@ importers:
 
 packages:
 
-  '@absence0760/auth-kit@git+ssh://git@github.com/Absence0760/auth-kit.git#048e5165a62bac6bf7c86ec6d65394d76a6831c8':
-    resolution: {commit: 048e5165a62bac6bf7c86ec6d65394d76a6831c8, repo: git@github.com:Absence0760/auth-kit.git, type: git}
-    version: 0.1.2
+  '@absence0760/auth-kit@git+ssh://git@github.com/Absence0760/auth-kit.git#1a739cd8b4ae8614892d70d22b9d0f0c8c945481':
+    resolution: {commit: 1a739cd8b4ae8614892d70d22b9d0f0c8c945481, repo: git@github.com:Absence0760/auth-kit.git, type: git}
+    version: 0.2.0
     engines: {node: '>=24'}
     peerDependencies:
       '@aws-sdk/client-dynamodb': ^3.1100.0
@@ -1569,7 +1569,7 @@ packages:
 
 snapshots:
 
-  '@absence0760/auth-kit@git+ssh://git@github.com/Absence0760/auth-kit.git#048e5165a62bac6bf7c86ec6d65394d76a6831c8(@aws-sdk/client-dynamodb@3.1161.0)(@aws-sdk/lib-dynamodb@3.1161.0(@aws-sdk/client-dynamodb@3.1161.0))':
+  '@absence0760/auth-kit@git+ssh://git@github.com/Absence0760/auth-kit.git#1a739cd8b4ae8614892d70d22b9d0f0c8c945481(@aws-sdk/client-dynamodb@3.1161.0)(@aws-sdk/lib-dynamodb@3.1161.0(@aws-sdk/client-dynamodb@3.1161.0))':
     optionalDependencies:
       '@aws-sdk/client-dynamodb': 3.1161.0
       '@aws-sdk/lib-dynamodb': 3.1161.0(@aws-sdk/client-dynamodb@3.1161.0)

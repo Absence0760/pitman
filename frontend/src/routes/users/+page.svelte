@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { addUser, AuthRequestError, listAudit, listUsers, removeUser, setAdmin, type AuditRow, type ListedUser } from '#lib/auth/api.js';
+	import { addUser, AuthRequestError, clearDeliveryProblem, listAudit, listUsers, removeUser, setAdmin, type AuditRow, type ListedUser } from '#lib/auth/api.js';
 	import { actionText, actorText } from '#lib/auth/audit.js';
 	import { session } from '#lib/auth/store.js';
 	import { API_BASE_URL } from '#lib/extend/api-base.js';
@@ -113,6 +113,17 @@
 		}).then(() => document.getElementById('main')?.focus());
 	}
 
+	function clearProblem(user: ListedUser) {
+		void act(async () => {
+			await clearDeliveryProblem(user.id, options);
+			return `Cleared the mail problem for ${user.email}.`;
+		});
+	}
+
+	/** The flag in words, with a readable date: never raw ISO. */
+	const problemText = (u: ListedUser) =>
+		u.undeliverable ? `${u.undeliverable.kind === 'bounce' ? 'Mail bounced' : 'Mail complaint'} on ${formatDateTime(u.undeliverable.at)}` : '';
+
 	const addedBy = (u: ListedUser) => (u.addedBy === 'operator' ? 'the operator' : u.addedBy);
 </script>
 
@@ -136,7 +147,7 @@
 	{:else if !loaded}
 		<p class="note">Loading the list…</p>
 	{:else}
-		<p>Only the addresses below can sign in. Pitman keeps nothing else about them: see <a href="/privacy">Privacy</a>.</p>
+		<p>Only the addresses below can sign in. Pitman keeps little else about them (a bounce or spam report, until cleared): see <a href="/privacy">Privacy</a>.</p>
 
 		<section class="card" aria-labelledby="add-h">
 			<h2 id="add-h">Add someone</h2>
@@ -165,7 +176,18 @@
 					<tbody>
 						{#each users as user (user.id)}
 							<tr>
-								<th scope="row">{user.email}{#if user.id === session.user?.id}<span class="you"> (you)</span>{/if}</th>
+								<th scope="row">
+									{user.email}{#if user.id === session.user?.id}<span class="you"> (you)</span>{/if}
+									{#if user.undeliverable}
+										<!-- A hard bounce or a spam complaint (SES): codes may not reach them until the address is fixed. -->
+										<span class="problem">
+											<span class="badge" title={user.undeliverable.kind === 'bounce' ? 'Sign-in codes to this address bounced' : 'This address reported Pitman’s mail as spam'}>{problemText(user)}</span>
+											<button type="button" onclick={() => clearProblem(user)} disabled={busy}>
+												Clear<span class="sr"> the mail problem for {user.email}</span>
+											</button>
+										</span>
+									{/if}
+								</th>
 								<td>{user.isAdmin ? 'Admin' : 'User'}</td>
 								<td>{formatDateTime(user.addedAt)} by {addedBy(user)}</td>
 								<td>
@@ -276,6 +298,21 @@
 		flex-wrap: wrap;
 		gap: 0.4rem;
 		align-items: center;
+	}
+	.problem {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		align-items: center;
+		margin-top: 0.3rem;
+		font-weight: 400;
+	}
+	.badge {
+		font-size: var(--font-sm);
+		color: var(--danger);
+		border: 1px solid var(--danger);
+		border-radius: 999px;
+		padding: 0.05rem 0.55rem;
 	}
 	button.danger {
 		border-color: var(--danger);

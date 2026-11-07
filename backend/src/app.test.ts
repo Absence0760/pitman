@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import type { ChirpsMonthly, MapGridCells, QuaternaryCollection } from '@pitman/wrsm';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { FIXTURE_GEO_DIR, FIXTURE_MIRROR_DIR, fakeS3 } from './__tests__/fakeS3.js';
-import { type AppDeps, createApp } from './app.js';
+import { type AppDeps, createApp, SHARED_SECRET_UNSET } from './app.js';
 import { ChirpsCopy, chirpsCopyConfig } from './chirps/copy.js';
 import { writeSyntheticChirps } from './chirps/synthetic.js';
 import { MAX_BODY_BYTES } from './http/area.js';
@@ -200,6 +200,27 @@ describe('the template’s guards', () => {
 		const a = app();
 		expect((await post(a, '/chirps/monthly', { area: GRID })).status).toBe(403);
 		expect((await post(a, '/chirps/monthly', { area: GRID }, { 'x-cloudfront-shared-secret': 'not-a-real-secret' })).status).toBe(200);
+	});
+
+	it('fails closed on Lambda when the shared secret is unset or empty: 503 on everything, logged once', async () => {
+		const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			vi.stubEnv('AWS_LAMBDA_FUNCTION_NAME', 'pitman-backend');
+			for (const value of [undefined, '']) {
+				vi.stubEnv('CLOUDFRONT_SHARED_SECRET', value);
+				const a = app();
+				for (const res of [await a.request('/health'), await post(a, '/chirps/monthly', { area: GRID }), await post(a, '/auth/code', { email: 'a@example.test' })]) {
+					expect(res.status).toBe(503);
+					expect(await res.json()).toEqual({ error: SHARED_SECRET_UNSET });
+				}
+			}
+			expect(errors.mock.calls.map((c) => c[0])).toEqual([JSON.stringify({ event: 'cloudfront_secret.unset' }), JSON.stringify({ event: 'cloudfront_secret.unset' })]);
+			// Off Lambda (the dev server), unset still means no check.
+			vi.stubEnv('AWS_LAMBDA_FUNCTION_NAME', '');
+			expect((await app().request('/health')).status).toBe(200);
+		} finally {
+			errors.mockRestore();
+		}
 	});
 
 	it('answers /health, and mounts the routes unprefixed (CloudFront strips /api, R4-I4)', async () => {

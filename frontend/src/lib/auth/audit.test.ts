@@ -6,6 +6,7 @@ describe('the audit log in words', () => {
 		expect(actorText('admin@example.test')).toBe('admin@example.test');
 		expect(actorText('operator')).toBe('The operator');
 		expect(actorText('unlisted:3f9a')).toBe('An address not on the list');
+		expect(actorText('system')).toBe('Mail delivery');
 	});
 
 	it('says each of auth-kit’s actions', () => {
@@ -19,6 +20,9 @@ describe('the audit log in words', () => {
 		expect(actionText({ at: '', actor: 'a', action: 'recover', target: t })).toBe(`restored admin rights to ${t}`);
 		expect(actionText({ at: '', actor: 'a', action: 'clear-lock', target: t })).toBe(`cleared the sign-in lock on ${t}`);
 		expect(actionText({ at: '', actor: 'a', action: 'erase', target: t })).toBe(`erased ${t} from the log`);
+		expect(actionText({ at: '', actor: 'system', action: 'mail.bounce', target: t })).toBe(`reported that mail to ${t} bounced`);
+		expect(actionText({ at: '', actor: 'system', action: 'mail.complaint', target: t })).toBe(`reported that ${t} marked Pitman’s mail as spam`);
+		expect(actionText({ at: '', actor: 'a', action: 'mail.cleared', target: t })).toBe(`cleared the mail problem for ${t}`);
 		expect(actionText({ at: '', actor: 'a', action: 'signin', target: null })).toBe('signed in');
 		expect(actionText({ at: '', actor: 'a', action: 'signin.failed' })).toBe('entered a wrong code');
 		expect(actionText({ at: '', actor: 'a', action: 'signin.locked' })).toBe('was locked out after wrong codes');

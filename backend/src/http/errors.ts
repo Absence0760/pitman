@@ -5,6 +5,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { CopyUnavailableError } from '../chirps/copy.js';
 import { AreaRefusedError } from '../chirps/monthly.js';
 import { ReadDeadlineError } from '../chirps/readMonthly.js';
+import { logUnexpected } from './logError.js';
 
 /** A refusal with its status. */
 export class ApiError extends Error {
@@ -23,6 +24,7 @@ export function errorResponse(c: Context, err: unknown) {
 	if (err instanceof AreaRefusedError) return c.json({ error: err.message }, 422);
 	if (err instanceof ReadDeadlineError) return c.json({ error: err.message }, 504);
 	if (err instanceof CopyUnavailableError) return c.json({ error: err.message }, 503);
-	console.error('Unhandled error', err);
+	// Name and code only: a message can carry a request's values (A-AUTH-11).
+	logUnexpected('unhandled_error', err);
 	return c.json({ error: 'Internal server error' }, 500);
 }

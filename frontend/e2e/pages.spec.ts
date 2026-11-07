@@ -38,6 +38,7 @@ test.describe('the privacy notice, signed out', () => {
 		await expect(page.getByText(/Cape Town region \(af-south-1\)/)).toBeVisible();
 		await expect(page.getByText('Your network files never leave your browser.', { exact: true })).toBeVisible();
 		await expect(page.getByText(/About 24 months/)).toBeVisible();
+		await expect(page.getByText('Whether mail to you bounced or was reported as spam', { exact: true })).toBeVisible();
 		await expect(page.getByText(/restored for 35 days/)).toBeVisible();
 		await expect(page.getByRole('link', { name: 'POPIAComplaints@inforegulator.org.za' })).toHaveAttribute('href', 'mailto:POPIAComplaints@inforegulator.org.za');
 	});
