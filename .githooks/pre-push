@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Local gate while commits go straight to main (issue #22 steps 10-11): typecheck and test before any push.
-# Skips when only docs/markdown changed. Install: cp scripts/git-hooks/pre-push .git/hooks/pre-push (docs/run-locally.md).
+# Skips when only docs/markdown changed. `pnpm install` points core.hooksPath at .githooks/
+# (scripts/git-hooks/install.mjs), so there is nothing to copy (docs/run-locally.md).
 set -euo pipefail
 remote="$1"
 zero=0000000000000000000000000000000000000000

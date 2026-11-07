@@ -21,6 +21,51 @@ Cross-cutting security considerations for this project.
 - **No decrypted secret is written to disk** — Terraform's `carlpett/sops` provider decrypts `infra-secrets`' files in-memory at plan/apply.
 - **CI/CD uses GitHub OIDC** — no long-lived AWS access keys in GitHub secrets.
 
+## Public repo hygiene
+
+Pitman is meant to be a public MIT repo, and anything committed, history
+included, is readable by anyone once it is. So no client data and no name
+that points at a client study (CLAUDE.md rule 2): reference networks, reports
+and study files live in `../pitman-private`, and fixtures, test names,
+comments, commit messages and doc examples are synthetic, the byte-exact
+WRSM2000 files under `docs/formats/examples/` included.
+
+- **Client terms guard.** The farm, client and place names of real studies
+  are listed in `../infra-secrets/pitman/client-terms.txt` (or
+  `$CLIENT_TERMS_FILE`), outside this repo, because the list itself names the
+  clients. One term per line, `#` starts a comment; matching ignores case, a
+  space in a term also matches nothing, `_`, `-` or a comment line break (so
+  "Some River" catches `SomeRiver` and `some-river`), and a term matches only
+  as a whole word. `scripts/ci-guards/check_client_terms.mjs` checks against
+  it: the pre-commit hook (staged lines and paths), the commit-msg hook (the
+  message), `pnpm check:terms` (every tracked file and path) and
+  `pnpm check:terms --history` (every commit and message on every ref). It
+  looks for the list beside the checkout and, in a linked worktree (under
+  `.claude/worktrees/` or `../<slug>`), beside the main checkout too.
+- **It never prints a term**, only the file, the line and the term's number
+  in the list; a path that contains a term is printed with `[term #N]` in its
+  place. A CI log is as public as the repo.
+- **No list, no check, no noise.** Without the file (CI, a fresh clone, an
+  outside contributor) the guard is a no-op: the hooks exit 0 silently and the
+  full scan prints one "skipping" line. It never blocks work it cannot check,
+  so add a term the moment a new client name turns up.
+- **The hooks install themselves.** The repo's hooks live in `.githooks/`
+  (`pre-commit`, `commit-msg`, `pre-push`), and the root `prepare` script
+  (`scripts/git-hooks/install.mjs`) sets `core.hooksPath` to it on every
+  `pnpm install`, so the main checkout and every worktree run them, for a
+  person's commits and a Claude session's alike. It skips CI and anything
+  outside a git checkout, and leaves a `core.hooksPath` of your own alone with
+  a warning (then this repo's hooks don't run). The hooks fail closed when
+  `node` is missing. When the pre-commit framework is installed they also run
+  `.pre-commit-config.yaml` (gitleaks and the file checks); `pre-commit
+  install` is no longer needed, and refuses while `core.hooksPath` is set.
+- **Not covered:** GitHub issue and PR text, which no hook sees. Write those
+  with the same care.
+- **If a term lands anyway**, take it out of HEAD and decide whether to
+  rewrite history (`git filter-repo --replace-text`) before anyone opens a PR
+  on it: GitHub keeps a PR's commits under `refs/pull/*` for good, so once one
+  is pushed and opened, rewriting the branch does not remove it.
+
 ## CORS and cross-site requests
 
 `ALLOWED_ORIGINS` is a comma-separated env var checked by `hono/cors`
