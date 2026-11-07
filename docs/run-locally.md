@@ -48,6 +48,8 @@ pnpm frontend check       # svelte-check on frontend
 pnpm backend check        # tsc --noEmit on backend
 ```
 
+`pnpm check:doc-links` checks that every relative link in the tracked markdown resolves, to the file and to the GitHub heading slug (`scripts/ci-guards/check_doc_links.mjs`; the byte-exact `docs/formats/examples/` is skipped). Rewording a heading breaks every link to it; the failure names the slug to write when the heading is numbered.
+
 ## Building
 
 ```bash
@@ -70,7 +72,7 @@ pnpm frontend test        # frontend only
 folder or zip (a synthetic one: `docs/formats/examples/network/`), pick the
 run modes and run; **Save as WRSM2000 zip** downloads the network with its
 `pitman.json` sidecar. The flow is described in
-[`architecture.md` § App flow](./architecture.md#app-flow-load--validate--store--run--save).
+[`architecture.md` § App flow](./architecture.md#app-flow-load--validate--store--extend--sub-divide--run--save).
 
 - Nothing is uploaded: the backend is not involved in loading, running or saving.
 - The browser keeps a working copy in IndexedDB (database `pitman`). **Forget

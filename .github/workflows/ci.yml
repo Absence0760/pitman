@@ -139,6 +139,26 @@ jobs:
       - name: Run end-to-end tests
         run: pnpm test:frontend:e2e
 
+  # Every relative markdown link resolves, file and heading
+  # (scripts/ci-guards/check_doc_links.mjs). Needs only Node and the
+  # checkout, no install. ci-gate-docs.yml runs the same job, so a docs-only
+  # PR, which skips this workflow, is still checked.
+  doc-links:
+    name: Doc links
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Check every relative markdown link resolves
+        run: node scripts/ci-guards/check_doc_links.mjs
+
   # Single required status check for branch protection (docs/USING.md
   # "The CI gate"). It fans in on every job above via `needs` + always(),
   # failing the merge if any upstream job did not succeed (a skipped job
@@ -152,7 +172,7 @@ jobs:
     name: CI gate
     runs-on: ubuntu-latest
     if: always()
-    needs: [test, e2e]
+    needs: [test, e2e, doc-links]
     steps:
       - name: Require every upstream job to have passed
         env:

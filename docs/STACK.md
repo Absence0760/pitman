@@ -17,6 +17,7 @@ pnpm install                 # bootstrap
 pnpm dev                     # frontend (7777) + backend (3001) in parallel
 pnpm build                   # build all workspaces
 pnpm check                   # typecheck all
+pnpm check:doc-links         # every relative markdown link resolves (file + heading slug)
 pnpm test                    # vitest run across workspaces
 pnpm test:frontend:e2e       # Playwright against the built site (first: pnpm --filter @pitman/frontend exec playwright install chromium)
 pnpm test:coverage           # the same with v8 coverage + a table of what no test reaches (a report, never a gate)
