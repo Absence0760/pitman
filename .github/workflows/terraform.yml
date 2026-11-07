@@ -10,10 +10,9 @@ name: Terraform
 #      buckets, `Action: *`, open ingress). Advisory (exit-code 0),
 #      HIGH/CRITICAL to the Security tab, or to the job summary while the repo
 #      is private.
-#
-# Not yet here (add with Round 4's real infra): `terraform test` with mocked
-# providers (infra/tests/*.tftest.hcl) pinning IAM, the OIDC trust and the
-# cross-account grants (docs/data.md § Cross-account access).
+#   4. `terraform test` with mocked providers (infra/tests/*.tftest.hcl):
+#      IAM, the cross-account grants (docs/data.md § Cross-account access),
+#      the edge, sign-in's resources and the spend guardrails, offline.
 #
 # There is deliberately NO credentialed `terraform plan`: the only role CI
 # can assume is the deploy role, gated on `environment:production`, so a plan

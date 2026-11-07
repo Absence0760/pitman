@@ -61,7 +61,7 @@ committed `.env.development`.
    ```
    Local dev does not need these — a gitignored `backend/.env.development.local` covers it. See `../infra-secrets/README.md` for the full model.
 
-Production deploy (after first-time setup): see `infra/README.md § First-time setup`.
+Production deploy (after first-time setup): see [`docs/deployment.md` § First deploy](deployment.md#first-deploy-operator-runbook), the operator's runbook; `infra/README.md` maps the Terraform.
 
 ## Where to look
 
