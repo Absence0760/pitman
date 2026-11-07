@@ -83,10 +83,42 @@ runs it.
 
 Not built. Issue #28 plans an admin-kept user list with email-code sign-in
 gating `/api/*` (except `/health`). The sign-in, session and user-management
-code will come from the shared private package `Absence0760/auth-kit` at a
-pinned tag (decision A-AUTH-0); pitman keeps its own user table, admins, SES
-sender, privacy notice and AWS account. Until #28 lands the API is open, as
-described above.
+code comes from the shared private package `Absence0760/auth-kit` at a pinned
+tag (decision A-AUTH-0); pitman keeps its own user table, admins, SES sender,
+privacy notice and AWS account. Until #28 lands the API is open, as described
+above. The design, proposed as A-AUTH-1 … 11 in `docs/decisions.md`:
+
+- **What is gated.** Every `/api/*` route but `/health` answers 401 without a
+  valid session. The static site, `/methods`, `/privacy`, `/sign-in` and
+  `/tiles/*` stay public; nothing in them is private (A-AUTH-1).
+- **The code is the only factor**, so auth-kit's rules are strict: a 6-digit
+  code kept only as an HMAC, 10 minutes, one live code per address, spent
+  after 3 wrong tries; sends 60 s apart, 5 an hour, 10 a day; a lockout that
+  doubles to 15 minutes. Expiry is checked in code, never left to TTL.
+- **Nothing reveals who is listed.** Every code request answers 202 after a
+  fixed minimum time; listed and unlisted addresses do the same store work.
+  Strangers' addresses are stored only as HMACs.
+- **Sessions**: `__Host-pitman_session` (`Secure; HttpOnly; SameSite=Strict;
+  Path=/`), HS256 with `jti` and `kid`, 7 days, re-checked against the user
+  record and revocations on every request. `/api/*` is never cached at the
+  edge (a `terraform test` pins it).
+- **Admin rules**: admins only; nobody removes or demotes themself; there is
+  always at least one admin. Each change is one DynamoDB transaction with its
+  audit row (24 months).
+- **Request checks**: `csrf()` on `ALLOWED_ORIGINS`, JSON bodies only (415),
+  `no-store` on auth and user routes, a WAF limit of 100 per 5 minutes per IP
+  on `/api/auth/*`.
+- **Keys**: two Terraform `random_password` values in the Lambda's
+  environment; a missing key or table makes data routes answer 503.
+- **Logs**: user ids and event names only; `auth.locked` raises an alarm.
+- **Data residency**: the table and SES live in af-south-1; Terraform refuses
+  another region unless `data_outside_south_africa = true` and the privacy
+  notice is rewritten.
+- **Known risks**: anyone can lock out an admin by failing codes against
+  their address (alarm on `auth.locked`, `pnpm admin:recover`, keep two
+  admins); SES production access can take days; signing keys are visible in
+  the Lambda's environment and Terraform state, the same accepted gap as the
+  CloudFront secret.
 
 ## Incident playbook
 
