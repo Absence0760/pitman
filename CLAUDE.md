@@ -31,6 +31,7 @@ The plan, ground rules and round structure live in issue #3; specs live in `docs
 4. **`packages/wrsm` is pure**: no I/O, DOM or Node APIs (the tsconfig and a guard test enforce it).
 5. **Decisions are recorded** in `docs/decisions.md` with their ID (D…, OQ-…, A…, B…, U-…); change a decision there, not silently in code.
 6. Files under `docs/formats/examples/` are byte-exact (CRLF, trailing blanks); don't let an editor or hook normalise them.
+7. **Sign-in, sessions and user management come from auth-kit** (`Absence0760/auth-kit`, private, installed at a pinned tag; A-AUTH-0, issue #28). Don't write auth code here; fix it in auth-kit, tag, and take the Dependabot PR. Pitman keeps its routes, gate wiring, Terraform, pages, email text and privacy notice.
 
 ## Working alongside other Claude sessions
 

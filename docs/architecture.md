@@ -228,6 +228,11 @@ add `dotenv` imports to any module reachable from `lambda.ts`.
 `src/lambda.test.ts` bundles `lambda.ts` with esbuild and fails if `dotenv`,
 `server.ts` or the synthetic-data writers end up in it.
 
+**Planned: users and sign-in** (issue #28, not built). The data routes will
+sit behind a sign-in gate whose code comes from the shared private package
+`Absence0760/auth-kit` at a pinned tag (A-AUTH-0); the backend keeps only the
+routes and gate wiring. Network files still never leave the browser.
+
 ### Data API
 
 Stateless: it receives only an area (GeoJSON) or a box and answers numbers,

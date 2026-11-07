@@ -79,6 +79,15 @@ runs it.
   must grant). Read-only, no KMS, no other prefix. `infra/tests/` pins it.
 - **Logs** are kept 30 days; the Lambda may write only its own log group.
 
+## Planned: users and sign-in
+
+Not built. Issue #28 plans an admin-kept user list with email-code sign-in
+gating `/api/*` (except `/health`). The sign-in, session and user-management
+code will come from the shared private package `Absence0760/auth-kit` at a
+pinned tag (decision A-AUTH-0); pitman keeps its own user table, admins, SES
+sender, privacy notice and AWS account. Until #28 lands the API is open, as
+described above.
+
 ## Incident playbook
 
 1. **Suspected secret leak** — rotate at the source dashboard, update

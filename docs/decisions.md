@@ -305,3 +305,11 @@ Round 7 reference check (local, defaults, 2026-10-30): 34 of 35 networks run; 24
 | R7-I22 | TT 689 p.169 sets return flows to zero when defined routes take everything; Pitman's stores keep returning (TT 690 pp.50, 54). The manuals disagree | Open: reference comparison |
 | R7-I23 | Type 4 always uses the modified WQT effective rainfall: no file field selects SAPWAT under it (TT 690 pp.35, 37, 41 allow it) | Provisional |
 | R7-I24 | A WQT block lying in an SFR child (TT 689 p.165 says it can only lie in a parent) is a warning, not a refusal: no reference network has been checked for it, and a refusal would stop a real network running at all | Provisional |
+
+## Users and sign-in (issue #28, 2026-11-06)
+
+Issue #28 proposes users, sign-in and access control. Only the shared-package decision below is made; its other decisions (A-AUTH-1 … 11) are recorded here when the operator approves #28 P1. Issue #3 rule 7 ("No accounts, no database (for now)") still stands until then: no doc restates it, and #28 P1 amends it in #3 to "accounts yes, the user list only; network files are still never uploaded".
+
+| ID | Decision | Status |
+|---|---|---|
+| A-AUTH-0 | **Sign-in and user management come from one shared private package, `Absence0760/auth-kit`**, also used by ewr-compliance, installed from git at a pinned tag (`github:Absence0760/auth-kit#vX.Y.Z`) and updated through Dependabot PRs. It holds the email codes, sessions, user rules, DynamoDB store, bootstrap / recover / erase and the IAM action list. Pitman keeps its own user table, admins, SES sender, privacy notice and AWS account, plus the routes, what the gate protects, Terraform, the sign-in and Users pages and the email text. A security fix goes into auth-kit with a new tag, then both projects take the update. Not yet a dependency | Decided (operator, 2026-11-06) |
