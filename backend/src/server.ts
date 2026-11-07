@@ -11,6 +11,7 @@ import { serve } from '@hono/node-server';
 import { createApp } from './app.js';
 import { smtpMailer } from './auth/mail.smtp.js';
 import { authRuntimeFromEnv } from './auth/runtime.js';
+import { devListenOptions } from './http/listen.js';
 
 // The dev server alone may send through SMTP (Mailpit), so nodemailer stays out of the Lambda bundle.
 const auth = authRuntimeFromEnv(process.env, { smtp: smtpMailer });
@@ -25,8 +26,9 @@ if (auth.ready && devAdmin && (process.env.USER_STORE || 'memory') === 'memory')
 }
 
 const app = createApp({ auth });
-const port = Number(process.env.PORT ?? 3001);
+// Loopback only (BACKEND_HOST overrides): the dev keys and dev cookie must not be reachable from the LAN.
+const { hostname, port } = devListenOptions(process.env);
 
-serve({ fetch: app.fetch, port }, (info) => {
-	console.log(`Backend listening on http://localhost:${info.port}`);
+serve({ fetch: app.fetch, hostname, port }, (info) => {
+	console.log(`Backend listening on http://${hostname}:${info.port}`);
 });

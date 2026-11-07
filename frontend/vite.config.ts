@@ -61,7 +61,9 @@ function maplibreWorkerChunk(): Plugin {
  * points it elsewhere (another port). The end-to-end tests mock every `/api`
  * call (e2e/fixtures.ts), so they never reach it.
  */
-const API_TARGET = process.env.PITMAN_API_TARGET || 'http://localhost:3001';
+// 127.0.0.1, not localhost: the backend listens on loopback IPv4 only (backend/src/http/listen.ts), and
+// localhost resolves to ::1 first on this host.
+const API_TARGET = process.env.PITMAN_API_TARGET || 'http://127.0.0.1:3001';
 const apiProxy = { '/api': { target: API_TARGET, rewrite: (path: string) => path.replace(/^\/api(?=\/|$)/, '') || '/' } };
 
 export default defineConfig({
