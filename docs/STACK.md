@@ -8,7 +8,7 @@ Full-stack web template. Static frontend + serverless backend, deployed to AWS v
 - **backend/** — Hono on AWS Lambda (Function URL). TypeScript, esbuild, tsx for local dev, vitest. Dev port `3001` (`PORT` env override).
 - **infra/** — Terraform: S3 + CloudFront + Lambda + Route 53 + ACM + GitHub OIDC. No package.json.
 
-pnpm monorepo, four workspaces: `@pitman/{frontend,backend}` and the engine packages `@pitman/wrsm` (`packages/wrsm`, the pure TypeScript model: no I/O, DOM or Node APIs) and `@pitman/wrsm-cli` (`packages/wrsm-cli`, the `wrsm` command that reads and writes network folders). Node `>=22`.
+pnpm monorepo, four workspaces: `@pitman/{frontend,backend}` and the engine packages `@pitman/wrsm` (`packages/wrsm`, the pure TypeScript model: no I/O, DOM or Node APIs) and `@pitman/wrsm-cli` (`packages/wrsm-cli`, the `wrsm` command that reads and writes network folders). Node `>=24` (the Lambda runtime is `nodejs24.x`, and auth-kit requires 24; CI runs 24).
 
 ## Commands (run from repo root)
 
