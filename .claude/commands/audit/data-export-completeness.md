@@ -10,12 +10,13 @@ Audit whether Pitman can answer a request for access to a person's information
 Pitman has no self-serve "download my data". An access request reaches the
 operator, who follows `docs/security.md` § Access requests and runs
 `pnpm admin:export` (`backend/scripts/export-address.ts`), which writes one
-section per kind in `backend/scripts/personal-records.ts`. The risk is silent
-drift: a new item or attribute naming a person is added, the export doesn't
-know about it, and the answer comes back partial.
-`backend/scripts/personal-records.test.ts` guards one direction (anything
-`admin:erase` touches, the export reports); this audit looks for what neither
-script knows about.
+section per kind in auth-kit's `PERSONAL_RECORDS` (its `exportAddress`,
+v0.3.0) plus the SES suppression entry. The risk is silent drift: a new item
+or attribute naming a person is added, the export doesn't know about it, and
+the answer comes back partial. auth-kit's contract suite guards one direction
+(anything its `eraseAddress` touches, its export returns), and
+`backend/scripts/export-address.test.ts` checks every kind reaches the file;
+this audit looks for what neither knows about.
 
 ## What to check
 
@@ -26,16 +27,17 @@ script knows about.
    watermark, audit rows (as actor, target and "added by"), the
    delivery-problem flag.
 2. **Reachability.** For each, does `export-address.ts` read it (a key
-   lookup, the USER or AUDIT partition), and is it a section in
-   `personal-records.ts`? Name any item that can only be found by a scan, and
+   lookup, the USER, AUDIT or `SESSIONS#<userId>` partition), and is it a
+   section in auth-kit's `PERSONAL_RECORDS`? Name any item that can only be found by a scan, and
    any item kind the inventory found that the export has no section for
    (Critical). Audit rows count under every form the address takes: in
    clear, `unlisted:<hmac>` and `erased:<hmac>`.
 3. **Procedure.** Does `docs/security.md` § Access requests still match the
    script (its prompts, the output path rule, the IAM it needs, the `export`
    audit row) and cover verification, the deadline, what to send and what to
-   record? Does `personal-records.test.ts` still classify every item erasure
-   touches, rather than skipping unknown ones?
+   record? Is the auth-kit pin at a version whose contract suite still
+   classifies every item erasure touches, rather than skipping unknown ones
+   (auth-kit `test/contract.ts` § export)?
 4. **Other people's data.** Audit rows name two people (actor and target),
    and the user item names who added them. Confirm the export withholds every
    address but the requester's (the export test checks the seeded case; look

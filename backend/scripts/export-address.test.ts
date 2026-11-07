@@ -1,15 +1,16 @@
 // `pnpm admin:export` on auth-kit's memory store: reads the address from stdin, audits before reading,
 // writes the export only outside the repository (never overwriting, mode 0600), and prints no address.
-// That its coverage equals erasure's is personal-records.test.ts's job.
+// That the table's sections cover everything erasure removes is auth-kit's job (its PERSONAL_RECORDS and
+// contract suite, v0.3.0); here, that every one of its kinds reaches the file, with SES added.
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { createAuthKit, cryptoRandom, memoryStore, randomSecret } from '@absence0760/auth-kit';
+import { createAuthKit, cryptoRandom, memoryStore, PERSONAL_RECORD_KINDS, PERSONAL_RECORDS, randomSecret } from '@absence0760/auth-kit';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { guardLogs } from '../src/__tests__/logGuard.js';
-import { type AccessExport, main as exportAddress, outputPath, RECIPIENTS, sesSuppressionLookup, sesSuppressionReader, type SuppressionLookup } from './export-address.js';
+import { type AccessExport, main as exportAddress, outputPath, RECIPIENTS, SES_SUPPRESSION, sesSuppressionLookup, sesSuppressionReader, type SuppressionLookup } from './export-address.js';
 import { OperatorError } from './operator.js';
 
 guardLogs();
@@ -100,6 +101,42 @@ describe('admin:export', () => {
 		const again = io([USER, file]);
 		expect(await exportAddress(again.io, getKit, noSes)).toBe(1);
 		expect(again.out()).toContain('Not written (EEXIST)');
+	});
+
+	it('writes every kind in auth-kit’s list, in its order and words, then SES, with no one else’s address', async () => {
+		const { kit, getKit } = await seeded();
+		// USER made an admin, adds someone (their addedBy), bounces, and signs out of a session.
+		const admin = (await kit.deps.store.getUserByEmail(ADMIN))!;
+		const promoted = await kit.setAdmin(admin, { email: USER }, true);
+		if (!promoted.ok) throw new Error(promoted.error);
+		const other = 'other@example.test';
+		expect((await kit.addUser(promoted.value, other, false)).ok).toBe(true);
+		await kit.recordDeliveryProblem(USER, 'bounce');
+		await kit.signOut((await kit.issueSession(promoted.value)).session);
+		const file = join(dir, 'kinds.json');
+		expect(await exportAddress(io([USER, file]).io, getKit, suppressed)).toBe(0);
+		const data = JSON.parse(await readFile(file, 'utf8')) as AccessExport;
+		expect(Object.keys(data.records)).toEqual([...PERSONAL_RECORD_KINDS, 'sesSuppression']);
+		for (const k of PERSONAL_RECORD_KINDS) expect(data.records[k].what, k).toBe(PERSONAL_RECORDS[k].what);
+		expect(data.records.sesSuppression).toMatchObject({ what: SES_SUPPRESSION, found: 1 });
+		expect(data.records.revokedSessions.found).toBe(1);
+		expect(data.records.addedBy.data).toEqual([{ addedAt: expect.any(String), admin: false }]);
+		const bounce = data.records.auditTarget.data.find((r) => r.action === 'mail.bounce');
+		expect(bounce).toMatchObject({ actor: 'mail delivery (Amazon SES)', target: 'you', actionInWords: expect.stringMatching(/bounced/) });
+		const json = JSON.stringify(data);
+		expect(json).not.toContain(ADMIN);
+		expect(json).not.toContain(other);
+	});
+
+	it('reports auth-kit’s refusal (the address changed hands as it started), writing nothing', async () => {
+		const { kit } = await seeded();
+		const refusing = { ...kit, exportAddress: async () => ({ ok: false as const, status: 409 as const, error: 'Someone changed this user at the same time.' }) };
+		const file = join(dir, 'refused.json');
+		const run = io([USER, file]);
+		expect(await exportAddress(run.io, async () => ({ kit: refusing, where: 'the test store' }), noSes)).toBe(1);
+		expect(run.out()).toContain('Refused (409)');
+		expect(run.out()).toContain('Nothing was exported');
+		await expect(stat(file)).rejects.toThrow();
 	});
 
 	it('audits an unlisted address by its key, never in clear', async () => {

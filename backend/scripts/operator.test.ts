@@ -121,8 +121,9 @@ describe('the operator scripts', () => {
 		expect((await kit.requestCode(ADMIN)).status).toBe('accepted');
 	});
 
-	it('erase asks for confirmation, leaves no copy of the address, and clears its SES suppression itself', async () => {
-		const { store, getKit } = await seeded();
+	it('erase asks for confirmation, leaves no copy of the address or its signed-out sessions, and clears its SES suppression itself', async () => {
+		const { store, kit, getKit, user } = await seeded();
+		await kit.signOut((await kit.issueSession(user)).session);
 		const removed: string[] = [];
 		const ses = async (): Promise<Suppression> => ({ remove: async (e) => (removed.push(e), 'removed'), where: 'the test SES' });
 		const unconfirmed = io([USER, 'yes']);
@@ -134,6 +135,9 @@ describe('the operator scripts', () => {
 		const run = io([' User@Example.test ', 'ERASE']);
 		expect(await erase(run.io, getKit, ses)).toBe(0);
 		expect(JSON.stringify(store.dump())).not.toContain(USER);
+		// auth-kit deletes the user's signed-out sessions too: nothing holds their user id.
+		expect(JSON.stringify(store.dump())).not.toContain(user.id);
+		expect(run.out()).toContain('1 signed-out sessions deleted');
 		expect(audit(store)).toContain('erase');
 		expect(removed).toEqual([USER]);
 		expect(run.out()).toContain('SES suppression list (the test SES): the address was removed.');

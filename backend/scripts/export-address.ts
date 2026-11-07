@@ -1,29 +1,22 @@
 // `pnpm admin:export`: step 3 of the access-request procedure (POPIA s23, docs/security.md § Access requests).
-// Reads the address from stdin (never argv, so never shell history), writes an audit row first (actor
-// `operator`, action `export`, target the address if listed or `unlisted:<hmac>` if not, like clear-lock), so
-// no export goes unrecorded, then gathers every record that names the address, one section per kind in
-// personal-records.ts (the same list erasure's coverage is tested against), and writes it as JSON to a file
-// the operator names, outside the repository, or to stdout. Other people's addresses in those records are
-// withheld. Prints counts only, never the address.
+// Reads the address from stdin (never argv, so never shell history), then calls auth-kit's exportAddress,
+// which writes an audit row first (actor `operator`, action `export`, target the address if listed or
+// `unlisted:<hmac>` if not, like clear-lock), so no export goes unrecorded, and returns every record in the
+// table that names the address, one section per kind in auth-kit's PERSONAL_RECORDS (the same list its
+// eraseAddress works from, and its tests hold the two together), other people's addresses withheld. Pitman
+// adds the one kind it keeps outside the table, the SES suppression entry, and writes it all as JSON to a
+// file the operator names, outside the repository, or to stdout. Prints counts only, never the address.
 //
-// The table is read through auth-kit's own store (the operator's credentials), the same way erase-address
-// works. SES's suppression list is read with SES v2 GetSuppressedDestination (the profile needs
+// The table is read through auth-kit (the operator's credentials), the same way erase-address works. SES's
+// suppression list is read with SES v2 GetSuppressedDestination (the profile needs
 // ses:GetSuppressedDestination). The Lambda can do neither.
 import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AUDIT_RETENTION_MONTHS, OPERATOR, SYSTEM, auditExpiry, normalEmail, type AuditAction, type AuditEntry, type AuthKit } from '@absence0760/auth-kit';
+import { AUDIT_RETENTION_MONTHS, normalEmail, type AddressExport, type AuditAction, type AuthKit, type ExportedAuditRow } from '@absence0760/auth-kit';
 import type { SESv2Client } from '@aws-sdk/client-sesv2';
 import { type OperatorIO, operatorSes, prompter, refuseArguments, runIfMain } from './operator.js';
-import { PERSONAL_RECORDS, type PersonalRecordKind } from './personal-records.js';
-
-/**
- * The audit action this script records. auth-kit's AuditAction has no access-request action yet, so the row
- * carries one outside its union; the store writes and reads it unchanged and the Users page words it
- * (frontend/src/lib/auth/audit.ts). To be replaced by auth-kit's own action once it has one.
- */
-export const EXPORT_ACTION = 'export' as AuditAction;
 
 /** An SES suppression entry for the address, or none. */
 export type SuppressionEntry = { reason: string; lastUpdated: string } | null;
@@ -62,6 +55,7 @@ const ACTIONS: Record<AuditAction, string> = {
 	recover: 'admin rights restored by the operator',
 	'clear-lock': 'sign-in lock cleared',
 	erase: 'address erased from the log',
+	export: 'personal information exported for an access request',
 	'mail.bounce': 'mail to the address bounced (reported by Amazon SES)',
 	'mail.complaint': 'mail was marked as spam (reported by Amazon SES)',
 	'mail.cleared': 'mail problem cleared by an admin',
@@ -69,108 +63,55 @@ const ACTIONS: Record<AuditAction, string> = {
 	'signin.failed': 'entered a wrong sign-in code',
 	'signin.locked': 'locked out after wrong sign-in codes'
 };
-const actionInWords = (a: string) => (a === EXPORT_ACTION ? 'personal information exported for an access request' : (ACTIONS[a as AuditAction] ?? a));
 
-const iso = (ms: number | null | undefined) => (typeof ms === 'number' && ms > 0 ? new Date(ms).toISOString() : null);
+/** An audit row as auth-kit exports it, with its action in words. */
+export type AuditRowOut = ExportedAuditRow & { actionInWords: string };
 
-export interface AuditRowOut {
-	at: string;
-	action: string;
-	actionInWords: string;
-	actor: string;
-	target: string | null;
-	admin?: boolean;
-	/** When the row is due to be deleted (DynamoDB TTL, usually within a few days of it). */
-	deletedAround: string | null;
-}
+/** The kind of record pitman holds outside auth-kit's table, in the same words as auth-kit's PERSONAL_RECORDS. */
+export const SES_SUPPRESSION = 'Whether Amazon SES has put your address on Pitman’s suppression list (after a hard bounce or a spam complaint), and when.';
+
+type Records = AddressExport['records'];
+type Section<T> = { what: string; found: number; data: T };
 
 export interface AccessExport {
 	about: string;
 	generatedAt: string;
 	address: string;
-	/** Every kind in personal-records.ts, in its order. */
-	records: { [K in PersonalRecordKind]: { what: string; found: number; data: unknown } };
+	/** Every kind in auth-kit's PERSONAL_RECORDS, in its order (audit rows with their actions in words), then SES. */
+	records: Omit<Records, 'auditActor' | 'auditTarget'> & {
+		auditActor: Section<AuditRowOut[]>;
+		auditTarget: Section<AuditRowOut[]>;
+		sesSuppression: Section<SuppressionEntry | { notChecked: string }>;
+	};
 	/** Who has or has had access (POPIA s23(1)(b)). */
 	recipients: readonly string[];
 	notHeld: string[];
 }
 
+/** Who a record names, in the export's words: auth-kit's defaults, with its mail service named. */
+export const PARTIES = { system: 'mail delivery (Amazon SES)' } as const;
+
 /**
- * Everything the table and SES hold that names `email`, with other people's addresses withheld. `ids` are the
- * forms the address takes in audit rows: itself, `unlisted:<hmac>` (sign-in attempts and lock clears while
- * unlisted) and `erased:<hmac>` (a previous erasure).
+ * auth-kit's export of the table, with audit actions in words and the SES suppression entry added: everything
+ * Pitman holds that names the address, with other people's addresses withheld.
  */
-export async function gatherExport(kit: AuthKit, email: string, suppression: SuppressionEntry | { notChecked: string }): Promise<AccessExport> {
-	const { store, keys, clock } = kit.deps;
-	const addressKey = await keys.addressKey(email);
-	const ids = new Set([email, `unlisted:${addressKey}`, `erased:${addressKey}`]);
-	const who = (v: string | null): string | null => {
-		if (v === null) return null;
-		if (ids.has(v)) return 'you';
-		if (v === OPERATOR) return 'the operator';
-		if (v === SYSTEM) return 'mail delivery (Amazon SES)';
-		return 'another person (withheld)';
-	};
-
-	const user = await store.getUserByEmail(email);
-	const { code, throttle } = await store.getCodeState(addressKey);
-	const audit = await store.listAudit();
-	const row = (a: AuditEntry): AuditRowOut => ({
-		at: a.at,
-		action: a.action,
-		actionInWords: actionInWords(a.action),
-		actor: who(a.actor) ?? '',
-		target: who(a.target),
-		...(a.admin !== undefined ? { admin: a.admin } : {}),
-		deletedAround: iso(a.expiresAt * 1000)
-	});
-	// Oldest first: a record reads as a history.
-	const asActor = audit.filter((a) => ids.has(a.actor)).map(row).reverse();
-	const asTarget = audit.filter((a) => a.target !== null && ids.has(a.target)).map(row).reverse();
-	const added = (await store.listUsers()).filter((u) => u.addedBy === email).map((u) => ({ addedAt: u.addedAt, admin: u.isAdmin }));
-
-	const section = <T>(kind: PersonalRecordKind, data: T, found: number) => ({ what: PERSONAL_RECORDS[kind], found, data });
-	const records: AccessExport['records'] = {
-		user: section(
-			'user',
-			user && {
-				id: user.id,
-				address: user.email,
-				admin: user.isAdmin,
-				addedBy: who(user.addedBy),
-				addedAt: user.addedAt,
-				signedOutEverywhereAt: iso(user.sessionsRevokedAt),
-				mailProblem: user.undeliverable
-			},
-			user ? 1 : 0
-		),
-		address: section('address', user ? { address: user.email, findsUser: user.id } : null, user ? 1 : 0),
-		code: section('code', code && { expiresAt: iso(code.expiresAt), wrongTries: code.tries }, code ? 1 : 0),
-		throttle: section(
-			'throttle',
-			throttle && {
-				codesSent: throttle.sends.map((s) => iso(s)),
-				wrongCodesInARow: throttle.fails,
-				lastWrongCodeAt: iso(throttle.lastFailAt),
-				lockedUntil: iso(throttle.lockedUntil)
-			},
-			throttle ? 1 : 0
-		),
-		auditActor: section('auditActor', asActor, asActor.length),
-		auditTarget: section('auditTarget', asTarget, asTarget.length),
-		addedBy: section('addedBy', added, added.length),
-		sesSuppression: section('sesSuppression', suppression, suppression && !('notChecked' in suppression) ? 1 : 0)
-	};
+export function accessExport(table: AddressExport, suppression: SuppressionEntry | { notChecked: string }): AccessExport {
+	const inWords = (s: Section<ExportedAuditRow[]>): Section<AuditRowOut[]> => ({ ...s, data: s.data.map((r) => ({ ...r, actionInWords: ACTIONS[r.action] })) });
 	return {
-		about: `The personal information Pitman holds about ${email}, gathered for an access request under POPIA section 23. Times are UTC (ISO 8601). Audit rows are kept for about ${AUDIT_RETENTION_MONTHS} months.`,
-		generatedAt: new Date(clock.now()).toISOString(),
-		address: email,
-		records,
+		about: `The personal information Pitman holds about ${table.address}, gathered for an access request under POPIA section 23. Times are UTC (ISO 8601). Audit rows are kept for about ${AUDIT_RETENTION_MONTHS} months.`,
+		generatedAt: table.generatedAt,
+		address: table.address,
+		records: {
+			...table.records,
+			auditActor: inWords(table.records.auditActor),
+			auditTarget: inWords(table.records.auditTarget),
+			sesSuppression: { what: SES_SUPPRESSION, found: suppression && !('notChecked' in suppression) ? 1 : 0, data: suppression }
+		},
 		recipients: RECIPIENTS,
 		notHeld: [
 			'Network files and the working copy stay in your browser; Pitman’s servers never receive them. The data API receives only area outlines.',
 			'Server logs record events with at most a user id, never an address, code or token, and are deleted after 30 days.',
-			'Signed-out sessions are recorded by session id and user id only, until the session would have expired (7 days).',
+			'Sessions you signed out of are in revokedSessions while you are on the user list. Once you are removed, any still held name only a session id and a user id that no longer leads to your address, until they would have expired (7 days), so they cannot be found by address.',
 			'Deleted records stay in the database’s point-in-time recovery for 35 days, and are not restored from it.'
 		]
 	};
@@ -223,18 +164,13 @@ export async function main(
 		return 1;
 	}
 
-	// Audited before anything is read, so no export goes unrecorded; the row is part of the export.
-	const { store, keys, clock, random } = auth.deps;
-	const listed = (await store.getUserByEmail(email)) !== null;
-	const now = clock.now();
-	await store.appendAudit({
-		id: random.uuid(),
-		at: new Date(now).toISOString(),
-		actor: OPERATOR,
-		action: EXPORT_ACTION,
-		target: listed ? email : `unlisted:${await keys.addressKey(email)}`,
-		expiresAt: auditExpiry(now)
-	});
+	// auth-kit audits before it reads, so no export goes unrecorded; the row is part of the export. SES after.
+	const table = await auth.exportAddress(email, PARTIES);
+	if (!table.ok) {
+		io.stdout.write(`Refused (${table.status}): ${table.error} Nothing was exported.\n`);
+		return 1;
+	}
+	const { listed } = table.value;
 
 	const ses = await suppression();
 	let entry: SuppressionEntry | { notChecked: string };
@@ -252,7 +188,7 @@ export async function main(
 		}
 	}
 
-	const data = await gatherExport(auth, email, entry);
+	const data = accessExport(table.value, entry);
 	const json = `${JSON.stringify(data, null, '\t')}\n`;
 	if (out === '-') {
 		io.stdout.write(`\n${json}\n`);
