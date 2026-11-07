@@ -73,6 +73,26 @@ parallel; reconcile them with `backend/src` before the first apply.**
 | `MAP_GRID_SOURCE` | `s3://<map_grid_bucket>/<map_grid_key>`, or empty | the MAP grid (method B) |
 | `DATA_REGION` | `aws_region` (`af-south-1`) | region for the S3 client that reads IC-WBT's buckets (pass it explicitly; `docs/data.md`) |
 
+Sign-in's variables (`backend/src/auth/config.ts`; #28 P2 adds them to
+`infra/lambda.tf`). **Until they are all set, every route but `/health` and
+`POST /auth/logout` answers 503** (fail closed), and the Lambda logs
+`{"event":"auth.unconfigured","problem":…}` naming the gap, never a value.
+
+| Name | Value | Meaning |
+|---|---|---|
+| `USER_STORE` | `dynamodb` | auth-kit's DynamoDB store (`memory` is refused on Lambda) |
+| `USERS_TABLE` | the `pitman-users` table's name | the user table (pk/sk, TTL on `ttl`, PITR, deletion protection) |
+| `AUTH_CODE_KEY` | Terraform `random_password`, 32+ characters | keys the code and address HMACs |
+| `AUTH_SESSION_KEY` | another `random_password`, 32+ characters, different | signs session tokens (kid `k1`) |
+| `MAIL_TRANSPORT` | `ses` | `console` and `smtp` are refused on Lambda |
+| `MAIL_FROM` | the SES identity's sender, e.g. `Pitman <no-reply@pitman.jaredhoward.com>` | the sign-in email's From |
+| `SES_CONFIGURATION_SET` | the configuration set's name | TLS-required delivery, suppression and bounce/complaint events |
+
+`DYNAMODB_ENDPOINT` and `AUTH_DEV_COOKIE` are for local dev and are refused
+on Lambda. The Lambda also needs an SQS event-source mapping from the
+bounce/complaint queue (P2): `lambda.ts` sends SQS batches to the
+mail-event handler.
+
 The API routes are mounted **without** the `/api` prefix: CloudFront's
 `api_strip_prefix` function turns `/api/chirps/monthly` into
 `/chirps/monthly` before the Lambda sees it, as in local dev where the
@@ -136,14 +156,53 @@ mirror prefix, any other reference object, any write, delete or list outside
 
 ## Secrets
 
-Pitman's only runtime secret so far is the CloudFront shared secret, which
-Terraform generates and keeps in its (encrypted, in-account) state; nobody
-handles it. Rotate it with `AWS_PROFILE=pitman terraform -chdir=infra apply -replace=random_password.cloudfront_shared_secret` (a few seconds of 403s while CloudFront propagates).
+Pitman's runtime secrets are the CloudFront shared secret and sign-in's two
+keys (`AUTH_CODE_KEY`, `AUTH_SESSION_KEY`, #28 P2), which Terraform generates
+and keeps in its (encrypted, in-account) state; nobody handles them. Rotating
+a sign-in key with `-replace` signs everyone out. CI's one secret is
+`AUTH_KIT_READ_TOKEN` (§ Sign-in). Rotate it with `AWS_PROFILE=pitman terraform -chdir=infra apply -replace=random_password.cloudfront_shared_secret` (a few seconds of 403s while CloudFront propagates).
 
 Secrets that come later (the Cape Farm Mapper token, D3) live SOPS-encrypted
 in the private `infra-secrets/pitman/` under `alias/pitman-sops`, never in
 this repo; the operator creates and edits them (`sops infra-secrets/pitman/prod.sops.yaml`), and
 Claude only checks that they exist. See `../infra-secrets/README.md`.
+
+## Sign-in
+
+Sign-in's rules come from the private package `@absence0760/auth-kit`,
+installed from git at a pinned tag (`backend/package.json`). Its operator
+setup is Absence0760/auth-kit#2; the pitman side:
+
+- **CI access.** Every workflow that runs `pnpm install` (`ci.yml`,
+  `audit.yml`, `coverage.yml`, `deploy-backend.yml`, `deploy-frontend.yml`,
+  `dependabot-lockfile.yml`) first rewrites auth-kit's git URLs to use the
+  **`AUTH_KIT_READ_TOKEN`** secret: a fine-grained token limited to
+  `Absence0760/auth-kit` with Contents read-only (write its expiry down). It
+  must be stored twice, as an **Actions** secret and as a **Dependabot**
+  secret, both named `AUTH_KIT_READ_TOKEN`. Without it those jobs fail at once
+  with the setup link. `dependabot.yml` reads it through its `github-auth-kit`
+  registry, and `dependabot-lockfile.yml`'s regenerate job gets it (read-only,
+  with `--ignore-scripts`) so it can resolve the lockfile. `claude.yml` doesn't
+  get it, so Claude's own `pnpm install` there can't fetch auth-kit.
+- **Bumping auth-kit.** Dependabot proposes new tags without the 7-day
+  cooldown. pnpm 10 builds a git dependency only when its exact resolution is
+  in `pnpm-workspace.yaml`'s `onlyBuiltDependencies` (and `allowBuilds` for
+  pnpm 11), commit SHA included, so a bump also replaces that line with the
+  one the failing install prints: a moved tag can't run new build code
+  without a reviewed change.
+- **The first admin**, once, after the first deploy with sign-in configured
+  (P2 applied): run `pnpm admin:bootstrap` and type your address when it asks.
+  It uses the `pitman` profile (`AWS_PROFILE`), reads the table and code key
+  from the `pitman-backend` Lambda's environment (`LAMBDA_FUNCTION`, `AWS_REGION`
+  override), and refuses if an admin already exists. Then sign in and add a
+  second admin at once (one locked-out mailbox shouldn't lock out admin).
+- **Locked out**: `pnpm admin:clear-lock` clears an address's lock without
+  changing its role; `pnpm admin:recover` makes a listed address an admin
+  again (break-glass). **Erasure**: `pnpm admin:erase`, part of
+  `docs/security.md` § Erasure. Each script reads the address from stdin and
+  is audited as `operator`; the operator's credentials need the
+  `DYNAMODB_IAM_ACTIONS` on the table and `lambda:GetFunctionConfiguration` on
+  the function.
 
 ## Changing the infrastructure
 
