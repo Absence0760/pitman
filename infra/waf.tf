@@ -6,7 +6,11 @@
 # CloudFront proxies it to the Function URL with the shared secret, and the
 # app rejects requests that skip CloudFront.
 #
-# Two rules, tightest first:
+# Three rules, tightest first:
+#   - /api/auth/*: auth_waf_rate_limit_per_ip (default 100 per 5 minutes, the
+#     AWS minimum; A-AUTH-9). Sign-in is two or three calls; auth-kit's
+#     per-address limits are the real bound, this slows one source spraying
+#     code guesses (or lockouts) across many addresses.
 #   - /api/*: waf_api_rate_limit_per_ip (default 300 per 5 minutes). Each is
 #     a Lambda invocation, and a CHIRPS read is up to a few hundred S3 GETs
 #     billed to IC-WBT. Extending one network is a handful of calls.
@@ -19,8 +23,14 @@
 # over 8 KB, and a quaternary polygon POSTed to /api/chirps/monthly can be
 # larger. The API enforces its own input-size limits (4.2).
 #
-# Cost: ~$5/month for the ACL + $1/month per rule + $0.60 per 1M requests.
+# Cost: ~$5/month for the ACL + $1/month per rule (three) + $0.60 per 1M requests.
 # ----------------------------------------------------------------------------
+
+# The auth rule's CloudWatch metric name: the Rule dimension of its
+# BlockedRequests metric (alarms.tf).
+locals {
+  waf_auth_rule_metric = "${local.project}-RateLimitAuthPerIP"
+}
 
 resource "aws_wafv2_web_acl" "frontend" {
   provider = aws.us_east_1
@@ -32,8 +42,54 @@ resource "aws_wafv2_web_acl" "frontend" {
   }
 
   rule {
-    name     = "RateLimitApiPerIP"
+    name     = "RateLimitAuthPerIP"
     priority = 0
+
+    action {
+      block {}
+    }
+
+    statement {
+      rate_based_statement {
+        limit                 = var.auth_waf_rate_limit_per_ip
+        evaluation_window_sec = 300
+        aggregate_key_type    = "IP"
+
+        scope_down_statement {
+          byte_match_statement {
+            search_string         = "/api/auth/"
+            positional_constraint = "STARTS_WITH"
+            field_to_match {
+              uri_path {}
+            }
+            # The same normalisation as the /api/ rule below.
+            text_transformation {
+              priority = 0
+              type     = "URL_DECODE"
+            }
+            text_transformation {
+              priority = 1
+              type     = "NORMALIZE_PATH"
+            }
+            text_transformation {
+              priority = 2
+              type     = "LOWERCASE"
+            }
+          }
+        }
+      }
+    }
+
+    visibility_config {
+      sampled_requests_enabled   = true
+      cloudwatch_metrics_enabled = true
+      metric_name                = local.waf_auth_rule_metric
+    }
+  }
+
+  rule {
+    name     = "RateLimitApiPerIP"
+    priority = 1
 
     action {
       block {}
@@ -80,7 +136,7 @@ resource "aws_wafv2_web_acl" "frontend" {
 
   rule {
     name     = "RateLimitSitePerIP"
-    priority = 1
+    priority = 2
 
     action {
       block {}
@@ -108,6 +164,10 @@ resource "aws_wafv2_web_acl" "frontend" {
   }
 
   lifecycle {
+    precondition {
+      condition     = var.waf_api_rate_limit_per_ip >= var.auth_waf_rate_limit_per_ip
+      error_message = "waf_api_rate_limit_per_ip must be at least auth_waf_rate_limit_per_ip (the /api/ rule counts /api/auth/ requests too)."
+    }
     precondition {
       condition     = var.waf_site_rate_limit_per_ip >= var.waf_api_rate_limit_per_ip
       error_message = "waf_site_rate_limit_per_ip must be at least waf_api_rate_limit_per_ip (the site rule counts the API's requests too)."

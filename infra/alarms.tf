@@ -233,3 +233,182 @@ resource "aws_cloudwatch_metric_alarm" "waf_blocked" {
     Rule   = "ALL"
   }
 }
+
+# The auth WAF rule's blocks (us-east-1: CLOUDFRONT-scope WAF metrics live
+# there). Any block means one IP passed auth_waf_rate_limit_per_ip sign-in
+# calls in 5 minutes, far past a person signing in.
+resource "aws_cloudwatch_metric_alarm" "waf_auth_blocked" {
+  provider            = aws.us_east_1
+  alarm_name          = "${local.project}-waf-auth-blocked"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "BlockedRequests"
+  namespace           = "AWS/WAFV2"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 0
+  alarm_description   = "The WAF's /api/auth/ rule blocked requests: one IP made more than auth_waf_rate_limit_per_ip sign-in calls in 5 minutes (code guessing or lockout spraying). See the rule's sampled requests in the WAF console."
+  alarm_actions       = [aws_sns_topic.alerts_us_east_1.arn]
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    WebACL = aws_wafv2_web_acl.frontend.name
+    Rule   = local.waf_auth_rule_metric
+  }
+}
+
+# --- Users and sign-in (issue #28, primary region) ---------------------------
+
+# SES account-level reputation (AWS/SES, no dimensions). AWS reviews an
+# account at a 5 % bounce or 0.1 % complaint rate and can pause sending, which
+# would stop every sign-in; these fire at half. Nothing to page on while
+# nothing is sent, hence notBreaching.
+resource "aws_cloudwatch_metric_alarm" "ses_bounce_rate" {
+  alarm_name          = "${local.project}-ses-bounce-rate"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Reputation.BounceRate"
+  namespace           = "AWS/SES"
+  period              = 3600
+  statistic           = "Maximum"
+  threshold           = 0.025
+  alarm_description   = "SES bounce rate above 2.5 % (AWS reviews the account at 5 % and may pause sending, which stops sign-in). Check the Users page for flagged addresses; remove a listed address that no longer exists."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
+
+resource "aws_cloudwatch_metric_alarm" "ses_complaint_rate" {
+  alarm_name          = "${local.project}-ses-complaint-rate"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Reputation.ComplaintRate"
+  namespace           = "AWS/SES"
+  period              = 3600
+  statistic           = "Maximum"
+  threshold           = 0.0005
+  alarm_description   = "SES complaint rate above 0.05 % (AWS reviews the account at 0.1 %). Someone marked a sign-in code as spam: check the Users page."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
+
+# Throttles and system errors on the user table. DynamoDB publishes
+# ThrottledRequests and SystemErrors per TableName + Operation only, so each
+# alarm sums the operations the Lambda makes (TransactWriteItems carries the
+# Put/Update/Delete/ConditionCheck items of every change). Every gated request
+# reads the table, so any throttle or 5xx is worth a look.
+locals {
+  users_table_operations = {
+    getitem  = "GetItem"
+    query    = "Query"
+    putitem  = "PutItem"
+    update   = "UpdateItem"
+    deletion = "DeleteItem"
+    transact = "TransactWriteItems"
+  }
+
+  users_table_alarms = {
+    throttles = {
+      metric      = "ThrottledRequests"
+      description = "The user table throttled requests in the last 5 minutes: sign-in and every gated request read it."
+    }
+    system-errors = {
+      metric      = "SystemErrors"
+      description = "DynamoDB returned 5xx on the user table (an AWS-side fault): sign-in or the gate may be failing closed (503). Check the AWS Health dashboard for the region."
+    }
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "users_table" {
+  for_each = local.users_table_alarms
+
+  alarm_name          = "${local.project}-users-table-${each.key}"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  threshold           = 0
+  alarm_description   = each.value.description
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+
+  metric_query {
+    id          = "total"
+    expression  = join(" + ", [for k in sort(keys(local.users_table_operations)) : "FILL(${k}, 0)"])
+    label       = "${each.value.metric}, all operations"
+    return_data = true
+  }
+
+  dynamic "metric_query" {
+    for_each = local.users_table_operations
+    content {
+      id = metric_query.key
+      metric {
+        metric_name = each.value.metric
+        namespace   = "AWS/DynamoDB"
+        period      = 300
+        stat        = "Sum"
+        dimensions = {
+          TableName = aws_dynamodb_table.users.name
+          Operation = metric_query.value
+        }
+      }
+    }
+  }
+}
+
+# auth.locked: auth-kit locked an address after repeated wrong codes. Anyone
+# can do that to an admin by failing codes against their address (the known
+# risk in docs/security.md), so every one is surfaced. The line carries an
+# opaque id and the event name only (A-AUTH-11).
+#
+# The pattern is a quoted term, not a JSON selector ({ $.event = ... }): the
+# function logs in Lambda's default Text format, which prefixes every line
+# with a timestamp, request id and level, so the log event is not a JSON
+# document and a JSON selector never matches it. The term matches the event
+# name wherever it sits in the line, in either log format and whether the
+# backend logs an object or a JSON string. Nothing else logs `auth.locked`.
+resource "aws_cloudwatch_log_metric_filter" "auth_locked" {
+  name           = "${local.project}-auth-locked"
+  log_group_name = aws_cloudwatch_log_group.lambda.name
+  pattern        = "\"auth.locked\""
+
+  metric_transformation {
+    name          = "AuthLocked"
+    namespace     = "${local.project}/Auth"
+    value         = "1"
+    default_value = "0"
+    unit          = "Count"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "auth_locked" {
+  alarm_name          = "${local.project}-auth-locked"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = aws_cloudwatch_log_metric_filter.auth_locked.metric_transformation[0].name
+  namespace           = aws_cloudwatch_log_metric_filter.auth_locked.metric_transformation[0].namespace
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "An address was locked out of sign-in after repeated wrong codes. If it's an admin who didn't do it, someone is guessing or locking them out: check the audit rows on the Users page; `pnpm admin:recover` is the break-glass."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+}
+
+# A dead-lettered bounce or complaint: the Lambda failed 5 times to record it,
+# so the address isn't flagged on the Users page (SES has still suppressed it).
+resource "aws_cloudwatch_metric_alarm" "mail_events_dlq" {
+  alarm_name          = "${local.project}-mail-events-dlq"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = 300
+  statistic           = "Maximum"
+  threshold           = 0
+  alarm_description   = "An SES bounce or complaint is in the mail-events DLQ: the Lambda failed 5 times to record it. Read the Lambda's errors, fix, then redrive the DLQ (SQS console, Start DLQ redrive)."
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    QueueName = aws_sqs_queue.mail_events_dlq.name
+  }
+}

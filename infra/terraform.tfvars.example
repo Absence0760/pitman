@@ -2,8 +2,11 @@
 # secret, but the IC-WBT bucket names embed IC-WBT's account ID, so they stay
 # out of the public repo. Every variable is described in variables.tf.
 
-# D-6. af-south-1 must be enabled in the account first.
+# D-6. af-south-1 must be enabled in the account first. Any other region is
+# refused unless data_outside_south_africa = true, which is allowed only with
+# the privacy notice rewritten (A-AUTH-6).
 aws_region = "af-south-1"
+# data_outside_south_africa = false
 
 # The delegated child zone the estate bootstrap created.
 domain_name = "pitman.jaredhoward.com"
@@ -25,7 +28,13 @@ lambda_log_retention_days   = 30
 # map_grid_bucket      = "water-management-reference-<IC-WBT account ID>"
 # map_grid_key         = "reference/map-grid/<the WAAS file's key>"
 
+# --- Sign-in mail (A-AUTH-7) ------------------------------------------------
+# DMARC starts at none; tighten once the identity has sent cleanly for a while.
+dmarc_policy = "none"
+# dmarc_report_email = "you+pitman-dmarc@example.com"
+
 # --- Edge and cost -------------------------------------------------------------
+auth_waf_rate_limit_per_ip        = 100
 waf_api_rate_limit_per_ip         = 300
 waf_site_rate_limit_per_ip        = 2000
 lambda_invocations_alarm_per_hour = 2000

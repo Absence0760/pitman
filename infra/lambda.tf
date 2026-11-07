@@ -191,6 +191,16 @@ resource "aws_lambda_function" "backend" {
       # The S3 client's region for IC-WBT's buckets, passed explicitly
       # (data.md: IC-WBT's `new S3Client({})` would take the Lambda's own).
       DATA_REGION = var.aws_region
+
+      # Users and sign-in (issue #28; docs/deployment.md § Lambda environment).
+      # The two keys are random_password values (users.tf), in state only.
+      USER_STORE            = "dynamodb"
+      USERS_TABLE           = aws_dynamodb_table.users.name
+      AUTH_CODE_KEY         = random_password.auth_code_key.result
+      AUTH_SESSION_KEY      = random_password.auth_session_key.result
+      MAIL_TRANSPORT        = "ses"
+      MAIL_FROM             = local.mail_from_address
+      SES_CONFIGURATION_SET = aws_sesv2_configuration_set.main.configuration_set_name
     }
   }
 

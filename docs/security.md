@@ -114,6 +114,14 @@ above. The design, decided as A-AUTH-1 … 11 in `docs/decisions.md`:
 - **Data residency**: the table and SES live in af-south-1; Terraform refuses
   another region unless `data_outside_south_africa = true` and the privacy
   notice is rewritten.
+- **Infra (P2, in `infra/`):** the table (`users.tf`), the SES sender and
+  its bounce queue (`ses.tf`), the auth WAF rule and the alarms are written
+  and pinned by `infra/tests/auth.tftest.hcl`. The Lambda's grants: auth-kit's
+  six DynamoDB actions on the table ARN only; `ses:SendEmail` on the domain
+  identity and the configuration set only, when From is
+  `no-reply@pitman.jaredhoward.com`; receive / delete / get-attributes on the
+  bounce queue only. Never `Scan`, `Batch*` or
+  `ses:DeleteSuppressedDestination`. Not yet applied (no account yet, #22).
 - **Known risks**: anyone can lock out an admin by failing codes against
   their address (alarm on `auth.locked`, `pnpm admin:recover`, keep two
   admins); SES production access can take days; signing keys are visible in
@@ -134,8 +142,11 @@ above. The design, decided as A-AUTH-1 … 11 in `docs/decisions.md`:
 - The WAF limits are per IP; a flood spread over many addresses is bounded by
   reserved concurrency and surfaced by the invocation alarm and the budget,
   not blocked.
-- The CloudFront shared secret sits in the Lambda's environment and the
-  Terraform state (both in-account, encrypted at rest), not Secrets Manager.
+- The CloudFront shared secret and the two sign-in keys (`AUTH_CODE_KEY`,
+  `AUTH_SESSION_KEY`) sit in the Lambda's environment and the Terraform
+  state (both in-account, encrypted at rest), not Secrets Manager. Anyone who
+  can read the function's configuration can mint a session (A-AUTH-8 accepts
+  this; the account is the root of trust).
 - Dependency scanning is weekly, not per change: `.github/workflows/audit.yml`
   runs `pnpm audit --audit-level=moderate` every Monday and opens a
   `dependency-audit` issue (closed by the next clean run), and Dependabot

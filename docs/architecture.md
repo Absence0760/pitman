@@ -11,7 +11,9 @@ and GitHub Actions for CI/CD:
   server for development and as an AWS Lambda handler for production. Bundled
   with esbuild.
 - `infra/` — Terraform module that provisions all AWS resources (S3, CloudFront,
-  Lambda, IAM, Route 53, ACM, GitHub OIDC). Not a workspace package.
+  WAF, Lambda, IAM, Route 53, ACM, the DynamoDB user table, SES and its
+  bounce queue, alarms; the deploy policy on the bootstrap's GitHub OIDC
+  role). Not a workspace package.
 - `.github/workflows/` — two deploy workflows (frontend, backend) that run on
   a push to `main` touching their paths (or by hand), authenticate to AWS via
   OIDC and deploy only after approval in the `production` environment
@@ -309,10 +311,15 @@ cells route isn't cached: it is a slice of memory.
 ## Deployment targets
 
 - **Frontend**: S3 bucket (private) + CloudFront with OAC. ACM cert in
-  `us-east-1`. Route 53 A-alias records for apex and `www`.
+  `us-east-1`. Route 53 A + AAAA alias records for `pitman.jaredhoward.com`
+  (no `www`).
 - **Backend**: AWS Lambda with Function URL (no API Gateway). Single
-  `dist/lambda.mjs` ESM bundle via esbuild.
+  `dist/lambda.mjs` ESM bundle via esbuild. A second trigger, an SQS event
+  source mapping, delivers SES bounces and complaints to the same function.
+- **Users (#28)**: DynamoDB table `pitman-users` and an SES sender
+  (`no-reply@pitman.jaredhoward.com`), both in af-south-1 (`infra/users.tf`,
+  `infra/ses.tf`).
 
 Both deploy workflows authenticate via **GitHub OIDC federation** — no
-long-lived AWS access keys. The IAM role's trust policy is scoped to the
-`main` branch only.
+long-lived AWS access keys. The IAM role's trust policy accepts only tokens
+for this repo's `production` environment, which needs a required reviewer.

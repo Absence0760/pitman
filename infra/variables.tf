@@ -3,9 +3,30 @@
 # ----------------------------------------------------------------------------
 
 variable "aws_region" {
-  description = "Primary region: the API Lambda, the site bucket and their alarms. af-south-1 (D-6), beside IC-WBT's buckets, so the CHIRPS and MAP-grid reads stay in-region. An opt-in region: enable it in the account first."
+  description = <<-EOT
+    Primary region: the API Lambda, the site bucket, the user table, SES and
+    their alarms. af-south-1 (D-6), beside IC-WBT's buckets, so the CHIRPS and
+    MAP-grid reads stay in-region. An opt-in region: enable it in the account
+    first.
+
+    The privacy notice tells users their data (the user list, sign-in codes,
+    the audit rows) is stored in South Africa, so any other region is refused
+    unless data_outside_south_africa is set (A-AUTH-6, copied from WM
+    infra/variables.tf).
+  EOT
   type        = string
   default     = "af-south-1"
+
+  validation {
+    condition     = var.aws_region == "af-south-1" || var.data_outside_south_africa
+    error_message = "The privacy notice says the user list is stored in South Africa (af-south-1). To deploy elsewhere, rewrite the notice first, then set data_outside_south_africa = true (A-AUTH-6)."
+  }
+}
+
+variable "data_outside_south_africa" {
+  description = "Deliberately host outside af-south-1 (Cape Town). Allowed only with the privacy notice rewritten to say where the user list is stored (POPIA s72; A-AUTH-6)."
+  type        = bool
+  default     = false
 }
 
 variable "domain_name" {
@@ -128,6 +149,36 @@ variable "map_grid_key" {
 }
 
 # ----------------------------------------------------------------------------
+# Users, sign-in and mail (issue #28, A-AUTH-4/7)
+# ----------------------------------------------------------------------------
+
+variable "audit_retention_months" {
+  description = "How long audit rows live in the user table before their TTL removes them. auth-kit sets it (its own constant); this records it beside the table (a tag) for the privacy notice and the docs, and must match auth-kit. 24 months, as EWR chose (A-AUTH-4)."
+  type        = number
+  default     = 24
+  validation {
+    condition     = var.audit_retention_months == 24
+    error_message = "audit_retention_months is auth-kit's constant (24). Change it in auth-kit and the privacy notice first, then here."
+  }
+}
+
+variable "dmarc_policy" {
+  description = "DMARC policy on _dmarc.<domain_name>. none to start (A-AUTH-7); DKIM and the send. MAIL FROM both align, so it can be tightened to quarantine or reject later without losing mail."
+  type        = string
+  default     = "none"
+  validation {
+    condition     = contains(["none", "quarantine", "reject"], var.dmarc_policy)
+    error_message = "dmarc_policy must be none, quarantine or reject."
+  }
+}
+
+variable "dmarc_report_email" {
+  description = "Optional rua= address for DMARC aggregate reports. Empty: no reports requested. Must accept reports for this domain (an address on another domain needs that domain's _report._dmarc authorisation record)."
+  type        = string
+  default     = ""
+}
+
+# ----------------------------------------------------------------------------
 # Edge: WAF and cost alarms
 # ----------------------------------------------------------------------------
 
@@ -137,6 +188,16 @@ variable "waf_api_rate_limit_per_ip" {
   default     = 300
   validation {
     condition     = var.waf_api_rate_limit_per_ip >= 100
+    error_message = "AWS WAF's rate-based rule minimum is 100 per 5-minute window."
+  }
+}
+
+variable "auth_waf_rate_limit_per_ip" {
+  description = "WAF rate limit on /api/auth/*: requests per IP per 5-minute window (A-AUTH-9). The sign-in flow is two or three calls; auth-kit's own per-address limits are the real bound, this one slows one source guessing codes against many addresses. AWS minimum 100."
+  type        = number
+  default     = 100
+  validation {
+    condition     = var.auth_waf_rate_limit_per_ip >= 100
     error_message = "AWS WAF's rate-based rule minimum is 100 per 5-minute window."
   }
 }

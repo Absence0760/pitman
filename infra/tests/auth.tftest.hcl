@@ -1,0 +1,481 @@
+# Credential-free tests of the users-and-sign-in infrastructure (issue #28 P2):
+# the region refusal (A-AUTH-6), the user table's protections (A-AUTH-4), the
+# Lambda's exact grants on the table, SES and the mail-events queue (A-AUTH-7),
+# the sign-in keys (A-AUTH-8), the edge (A-AUTH-3, A-AUTH-9) and the alarms.
+#   terraform -chdir=infra init -backend=false && terraform -chdir=infra test
+#
+# Mocked providers, `command = plan`, no AWS account, no state. The mocks
+# below fill computed values (an identity's ARN, a password's result) during
+# plan (`override_during = plan`), so grants can be compared ARN for ARN.
+
+mock_provider "aws" {
+  mock_data "aws_caller_identity" {
+    defaults = {
+      account_id = "111111111111"
+    }
+  }
+  mock_data "aws_iam_policy_document" {
+    defaults = {
+      json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}"
+    }
+  }
+  mock_data "aws_iam_role" {
+    defaults = {
+      arn  = "arn:aws:iam::111111111111:role/pitman-deploy"
+      name = "pitman-deploy"
+    }
+  }
+  mock_resource "aws_sesv2_email_identity" {
+    override_during = plan
+    defaults = {
+      arn = "arn:aws:ses:af-south-1:111111111111:identity/pitman.jaredhoward.com"
+      dkim_signing_attributes = {
+        tokens                  = ["tokena", "tokenb", "tokenc"]
+        next_signing_key_length = "RSA_2048_BIT"
+      }
+    }
+  }
+  mock_resource "aws_sesv2_configuration_set" {
+    override_during = plan
+    defaults = {
+      arn = "arn:aws:ses:af-south-1:111111111111:configuration-set/pitman"
+    }
+  }
+  mock_resource "aws_dynamodb_table" {
+    override_during = plan
+    defaults = {
+      arn = "arn:aws:dynamodb:af-south-1:111111111111:table/pitman-users"
+    }
+  }
+  mock_resource "aws_sqs_queue" {
+    override_during = plan
+    defaults = {
+      arn = "arn:aws:sqs:af-south-1:111111111111:pitman-mail-events"
+    }
+  }
+  mock_resource "aws_iam_role" {
+    override_during = plan
+    defaults = {
+      id  = "pitman-backend-lambda"
+      arn = "arn:aws:iam::111111111111:role/pitman-backend-lambda"
+    }
+  }
+  mock_resource "aws_lambda_function" {
+    override_during = plan
+    defaults = {
+      arn = "arn:aws:lambda:af-south-1:111111111111:function:pitman-backend"
+    }
+  }
+  mock_resource "aws_cloudwatch_log_group" {
+    override_during = plan
+    defaults = {
+      arn = "arn:aws:logs:af-south-1:111111111111:log-group:/aws/lambda/pitman-backend"
+    }
+  }
+  mock_resource "aws_sns_topic" {
+    override_during = plan
+    defaults = {
+      arn = "arn:aws:sns:af-south-1:111111111111:pitman-ses-events"
+    }
+  }
+}
+
+mock_provider "aws" {
+  alias = "us_east_1"
+}
+
+mock_provider "random" {
+  mock_resource "random_password" {
+    override_during = plan
+  }
+}
+mock_provider "archive" {}
+
+# --- region tied to the privacy notice (A-AUTH-6) -----------------------------
+
+run "region_af_south_1_accepted" {
+  command = plan
+
+  assert {
+    condition     = var.aws_region == "af-south-1" && !var.data_outside_south_africa
+    error_message = "The default is af-south-1 with data_outside_south_africa off."
+  }
+}
+
+run "region_elsewhere_refused" {
+  command = plan
+  variables {
+    aws_region = "eu-west-1"
+  }
+  expect_failures = [var.aws_region]
+}
+
+run "region_elsewhere_allowed_with_flag" {
+  command = plan
+  variables {
+    aws_region                = "eu-west-1"
+    data_outside_south_africa = true
+  }
+
+  assert {
+    condition     = var.aws_region == "eu-west-1"
+    error_message = "With data_outside_south_africa = true another region must be accepted."
+  }
+}
+
+# --- the user table (A-AUTH-4) ------------------------------------------------
+
+run "users_table_protections" {
+  command = plan
+
+  assert {
+    condition     = aws_dynamodb_table.users.name == "pitman-users"
+    error_message = "The table is pitman-users."
+  }
+  assert {
+    condition     = aws_dynamodb_table.users.billing_mode == "PAY_PER_REQUEST"
+    error_message = "The table is on-demand."
+  }
+  assert {
+    condition     = aws_dynamodb_table.users.hash_key == "pk" && aws_dynamodb_table.users.range_key == "sk"
+    error_message = "Keys are pk (hash) and sk (range)."
+  }
+  assert {
+    condition     = toset([for a in aws_dynamodb_table.users.attribute : "${a.name}:${a.type}"]) == toset(["pk:S", "sk:S"])
+    error_message = "pk and sk are strings, and no other attribute (no index) is declared."
+  }
+  assert {
+    condition     = aws_dynamodb_table.users.point_in_time_recovery[0].enabled
+    error_message = "PITR must be on."
+  }
+  assert {
+    condition     = aws_dynamodb_table.users.ttl[0].enabled && aws_dynamodb_table.users.ttl[0].attribute_name == "ttl"
+    error_message = "TTL must be on, on the attribute ttl."
+  }
+  assert {
+    condition     = aws_dynamodb_table.users.deletion_protection_enabled
+    error_message = "Deletion protection must be on."
+  }
+  assert {
+    condition     = length(aws_dynamodb_table.users.global_secondary_index) == 0 && length(aws_dynamodb_table.users.local_secondary_index) == 0
+    error_message = "The table has no indexes (the grant covers the table ARN only)."
+  }
+  assert {
+    condition     = aws_dynamodb_table.users.tags["AuditRetentionMonths"] == "24"
+    error_message = "Audit retention is recorded as 24 months."
+  }
+}
+
+run "audit_retention_other_than_24_refused" {
+  command = plan
+  variables {
+    audit_retention_months = 12
+  }
+  expect_failures = [var.audit_retention_months]
+}
+
+run "users_table_grant_is_exact" {
+  command = plan
+
+  assert {
+    condition     = length(jsondecode(aws_iam_role_policy.lambda_users_table.policy).Statement) == 1
+    error_message = "One statement on the table."
+  }
+  assert {
+    condition = sort(jsondecode(aws_iam_role_policy.lambda_users_table.policy).Statement[0].Action) == sort([
+      "dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem",
+      "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:ConditionCheckItem",
+    ])
+    error_message = "Exactly auth-kit's six actions: no Scan, no Batch*, no wildcard."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.lambda_users_table.policy).Statement[0].Resource == aws_dynamodb_table.users.arn
+    error_message = "The grant is on exactly the table ARN (no index/* or stream ARN)."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.lambda_users_table.policy).Statement[0].Effect == "Allow" && !can(jsondecode(aws_iam_role_policy.lambda_users_table.policy).Statement[0].Condition)
+    error_message = "A plain Allow, nothing else."
+  }
+  assert {
+    condition     = aws_iam_role_policy.lambda_users_table.role == aws_iam_role.lambda.id
+    error_message = "The grant is on the API Lambda's role."
+  }
+}
+
+# --- SES (A-AUTH-7) ---------------------------------------------------------------
+
+run "ses_sender" {
+  command = plan
+
+  assert {
+    condition     = aws_sesv2_email_identity.site.email_identity == "pitman.jaredhoward.com"
+    error_message = "The SES identity is the site domain."
+  }
+  assert {
+    condition     = aws_sesv2_email_identity_mail_from_attributes.site.mail_from_domain == "send.pitman.jaredhoward.com"
+    error_message = "MAIL FROM is send.<domain> (the estate pattern)."
+  }
+  assert {
+    condition     = aws_route53_record.ses_mail_from_mx.records == toset(["10 feedback-smtp.af-south-1.amazonses.com"])
+    error_message = "The MAIL FROM MX points at SES's feedback host in af-south-1."
+  }
+  assert {
+    condition     = aws_route53_record.ses_dkim[0].records == toset(["tokena.dkim.af-south-1.amazonses.com"])
+    error_message = "af-south-1 uses the regional DKIM domain."
+  }
+  assert {
+    condition     = one(aws_route53_record.dmarc.records) == "v=DMARC1; p=none; adkim=r; aspf=r"
+    error_message = "DMARC starts at p=none."
+  }
+  assert {
+    condition     = aws_sesv2_configuration_set.main.delivery_options[0].tls_policy == "REQUIRE"
+    error_message = "The configuration set requires TLS."
+  }
+  assert {
+    condition     = toset(aws_sesv2_configuration_set.main.suppression_options[0].suppressed_reasons) == toset(["BOUNCE", "COMPLAINT"])
+    error_message = "Suppression covers bounces and complaints."
+  }
+  assert {
+    condition     = aws_sesv2_configuration_set.main.reputation_options[0].reputation_metrics_enabled
+    error_message = "Reputation metrics are on."
+  }
+  assert {
+    condition     = toset(aws_sesv2_configuration_set_event_destination.suppression.event_destination[0].matching_event_types) == toset(["BOUNCE", "COMPLAINT"])
+    error_message = "Bounces and complaints go to the SNS topic."
+  }
+}
+
+run "ses_grant_is_exact" {
+  command = plan
+
+  assert {
+    condition     = length(jsondecode(aws_iam_role_policy.lambda_ses_send.policy).Statement) == 1
+    error_message = "One SES statement."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.lambda_ses_send.policy).Statement[0].Action == ["ses:SendEmail"]
+    error_message = "ses:SendEmail only."
+  }
+  assert {
+    condition = toset(jsondecode(aws_iam_role_policy.lambda_ses_send.policy).Statement[0].Resource) == toset([
+      aws_sesv2_email_identity.site.arn, aws_sesv2_configuration_set.main.arn,
+    ])
+    error_message = "SendEmail is granted on the domain identity and the configuration set only."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.lambda_ses_send.policy).Statement[0].Condition.StringEquals["ses:FromAddress"] == "no-reply@pitman.jaredhoward.com"
+    error_message = "Sending is conditioned on From = no-reply@<domain>."
+  }
+  assert {
+    condition = !anytrue([
+      for p in [
+        aws_iam_role_policy.lambda_logs.policy,
+        aws_iam_role_policy.lambda_users_table.policy,
+        aws_iam_role_policy.lambda_ses_send.policy,
+        aws_iam_role_policy.lambda_mail_events.policy,
+      ] : strcontains(p, "DeleteSuppressedDestination") || strcontains(p, "ses:*") || strcontains(p, "\"*\"")
+    ])
+    error_message = "No Lambda policy grants ses:DeleteSuppressedDestination, ses:* or a bare * (removing a suppression is the operator's job)."
+  }
+}
+
+run "mail_events_chain" {
+  command = plan
+
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.lambda_mail_events.policy).Statement[0].Resource == aws_sqs_queue.mail_events.arn
+    error_message = "The Lambda consumes the mail-events queue only."
+  }
+  assert {
+    condition = sort(jsondecode(aws_iam_role_policy.lambda_mail_events.policy).Statement[0].Action) == sort([
+      "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes",
+    ])
+    error_message = "Receive, delete and get-attributes only."
+  }
+  assert {
+    condition     = jsondecode(aws_sqs_queue_policy.mail_events.policy).Statement[0].Condition.ArnEquals["aws:SourceArn"] == aws_sns_topic.ses_events.arn
+    error_message = "Only the ses-events topic may send to the queue."
+  }
+  assert {
+    condition     = jsondecode(aws_sqs_queue_policy.mail_events.policy).Statement[0].Principal.Service == "sns.amazonaws.com" && jsondecode(aws_sqs_queue_policy.mail_events.policy).Statement[0].Action == "sqs:SendMessage"
+    error_message = "The queue policy grants SNS SendMessage and nothing else."
+  }
+  assert {
+    condition     = jsondecode(aws_sns_topic_policy.ses_events.policy).Statement[0].Condition.ArnEquals["aws:SourceArn"] == aws_sesv2_configuration_set.main.arn
+    error_message = "Only this configuration set may publish to the topic."
+  }
+  assert {
+    condition     = aws_sqs_queue.mail_events.sqs_managed_sse_enabled && aws_sqs_queue.mail_events_dlq.sqs_managed_sse_enabled
+    error_message = "Both queues are SSE-SQS encrypted."
+  }
+  assert {
+    condition     = jsondecode(aws_sqs_queue.mail_events.redrive_policy).maxReceiveCount == 5
+    error_message = "The queue dead-letters after 5 receives."
+  }
+  assert {
+    condition     = aws_lambda_event_source_mapping.mail_events.function_name == aws_lambda_function.backend.arn
+    error_message = "The queue triggers the existing API Lambda."
+  }
+  assert {
+    condition     = aws_lambda_event_source_mapping.mail_events.batch_size == 10 && aws_lambda_event_source_mapping.mail_events.scaling_config[0].maximum_concurrency == 2
+    error_message = "Batches of 10, at most 2 at once."
+  }
+  assert {
+    condition     = aws_lambda_event_source_mapping.mail_events.function_response_types == toset(["ReportBatchItemFailures"])
+    error_message = "Only failed records are retried."
+  }
+}
+
+# --- Lambda environment and keys (A-AUTH-8) ---------------------------------------
+
+run "lambda_auth_environment" {
+  command = plan
+
+  assert {
+    condition     = aws_lambda_function.backend.environment[0].variables["USER_STORE"] == "dynamodb"
+    error_message = "USER_STORE=dynamodb."
+  }
+  assert {
+    condition     = aws_lambda_function.backend.environment[0].variables["USERS_TABLE"] == "pitman-users"
+    error_message = "USERS_TABLE is the table's name."
+  }
+  assert {
+    condition     = aws_lambda_function.backend.environment[0].variables["MAIL_TRANSPORT"] == "ses"
+    error_message = "MAIL_TRANSPORT=ses."
+  }
+  assert {
+    condition     = aws_lambda_function.backend.environment[0].variables["MAIL_FROM"] == "no-reply@pitman.jaredhoward.com"
+    error_message = "MAIL_FROM is no-reply@<domain>, the address the SES grant allows."
+  }
+  assert {
+    condition     = aws_lambda_function.backend.environment[0].variables["SES_CONFIGURATION_SET"] == "pitman"
+    error_message = "SES_CONFIGURATION_SET is the configuration set's name."
+  }
+  assert {
+    condition     = random_password.auth_code_key.length == 48 && !random_password.auth_code_key.special
+    error_message = "AUTH_CODE_KEY: 48 characters, no specials."
+  }
+  assert {
+    condition     = random_password.auth_session_key.length == 48 && !random_password.auth_session_key.special
+    error_message = "AUTH_SESSION_KEY: 48 characters, no specials."
+  }
+}
+
+run "auth_keys_are_distinct" {
+  command = plan
+
+  assert {
+    condition     = random_password.auth_code_key.result != random_password.auth_session_key.result
+    error_message = "The code key and the session key must be different values."
+  }
+  assert {
+    condition     = aws_lambda_function.backend.environment[0].variables["AUTH_CODE_KEY"] == random_password.auth_code_key.result
+    error_message = "AUTH_CODE_KEY comes from random_password.auth_code_key."
+  }
+  assert {
+    condition     = aws_lambda_function.backend.environment[0].variables["AUTH_SESSION_KEY"] == random_password.auth_session_key.result
+    error_message = "AUTH_SESSION_KEY comes from random_password.auth_session_key."
+  }
+  assert {
+    condition     = aws_lambda_function.backend.environment[0].variables["CLOUDFRONT_SHARED_SECRET"] == random_password.cloudfront_shared_secret.result
+    error_message = "The existing environment is kept."
+  }
+}
+
+# --- edge (A-AUTH-3, A-AUTH-9) ----------------------------------------------------
+
+run "api_behaviour_never_caches_and_forwards_cookies" {
+  command = plan
+
+  assert {
+    condition     = one([for b in aws_cloudfront_distribution.frontend.ordered_cache_behavior : b.cache_policy_id if b.path_pattern == "/api/*"]) == "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    error_message = "/api/* must use Managed-CachingDisabled: a signed-in answer is never served from cache."
+  }
+  assert {
+    condition     = one([for b in aws_cloudfront_distribution.frontend.ordered_cache_behavior : b.origin_request_policy_id if b.path_pattern == "/api/*"]) == "b689b0a8-53d0-40ab-baf2-68738e2966ac"
+    error_message = "/api/* must use Managed-AllViewerExceptHostHeader, which forwards every cookie (the session) and the Origin header (csrf())."
+  }
+}
+
+run "waf_auth_rule" {
+  command = plan
+
+  assert {
+    condition     = one([for r in aws_wafv2_web_acl.frontend.rule : r.statement[0].rate_based_statement[0].limit if r.name == "RateLimitAuthPerIP"]) == 100
+    error_message = "The auth rule allows 100 per IP per 5 minutes."
+  }
+  assert {
+    condition = one([
+      for r in aws_wafv2_web_acl.frontend.rule :
+      r.statement[0].rate_based_statement[0].scope_down_statement[0].byte_match_statement[0].search_string
+      if r.name == "RateLimitAuthPerIP"
+    ]) == "/api/auth/"
+    error_message = "The auth rule is scoped to /api/auth/."
+  }
+  assert {
+    condition = one([
+      for r in aws_wafv2_web_acl.frontend.rule :
+      [for t in r.statement[0].rate_based_statement[0].scope_down_statement[0].byte_match_statement[0].text_transformation : t.type]
+      if r.name == "RateLimitAuthPerIP"
+    ]) == ["URL_DECODE", "NORMALIZE_PATH", "LOWERCASE"]
+    error_message = "The auth rule normalises the path like the /api/ rule."
+  }
+  assert {
+    condition = one([for r in aws_wafv2_web_acl.frontend.rule : r.priority if r.name == "RateLimitAuthPerIP"]) < min([
+      for r in aws_wafv2_web_acl.frontend.rule : r.priority if r.name != "RateLimitAuthPerIP"
+    ]...)
+    error_message = "The auth rule is evaluated before the broader rules."
+  }
+  assert {
+    condition     = one([for r in aws_wafv2_web_acl.frontend.rule : r.visibility_config[0].metric_name if r.name == "RateLimitAuthPerIP"]) == aws_cloudwatch_metric_alarm.waf_auth_blocked.dimensions["Rule"]
+    error_message = "The auth-block alarm watches the auth rule's own metric."
+  }
+}
+
+run "auth_limit_below_waf_minimum_refused" {
+  command = plan
+  variables {
+    auth_waf_rate_limit_per_ip = 50
+  }
+  expect_failures = [var.auth_waf_rate_limit_per_ip]
+}
+
+run "auth_limit_above_api_limit_refused" {
+  command = plan
+  variables {
+    auth_waf_rate_limit_per_ip = 400
+    waf_api_rate_limit_per_ip  = 300
+  }
+  expect_failures = [aws_wafv2_web_acl.frontend]
+}
+
+# --- alarms -------------------------------------------------------------------
+
+run "auth_alarms" {
+  command = plan
+
+  assert {
+    condition     = aws_cloudwatch_log_metric_filter.auth_locked.log_group_name == aws_cloudwatch_log_group.lambda.name && strcontains(aws_cloudwatch_log_metric_filter.auth_locked.pattern, "auth.locked")
+    error_message = "auth.locked is counted from the API Lambda's log group."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.auth_locked.threshold == 1 && aws_cloudwatch_metric_alarm.auth_locked.comparison_operator == "GreaterThanOrEqualToThreshold" && aws_cloudwatch_metric_alarm.auth_locked.period == 300
+    error_message = "One auth.locked in 5 minutes alarms."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.ses_bounce_rate.metric_name == "Reputation.BounceRate" && aws_cloudwatch_metric_alarm.ses_complaint_rate.metric_name == "Reputation.ComplaintRate"
+    error_message = "SES reputation alarms watch the account's bounce and complaint rates."
+  }
+  assert {
+    condition     = toset(keys(aws_cloudwatch_metric_alarm.users_table)) == toset(["throttles", "system-errors"])
+    error_message = "The table has throttle and system-error alarms."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.mail_events_dlq.dimensions["QueueName"] == "pitman-mail-events-dlq"
+    error_message = "The DLQ alarm watches the mail-events DLQ."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.waf_auth_blocked.namespace == "AWS/WAFV2"
+    error_message = "The auth WAF alarm watches WAF's metrics (in us-east-1)."
+  }
+}

@@ -243,8 +243,11 @@ resource "aws_cloudfront_distribution" "frontend" {
   # quaternary, 4.2) is in the app; an edge cache keyed wrongly would serve
   # one request's answer to another. AllViewerExceptHostHeader forwards body,
   # query and headers but not Host, which must be the Function URL's own for
-  # AWS to route it. https-only: an http:// API call is refused, not
-  # redirected (a redirect would turn a POST into a GET).
+  # AWS to route it. That includes every cookie and the Origin header, which
+  # sign-in needs (the __Host-pitman_session cookie, csrf() on Origin; A-AUTH-3,
+  # A-AUTH-9); with caching disabled nothing is keyed on them, so one user's
+  # answer is never served to another (a terraform test pins both).
+  # https-only: an http:// API call is refused, not redirected (a redirect would turn a POST into a GET).
   ordered_cache_behavior {
     path_pattern               = "/api/*"
     target_origin_id           = "lambda-api"
