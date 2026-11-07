@@ -4,6 +4,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { csrf } from 'hono/csrf';
 import { HTTPException } from 'hono/http-exception';
+import { onLambda } from './auth/config.js';
 import { requireSession } from './auth/middleware.js';
 import { publicAuthRoutes, sessionRoutes } from './auth/routes.js';
 import { type AuthRuntime, authRuntimeFromEnv } from './auth/runtime.js';
@@ -37,6 +38,9 @@ export const RATE_LIMITS = {
 	// and auth-kit's per-address send limits and lockout the real ones.
 	auth: { limit: 60, windowMs: 10 * 60_000 }
 } as const;
+
+/** The answer to every request on a Lambda whose CloudFront shared secret is unset. */
+export const SHARED_SECRET_UNSET = 'this server is not configured (CLOUDFRONT_SHARED_SECRET is not set)';
 
 /** What the data routes read; tests pass their own, the app builds them from the environment. */
 export interface AppDeps {
@@ -80,9 +84,15 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	//
 	// Local dev leaves CLOUDFRONT_SHARED_SECRET unset → the check no-ops,
 	// because the Hono dev server (port 3001) is reached directly by the
-	// dev frontend (port 7777) without CloudFront in the path.
+	// dev frontend (port 7777) without CloudFront in the path. On Lambda an
+	// unset or empty secret fails closed instead (503 on everything, like
+	// sign-in's config, A-AUTH-8): the bare Function URL must never answer
+	// past the WAF because a variable went missing.
 	const sharedSecret = process.env.CLOUDFRONT_SHARED_SECRET ?? '';
-	if (sharedSecret) {
+	if (!sharedSecret && onLambda(process.env)) {
+		console.error(JSON.stringify({ event: 'cloudfront_secret.unset' }));
+		app.use('*', async (c) => c.json({ error: SHARED_SECRET_UNSET }, 503));
+	} else if (sharedSecret) {
 		const expected = Buffer.from(sharedSecret);
 		app.use('*', async (c, next) => {
 			const provided = Buffer.from(c.req.header('x-cloudfront-shared-secret') ?? '');

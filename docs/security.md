@@ -55,7 +55,10 @@ runs it.
 - **The API is reachable only through CloudFront.** The Function URL is
   public by AWS design; CloudFront adds `X-CloudFront-Shared-Secret` (a
   Terraform-generated 48-character value) and the app answers 403 to any
-  request without it, so the WAF and its rate limits cover the API. Not
+  request without it, so the WAF and its rate limits cover the API. On
+  Lambda an unset or empty secret fails closed: every request is 503 and
+  `{"event":"cloudfront_secret.unset"}` is logged at start (`app.ts`), so a
+  lost variable can't open the Function URL past the WAF. Not
   Lambda OAC: it would need the viewer to sign every POST body's hash.
 - **WAF** (us-east-1): per-IP rate limits, 300 per 5 minutes on `/api/*`
   (path URL-decoded, normalised and lower-cased before matching) and 2 000 on
