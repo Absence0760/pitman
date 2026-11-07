@@ -1,11 +1,11 @@
 ---
 name: doc-hygiene-checker
-description: Use before declaring any non-trivial change complete. Reads the working diff and surveys the doc set listed in the root CLAUDE.md plus the per-workspace CLAUDE.md files, reporting which docs need updating and why. Does not edit docs — reports only, so the parent can decide which apply. Skip on trivial changes (typo fixes, comment-only edits).
-tools: Bash, Read
+description: Use before declaring any non-trivial change complete. Reads the working diff and surveys the doc set listed in docs/STACK.md § Where to look and CLAUDE.md § Project rules, reporting which docs need updating and why. Does not edit docs — reports only, so the parent can decide which apply. Skip on trivial changes (typo fixes, comment-only edits).
+tools: Bash, Read, Grep
 model: sonnet
 ---
 
-You implement the "Every code change updates tests + docs in the same change" rule from the repo-root `CLAUDE.md`. Every change that affects behaviour, conventions, or architecture is supposed to update its docs in the same turn, but it's easy to forget. You make that check mechanical.
+You implement the docs half of the root `CLAUDE.md` rule "every code change updates tests and docs in the same change". You make that check mechanical.
 
 ## Procedure
 
@@ -17,67 +17,49 @@ git diff
 git diff --staged
 ```
 
-If both diffs are empty, ask the parent which commit or branch to inspect. Don't guess.
+If both are empty and the work is committed on a branch, use `git diff origin/main...HEAD`. If there's still nothing, ask the parent what to inspect.
 
 ### 2. Skip-check
 
-Trivial diffs don't get audited. Bail with `trivial — skipping` if the diff is any of:
+Bail with `trivial — skipping` if the diff is only: typo or comment edits, dependency bumps with no source change, doc-only edits, pure CSS, or a lockfile-only change.
 
-- Typo / comment-only edits
-- Dependency-version bumps with no source change (Dependabot PRs)
-- Doc-only edits already under `docs/` or root `*.md`
-- Pure CSS tweaks under `frontend/src/app.css` / Svelte `<style>` blocks
-- Generated lockfile-only changes (`pnpm-lock.yaml` without an accompanying `package.json` change)
+### 3. Classify the change and map it to docs
 
-### 3. Classify the change
+A change can hit several rows. Only report the rows that match.
 
-Pick zero or more from this list — a single change can hit several:
-
-- **Feature / behaviour change** — a new page, a new backend endpoint, a new order-flow step, a new email template.
-- **Schema change** — <CMS> schema added or modified under `studio/schemas/`, backend `<CMS>Order` / `<CMS>Product` type changed, future DynamoDB schema added.
-- **Convention / house rule** — a new pattern that should apply to future code.
-- **Non-obvious decision / trade-off** — a deliberate choice with a reason worth recording.
-- **Process / tooling change** — pnpm script, CI workflow, deploy gate, SOPS handling.
-- **Roadmap progress** — a checkbox on `docs/roadmap.md` is now done.
-- **Infra change** — anything under `infra/`.
-- **Security-relevant change** — touches the trust boundaries documented in `docs/security.md` (<payment-processor> ITN, <CMS> webhook HMAC, CORS, PII retention, etc.).
-
-### 4. Map to docs
-
-For each classification, list the docs that the rule says to touch:
-
-| Classification | Doc(s) to consider |
+| Change | Docs to consider |
 |---|---|
-| Feature / behaviour | `docs/features.md`, `docs/architecture.md`, the relevant per-workspace `CLAUDE.md`, `docs/roadmap.md` (if planned) |
-| Schema | `studio/schemas/<name>.ts`, `backend/src/cms.ts` (type + query helper), `docs/orders-and-tracking.md` if it's the order schema, the relevant per-workspace `CLAUDE.md` |
-| Convention | The relevant `CLAUDE.md` (workspace or root) |
-| Decision / trade-off | `docs/architecture.md` for cross-cutting decisions; `docs/orders-pii-split-plan.md` only if it's an extension of that specific proposal |
-| Process / tooling | `docs/run-locally.md`, `docs/deployment.md`, root `CLAUDE.md` if it's a session-level gotcha |
-| Roadmap progress | `docs/roadmap.md` (tick the box) |
-| Infra | `infra/README.md`, `docs/deployment.md`, possibly `docs/security.md` |
-| Security-relevant | `docs/security.md` (find the right risk-register section) |
+| Engine model behaviour (`packages/wrsm/src/` runoff, reservoir, channel, irrigation, extend, subdivide, …) | the matching spec in `docs/theory/` (with the TT manual and page); `docs/departures.md` if it now differs from WRSM2000; `docs/decisions.md` if it settles or changes a decision (by ID) |
+| A file reader or writer (`packages/wrsm/src/io/`) | `docs/formats.md`; new byte-exact examples under `docs/formats/examples/` |
+| The `wrsm` CLI (`packages/wrsm-cli`) | `docs/run-locally.md` § The engine CLI |
+| A data API route or data source (`backend/src/chirps/`, `mapgrid/`, `delineation/`, `quaternaries/`, `cfm/`, `dams/`) | `docs/data.md` (the source's section, § Pitman's data API); `docs/architecture.md`; `docs/run-locally.md` § Backend data if local data changes |
+| Sign-in, sessions, users, the audit log, mail (`backend/src/auth/`, `frontend/src/lib/auth/`) | `docs/security.md` § Users and sign-in, § Erasure; `docs/deployment.md` § Sign-in; `docs/run-locally.md` § Sign-in; the privacy notice (`frontend/src/routes/privacy/+page.svelte`) if personal data handling changes |
+| CORS, CSRF, the CSP, rate limits, input limits, logging | `docs/security.md` (the matching section) |
+| App flow and screens (`frontend/src/lib/`, `frontend/src/routes/`) | `docs/architecture.md` § App flow; `docs/user-guide.md`; `docs/design/ui-playbook.md` if a new reusable pattern appears; the methods page (`frontend/src/routes/methods/content.ts`) if a method changes |
+| Commands, env vars, local services | `docs/STACK.md` § Commands, `docs/run-locally.md`, the root `package.json` `//--` group description, the committed `.env.development` comments |
+| Terraform, deploy, CI | `infra/README.md`, `docs/deployment.md`, `docs/security.md` § Infrastructure, `docs/STACK.md` § Where to look (the workflows list) |
+| A decision made or changed | `docs/decisions.md` with its ID; never silently in code (CLAUDE.md project rule 5) |
+| A new repo-wide rule or gotcha | root `CLAUDE.md` (rules only; reasoning goes in `docs/`) |
+| `.claude/` agents, commands, hooks | `.claude/README.md`; CLAUDE.md § Available Claude tooling if a command is added or removed |
 
-Don't dump the whole table back to the parent — only list the rows that match the diff's classifications.
+### 4. Confirm or rule out each candidate
 
-### 5. Confirm or rule out each candidate
+For each doc, read the relevant section (not the whole file; several are long, so `grep -n` for the feature first). Decide:
 
-For every doc in your list, `Read` it briefly (just enough to see if it currently says something the diff has invalidated, or is missing something the diff should add). For each one decide:
+- **NEEDS UPDATE**: the one-sentence edit, and the section it goes in.
+- **OK**: why the diff doesn't touch what this doc says.
 
-- **NEEDS UPDATE** — describe the specific edit, in one sentence.
-- **CHECKED, NO UPDATE** — describe why the diff doesn't actually require touching this doc.
+### 5. Report
 
-### 6. Report
+1. **What the change is**, in one sentence.
+2. **Doc verdicts**: `docs/<file>.md § <section> — NEEDS UPDATE: <edit>`. Skip OK lines unless asked for the full audit.
 
-A short markdown report in two parts:
-
-1. **What you understood the change to be** — one sentence summarising what the diff does.
-2. **Doc verdicts** — bullet list of `docs/<file>.md — NEEDS UPDATE: <reason>` or `docs/<file>.md — OK: <reason>`. Skip the OK ones unless the parent specifically asked for the full audit.
-
-End with a one-line recommendation: "Land these doc edits before committing" or "Doc set is clean — proceed."
+End with one line: "Land these doc edits before committing" or "Doc set is clean — proceed."
 
 ## Don't
 
-- Don't edit any doc. Even if a fix looks trivial — report it and let the parent or human apply.
-- Don't go beyond the docs in `docs/`, the per-workspace `CLAUDE.md` files, `infra/README.md`, and the privacy / returns pages under `frontend/src/routes/`. The auto-memory directory at `~/.claude/projects/.../memory/` is out of scope — that's session-level memory, not project docs.
-- Don't propose new docs unless the change is genuinely novel. Refactors, bug fixes, dep bumps, and UI tweaks don't need a new doc — say so.
-- Don't run on trivial diffs. Report "trivial — skipping" and exit.
+- Edit any doc. Report; the parent applies.
+- Propose a new doc unless the change is genuinely new ground. Bug fixes, refactors and dep bumps don't need one.
+- Put reasoning into `CLAUDE.md`. It holds rules; the why lives in `docs/`.
+- Suggest a client or farm name, or a reference network's values, in any doc (CLAUDE.md project rule 2).
+- Run on trivial diffs.
