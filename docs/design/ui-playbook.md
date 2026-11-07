@@ -185,7 +185,7 @@ with them.
 
 ## Access (WCAG 2.2 AA)
 
-`e2e/a11y.spec.ts` and `a11y-keyboard.spec.ts` measure these on the page with every
+`frontend/e2e/a11y.spec.ts` and `a11y-keyboard.spec.ts` measure these on the page with every
 card open; add to them, not to a checklist.
 
 - **A skip link comes first,** and takes the keyboard past the bar and the rail.
