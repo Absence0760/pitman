@@ -137,7 +137,9 @@ Clicks to try on the synthetic DEM, with their answers:
 Every API route but `/health` needs a session (`docs/architecture.md`
 § Sign-in), and `pnpm dev` signs you in with **no docker and no setup**:
 `backend/.env.development` sets an in-memory user list (`USER_STORE=memory`),
-console mail (`MAIL_TRANSPORT=console`), dev-only signing keys, and
+console mail (`MAIL_TRANSPORT=console`) through an in-process mail queue
+(`MAIL_QUEUE=inline`: the code is sealed and sent just after the request
+answers, as the Lambda's SQS worker does; the Lambda uses SQS, #30), dev-only signing keys, and
 `DEV_ADMIN_EMAIL=admin@example.test`, whom the dev server makes the first
 admin at startup (the in-memory list is empty on every restart).
 

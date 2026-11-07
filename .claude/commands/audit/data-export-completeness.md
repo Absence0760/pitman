@@ -41,7 +41,7 @@ script knows about.
    address but the requester's (the export test checks the seeded case; look
    for any field it passes through unredacted).
 5. **Outside the table.** SES's suppression list entry (the export reads
-   it), the bounce queue and its DLQ (`infra/ses.tf`), CloudWatch logs (should
+   it), the bounce queue and its DLQ (`infra/ses.tf`), the sign-in mail queue and its DLQ (`infra/mail_queue.tf`: sealed bodies, 10 minutes and a day), CloudWatch logs (should
    hold no address, `backend/src/__tests__/logGuard.ts`). Confirm the
    procedure's manual checks for the DLQ and logs still name the right queue
    and log group.

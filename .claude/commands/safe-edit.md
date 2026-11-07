@@ -8,7 +8,7 @@ Implement the task `$ARGUMENTS` with a project-specific code-reviewer agent in t
 ## When to use this command
 
 **Right fit:**
-- Security-sensitive changes — the session gate and the `PUBLIC` route list, the admin routes (`/users*`, `/audit`), the SES bounce/complaint handler (`backend/src/auth/mailEvents.ts`), CORS / `csrf()` / `sameOriginWrites`, the CloudFront shared-secret check, rate limits and input caps, anything that logs (no personal data in logs, A-AUTH-11), the CSP (`infra/csp.json`).
+- Security-sensitive changes — the session gate and the `PUBLIC` route list, the admin routes (`/users*`, `/audit`), the SES bounce/complaint handler (`backend/src/auth/mailEvents.ts`), the sign-in mail queue and its sealing (`backend/src/auth/mailQueue.ts`, `mailWorker.ts`), CORS / `csrf()` / `sameOriginWrites`, the CloudFront shared-secret check, rate limits and input caps, anything that logs (no personal data in logs, A-AUTH-11), the CSP (`infra/csp.json`).
 - Engine changes — readers and writers in `packages/wrsm/src/io/` (byte-identical round-trips, float32 rounding), the runoff, reservoir, channel and irrigation models, rainfall extension and sub-division. Run the `wrsm-engine-reviewer` agent beside `code-reviewer` here.
 - Data API changes — a new data route or data source (`backend/src/chirps/`, `backend/src/mapgrid/`, `backend/src/delineation/`, `backend/src/quaternaries/`, `backend/src/cfm/`): gated, rate-limited, local-first default, 503 "not configured" in production.
 - Infra changes — anything under `infra/`, especially the deploy policy (`infra/oidc.tf`), the cross-account grants, the bucket policy, the WAF and the security headers.

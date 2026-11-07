@@ -187,15 +187,34 @@ privacy notice and AWS account. Network files still never leave the browser.
   after 3 wrong tries; sends 60 s apart, 5 an hour, 10 a day; a lockout that
   doubles to 15 minutes. Expiry is checked in code, never left to TTL.
 - **Nothing reveals who is listed.** Every code request answers 202 with the
-  same body and headers inside `withMinimumLatency`, the email sent
-  inside it; listed and unlisted addresses do the same store work, and a
-  failed send still answers 202. Strangers' addresses are stored only as HMACs.
-  The floor is 4.5 s (`CODE_REQUEST_MIN_LATENCY_MS` in `auth/runtime.ts`),
-  not auth-kit's 1 s default: only a listed address sends mail inside it, so
-  it has to outlast the slowest SES send (4 s, § SES send bounds), or a slow
-  SES would make a listed address answer later than an unlisted one. It is
-  derived from the SES options, and `auth/runtime.test.ts` fails if they ever
-  outgrow it.
+  same body and headers inside `withMinimumLatency`. No mail is sent inside
+  the request (issue #30, A-AUTH-14): a listed address enqueues one sealed
+  message carrying its code, an unlisted one a decoy of the same size, so
+  both make the same store calls and the same single SQS `SendMessage`
+  (`auth/routes.test.ts` checks the store calls, the bodies' length and
+  shape, and that no mailer runs during a request). A failed enqueue still
+  answers 202. Strangers' addresses are stored only as HMACs. The floor is
+  auth-kit's 1 s default (`CODE_REQUEST_MIN_LATENCY_MS` in
+  `auth/runtime.ts`): with the work identical, what is left to hide is
+  auth-kit's own store work, which is what that default covers. A slow SQS
+  or table makes the answer late for both alike. (Before #30 the email was
+  sent inside the floor, which had to outlast SES's 4 s worst case: 4.5 s.)
+- **The sign-in mail queue** (`auth/mailQueue.ts`, `auth/mailWorker.ts`,
+  `infra/mail_queue.tf`): each message is sealed with AES-256-GCM under a key
+  derived (HKDF-SHA256, its own label) from `AUTH_CODE_KEY`, its plaintext
+  padded to 512 bytes, so the queue, its DLQ, the SQS console and a redrive
+  never show an address or a code, and a decoy can't be told from a real
+  message by size. Rotating `AUTH_CODE_KEY` voids queued messages along with
+  live codes (logged as `mail.queue_unreadable`). The same Lambda consumes the
+  queue: it sends a batch's records at once, drops decoys, refuses to mail a
+  code that has expired (`mail.send_expired`), and reports a refused send
+  back for SQS to retry (about every 3 minutes, 3 receives, then the
+  mail-send DLQ). The queue keeps a message 10 minutes, a code's life, and
+  the DLQ a day. Its policy refuses non-TLS requests; the Lambda's role may
+  send, receive and delete on it and nothing else. Local dev uses an
+  in-process queue (`MAIL_QUEUE=inline`) that seals and opens the same way
+  and sends just after the request answers; the config refuses it on
+  Lambda, which freezes once it has answered.
 - **Sessions**: `__Host-pitman_session` (`Secure; HttpOnly; SameSite=Strict;
   Path=/`, no `Domain`), HS256 with `jti` and `kid`, 7 days, re-checked
   against the user record and revocations on every request, so a removal or
@@ -224,13 +243,18 @@ privacy notice and AWS account. Network files still never leave the browser.
   without a session.
 - **Fails closed**: on Lambda, a missing or short key (under 32 characters),
   equal keys, a missing table, `USER_STORE=memory`, a mail transport other
-  than SES, or the dev cookie leaves sign-in unconfigured, and every gated
+  than SES, a mail queue other than SQS (or no `MAIL_QUEUE_URL`), or the dev
+  cookie leaves sign-in unconfigured, and every gated
   route answers 503 (`auth/config.ts`).
 - **Logs**: an event name and at most a user id: `auth.locked` (when a lock
   starts on a listed address), `auth.send_capped` (a listed address has just
   spent its daily send budget), `auth.slow_code_request` (a `POST /auth/code`
-  ran past the 4.5 s floor, so its timing could tell a listed address from an
-  unlisted one), `mail.send_failed`, `mail.bounce` and `mail.complaint` (with counts flagged,
+  ran past the 1 s floor: the table or SQS was slow), `mail.enqueue_failed`
+  (the request couldn't enqueue the email), `mail.send_failed` (the worker's
+  send was refused; retried), `mail.send_expired` and `mail.queue_unreadable`
+  (a queued email dropped unsent; one alarm), `mail.queue_unsent` (queued mail
+  arriving while sign-in is unconfigured), `mail.queue` (a batch's counts),
+  `mail.bounce` and `mail.complaint` (with counts flagged,
   unchanged and refused), `mail.event_refused` (auth-kit refused a
   recipient's address or time, so that bounce or complaint was dropped
   unrecorded) and `mail.event_ignored` (a record that can't be read, or of
@@ -238,7 +262,9 @@ privacy notice and AWS account. Network files still never leave the browser.
   shape or timestamps changed), `mail.record_failed`, `mail.events_unrecorded`,
   `auth.unconfigured`, `cloudfront_secret.unset`, and `unhandled_error` with
   the error's name and code only. Every one but `mail.bounce`,
-  `mail.complaint` and `unhandled_error` raises an alarm (`infra/alarms.tf`).
+  `mail.complaint`, `mail.queue` and `unhandled_error` raises an alarm
+  (`infra/alarms.tf`), as do the mail-send DLQ and a sign-in email waiting
+  over 2 minutes on the queue. No queued message's body is ever logged.
   Never an address, a code, a token or an
   error message (SES puts the recipient in its messages); every auth test
   file fails if any line it logs holds an address
@@ -251,12 +277,14 @@ privacy notice and AWS account. Network files still never leave the browser.
   SDK only warns at the request timeout), with at most 1 s of backoff between
   them (the SDK's throttling base, 0.5 s, or 1 s under its 2026 retry
   behaviour). That is 2 × (0.5 + 1) + 1 = 4 s at worst
-  (`SES_SEND_WORST_CASE_MS` in `auth/mail.ts`), inside the 4.5 s floor.
-  A `Retry-After` on a throttling answer can stretch the SDK's backoff by up
-  to 5 s, so the mailer also aborts any send still running at 4 s; that send
-  is logged as `mail.send_failed` and the request still answers 202. The
-  durable fix is to send off the request path (a queue), so the floor never
-  has to cover a send and can go back to 1 s.
+  (`SES_SEND_WORST_CASE_MS` in `auth/mail.ts`). A `Retry-After` on a
+  throttling answer can stretch the SDK's backoff by up to 5 s, so the mailer
+  also aborts any send still running at 4 s; that send is logged as
+  `mail.send_failed` and SQS tries it again. Since #30 the send runs in the
+  queue worker, not the request, so these bounds keep a batch short (one
+  worst case, well inside the Lambda's timeout) rather than a floor. The SQS
+  client on the request side is bounded the same way (`SQS_CLIENT_OPTIONS`
+  in `auth/mailQueue.ts`), for a listed and an unlisted address alike.
 - **Operator actions** (`pnpm admin:bootstrap`, `admin:recover`,
   `admin:clear-lock`, `admin:erase`, `admin:export`) run with the operator's
   AWS profile, read the address from stdin (never argv, so never shell
@@ -285,7 +313,8 @@ privacy notice and AWS account. Network files still never leave the browser.
   six DynamoDB actions on the table ARN only; `ses:SendEmail` on the domain
   identity and the configuration set only, when From is
   `no-reply@pitman.jaredhoward.com`; receive / delete / get-attributes on the
-  bounce queue only. Never `Scan`, `Batch*` or
+  bounce queue only; send / receive / delete / get-attributes on the sign-in
+  mail queue only (`mail_queue.tf`), never on either DLQ. Never `Scan`, `Batch*` or
   `ses:DeleteSuppressedDestination`. Not yet applied (no account yet, #22).
 - **Keys**: two Terraform `random_password` values in the Lambda's
   environment (`AUTH_CODE_KEY`, `AUTH_SESSION_KEY`); rotating with
@@ -383,6 +412,13 @@ information about someone, and for a copy of it. There is no self-serve
      messages for that alarm and, if one names the address, add its event
      type and time to the answer. The main queue (4 days) is drained in
      seconds.
+   - **The sign-in mail queue and its DLQ** (`pitman-mail-send`, 10
+     minutes; `pitman-mail-send-dlq`, a day): a queued email holds the
+     address and a code, sealed under a key derived from `AUTH_CODE_KEY`, so
+     nobody reads it in the console. Nothing to search: the queue keeps an
+     email only as long as its code lives, and the DLQ for a day from when it
+     was sent. Mention in the answer that a code requested in the last day
+     may still sit there, sealed, until it expires.
    - **The Lambda's logs** (`/aws/lambda/pitman-backend`, 30 days):
      `read -r A && aws logs filter-log-events --log-group-name /aws/lambda/pitman-backend --filter-pattern "\"$A\"" --region af-south-1 --profile pitman --query 'length(events)'`
      prints how many lines hold the address (expected 0) without printing
@@ -430,7 +466,9 @@ A request to erase a person's address (POPIA), in order:
    parameter; check it at the first erasure and note the answer here.
 4. **Record it**: the date, and that steps 1 to 3 are done (not the
    address). Erasure is complete 35 days later, when point-in-time recovery
-   no longer holds the deleted items.
+   no longer holds the deleted items. (A sign-in email queued in the last
+   day may still sit, sealed, in `pitman-mail-send-dlq`; SQS deletes it a day
+   after it was sent, well inside those 35 days.)
 
 ## Compliance drift
 
@@ -519,10 +557,13 @@ records what it found over the history when it was introduced.
   users, is SSM SecureString or Secrets Manager under a CMK (a cold-start
   fetch, about $0.40-$1/month).
 - A flood spread over many IPs that holds every reserved Lambda copy busy
-  also throttles the mail-events queue's polls; after 5 receives a bounce or
-  complaint dead-letters (SES has still suppressed the address) and the DLQ
-  alarm fires. Redrive after the flood. The durable fix, if it ever bites, is
-  a separate small function for mail events.
+  also throttles both queues' polls. After 5 receives a bounce or complaint
+  dead-letters (SES has still suppressed the address) and the DLQ alarm
+  fires; redrive after the flood. Sign-in email waits on its queue (the
+  mail-send age alarm fires at 2 minutes) and is deleted unsent once its code
+  has expired, so nobody can sign in until the flood ends. The durable fix,
+  if it ever bites, is a separate small function for the queues, with its
+  own reserved concurrency.
 - Dependency scanning is weekly, not per change: `.github/workflows/audit.yml`
   runs `pnpm audit --audit-level=moderate` every Monday and opens a
   `dependency-audit` issue (closed by the next clean run), and Dependabot

@@ -58,7 +58,10 @@
 				<strong>Whether mail to you bounced or was reported as spam</strong>, and when, as Amazon SES reports it, until an admin clears it: so an admin
 				knows a sign-in code may not reach you. The record of it goes in the audit record above.
 			</li>
-			<li><strong>Short-lived sign-in items:</strong> the code emailed to you (kept only as a one-way hash) and counts that limit how often codes can be sent.</li>
+			<li>
+				<strong>Short-lived sign-in items:</strong> the code emailed to you (kept only as a one-way hash, and, until the email has gone, encrypted with your
+				address in a mail queue for at most a day) and counts that limit how often codes can be sent.
+			</li>
 			<li>
 				<strong>Your IP address, briefly,</strong> to limit how many requests one address can make. It is held in memory by the web firewall and the server
 				while it counts, and is not written to logs or to the user list.

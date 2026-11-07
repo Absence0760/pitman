@@ -58,10 +58,11 @@ Pitman's legitimate traffic is a handful of hydrologists. A finding is anything 
 
 ### 8. SES
 
-`infra/ses.tf`, `backend/src/auth/mail.ts`:
+`infra/ses.tf`, `infra/mail_queue.tf`, `backend/src/auth/mail.ts`, `backend/src/auth/mailWorker.ts`:
 
 - Mail is sent only for sign-in codes, and auth-kit's per-address limits (60 s apart, 5 an hour, 10 a day) plus the WAF auth rule bound it. A path that sends mail without them is High.
-- The SES client's retries are bounded (`SES_SEND_WORST_CASE_MS`), and a failed send is logged once, not retried in a loop.
+- The SES client's retries are bounded (`SES_SEND_WORST_CASE_MS`), and a failed send is logged and retried by SQS at most 3 times (the mail queue's `maxReceiveCount`), then dead-lettered, never retried in a loop.
+- The sign-in mail queue (`aws_sqs_queue.mail_send`) keeps a message no longer than a code lives (10 minutes) and has a DLQ, and its event source mapping is capped at 2 concurrent batches, so a backlog can't fan out into the Lambda's whole reserved concurrency.
 - The bounce/complaint queue (`aws_sqs_queue.mail_events`) has a DLQ and a redrive limit, so a poison message can't keep the Lambda busy.
 
 ### 9. DynamoDB

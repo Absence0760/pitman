@@ -61,7 +61,7 @@ pitman/
 │   └── src/
 │       ├── app.ts            Hono app factory: CORS, csrf, the sign-in gate, route mounting
 │       ├── server.ts         Local dev entry (runs on :3001; SMTP mail and the dev admin)
-│       ├── lambda.ts         AWS Lambda entry: Function URL requests to the app, SQS mail events to auth/mailEvents.ts
+│       ├── lambda.ts         AWS Lambda entry: Function URL requests to the app, the mail queue to auth/mailWorker.ts, SES mail events to auth/mailEvents.ts
 │       ├── auth/             Sign-in wiring over auth-kit (§ Sign-in)
 │       └── chirps/, mapgrid/, delineation/, quaternaries/, cfm/, …   The data API (§ Data API)
 ├── infra/
@@ -70,6 +70,7 @@ pitman/
 │   ├── outputs.tf
 │   ├── s3_cloudfront.tf      Bucket + OAC + cert + CloudFront + Route 53
 │   ├── lambda.tf             Function + exec role + log group + Function URL
+│   ├── mail_queue.tf         The sign-in mail queue, its DLQ and event source mapping (#30)
 │   ├── oidc.tf               Deploy policy on the estate bootstrap's GitHub OIDC role
 │   └── terraform.tfvars.example
 └── .github/
@@ -253,7 +254,10 @@ add `dotenv` imports to any module reachable from `lambda.ts`.
 `src/lambda.test.ts` bundles `lambda.ts` with esbuild and fails if `dotenv`,
 `server.ts` or the synthetic-data writers end up in it.
 
-`lambda.ts` also takes SQS batches: SES bounce and complaint notifications
+`lambda.ts` also takes SQS batches from two queues. The sign-in mail queue's
+(`pitman-mail-send`, told apart by the record's source ARN against
+`MAIL_QUEUE_URL`) go to `auth/mailWorker.ts`, which opens each sealed message
+and sends its code (#30, below). SES bounce and complaint notifications
 (SES configuration set → SNS → SQS) go to `auth/mailEvents.ts`, which flags
 each permanently bounced or complaining recipient on the user list (auth-kit's
 `recordDeliveryProblem`, at SES's event time) and logs the record as
@@ -272,8 +276,10 @@ store, the operator actions) are the private package `@absence0760/auth-kit`
 | `config.ts` | Reads the environment (`docs/deployment.md` § Lambda environment); on Lambda any gap is a problem, and the gate answers 503 |
 | `store.ts` | auth-kit's memory store (`USER_STORE=memory`, local dev and tests) or its DynamoDB store (`dynamodb`, the Lambda or DynamoDB Local) |
 | `mail.ts` | The email text and the transports: `console` (dev, prints the code), `ses` (SES v2 with the configuration set; 2 attempts, 1 s each, stopped at the 4 s worst case); `mail.smtp.ts` (nodemailer to Mailpit) is built by `server.ts` only, so it never enters the Lambda bundle |
+| `mailQueue.ts` | The request side of sign-in mail (#30, A-AUTH-14): seals one message per accepted code request (AES-256-GCM, a key derived from `AUTH_CODE_KEY`, padded to one size; a decoy for an unlisted address) and puts it on the queue: SQS on the Lambda (`MAIL_QUEUE=sqs`), in-process in local dev (`inline`, sent just after the answer). Also `deliverSealed`, which opens and sends one, shared by both |
+| `mailWorker.ts` | The SQS consumer: sends a batch's emails at once, drops decoys, expired codes and unreadable bodies, reports refused sends back for SQS to retry, logs one counts-only `mail.queue` line |
 | `cookies.ts` | `__Host-pitman_session` from auth-kit; the dev-only plain `pitman_session` |
-| `runtime.ts` | Binds auth-kit, mailer and cookie into the one object `createApp({ auth })` takes |
+| `runtime.ts` | Binds auth-kit, the mail queue and its sealer, the mailer and the cookie into the one object `createApp({ auth })` takes; sets `POST /auth/code`'s floor (auth-kit's 1 s default) |
 | `middleware.ts` | The gate: `verifySession` on the cookie, sets `c.var.user`, 401 `{ error }` |
 | `routes.ts` | The routes below |
 | `mailEvents.ts` | SES bounce and complaint notifications from SQS: flags the listed user (`recordDeliveryProblem`), fails a record to redeliver on a 409 |
@@ -287,7 +293,7 @@ they were added, so everything registered after the gate needs a session.
 
 | Route | Session | Body → answer |
 |---|---|---|
-| `POST /auth/code` | no | `{ email }` → 202 `{}` for any well-formed address, listed or not, after a 4.5 s floor with the email sent inside it (the SES worst case of 4 s, rounded up; `auth/runtime.ts`); 400; 429 + `Retry-After` (s) when throttled or locked |
+| `POST /auth/code` | no | `{ email }` → 202 `{}` for any well-formed address, listed or not, after auth-kit's 1 s floor; the email is enqueued (a same-size decoy for an unlisted address) and sent by the mail worker, never inside the request (#30, `auth/runtime.ts`); 400; 429 + `Retry-After` (s) when throttled or locked |
 | `POST /auth/verify` | no | `{ email, code }` → 200 `{ user: { id, email, isAdmin } }` + `Set-Cookie`; 400 for a body without both strings; 401 for a wrong, expired or spent code; 429 + `Retry-After` when locked |
 | `POST /auth/logout` | no | → 204, revokes the session if it is valid, clears the cookie |
 | `POST /auth/logout-everywhere` | yes | → 204, signs out every session of the user, clears the cookie |
@@ -390,8 +396,9 @@ cells route isn't cached: it is a slice of memory.
   `us-east-1`. Route 53 A + AAAA alias records for `pitman.jaredhoward.com`
   (no `www`).
 - **Backend**: AWS Lambda with Function URL (no API Gateway). Single
-  `dist/lambda.mjs` ESM bundle via esbuild. A second trigger, an SQS event
-  source mapping, delivers SES bounces and complaints to the same function.
+  `dist/lambda.mjs` ESM bundle via esbuild. Two more triggers, SQS event
+  source mappings, deliver the sign-in mail queue (`pitman-mail-send`,
+  `infra/mail_queue.tf`) and SES bounces and complaints to the same function.
 - **Users (#28)**: DynamoDB table `pitman-users` and an SES sender
   (`no-reply@pitman.jaredhoward.com`), both in af-south-1 (`infra/users.tf`,
   `infra/ses.tf`).
