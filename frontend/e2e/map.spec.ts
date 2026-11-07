@@ -51,17 +51,9 @@ async function open(page: Page, quaternaries: (route: Route) => Promise<void> = 
 	await expect(panel(page).locator('[data-status]')).toHaveAttribute('data-status', 'ready');
 }
 
-/** A settled map: the frame's move has ended and the view has stopped changing. */
+/** A settled map (MapLibre's `idle`): the frame's move has ended and every source is drawn, so what the pointer hits is final. */
 async function settled(page: Page) {
-	const box = panel(page).locator('[data-status]');
-	await expect(box).toHaveAttribute('data-view', /./);
-	await expect
-		.poll(async () => {
-			const before = await box.getAttribute('data-view');
-			await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-			return before === (await box.getAttribute('data-view'));
-		})
-		.toBe(true);
+	await expect(panel(page).locator('[data-status]')).toHaveAttribute('data-settled', 'true');
 }
 
 test('with no tiles the map draws the boundaries on a plain background, under the CSP, and says so quietly', async ({ page }) => {

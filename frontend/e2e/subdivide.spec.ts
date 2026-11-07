@@ -56,7 +56,8 @@ async function readyMap(panel: ReturnType<Page['getByRole']>) {
 	const map = panel.locator('.map-wrap');
 	await map.scrollIntoViewIfNeeded();
 	await expect(map).toHaveAttribute('data-status', 'ready');
-	await expect(map).toHaveAttribute('data-view', /./);
+	// Settled (MapLibre's `idle`): the frame has landed and the outlines are drawn, so a click hits what it aims at.
+	await expect(map).toHaveAttribute('data-settled', 'true');
 	return map;
 }
 
