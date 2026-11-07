@@ -2,9 +2,10 @@
 # SessionStart hook: surface work that lives off `main`.
 #
 # With per-session git worktrees (`claude --worktree <name>`), each session
-# commits on its own branch. Git won't let a worktree check out `main`, so that
-# work only reaches `main` via an explicit merge from the primary checkout. If a
-# worktree branch is forgotten, its commits sit stranded off `main`.
+# commits on its own branch, and that work reaches `main` only through a pull
+# request (`main` is protected; CLAUDE.md § Working alongside other Claude
+# sessions). If a worktree branch is forgotten, its commits sit stranded off
+# `main`.
 #
 # This hook lists every local branch holding commits not yet on `main` and
 # prints a warning to stdout — which Claude Code injects as session context, so
@@ -47,9 +48,13 @@ EOF
 cat <<EOF
 [unmerged-worktree-check] Work exists that is NOT on \`main\`:
 ${report}
-To land it on main, from the PRIMARY checkout (the one with \`main\`):
-  git merge <branch>        # fast-forwards if main hasn't moved; else a merge commit
-  # or, for linear history: cd into the worktree, \`git rebase main\`, then \`git merge --ff-only <branch>\`
-Surface this to the user and offer to consolidate it before it's forgotten.
+To land it, push the branch and open a pull request (\`main\` is protected and
+merges a PR once "CI gate" is green, squash or rebase):
+  git push -u origin <branch> && gh pr create --base main --fill
+A branch whose PR was squash-merged still lists here (its own commits never
+reach main): if \`gh pr list --head <branch> --state merged\` shows it, delete
+it with \`git branch -D <branch>\`. Merged work also lists until the primary
+checkout's main is current: \`git pull --ff-only\` there first.
+Surface this to the user and offer to land or clean it up before it's forgotten.
 EOF
 exit 0

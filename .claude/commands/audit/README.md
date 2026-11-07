@@ -60,7 +60,7 @@ Invoke from a Claude Code session as `/audit/<name>`.
 
 - [/check](../check.md) — pre-commit gate: `code-reviewer` + `test-gap-checker` + `doc-hygiene-checker` in parallel on the working diff.
 - [/safe-edit](../safe-edit.md) — coder ↔ reviewer loop for load-bearing changes.
-- [/release-readiness](../release-readiness.md) — before pushing to `main` or approving a production deploy.
+- [/release-readiness](../release-readiness.md) — before merging a PR into `main` or approving a production deploy.
 - `wrsm-engine-reviewer` — for any `packages/wrsm` change.
 
 ## When to run

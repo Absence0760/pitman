@@ -1,5 +1,5 @@
 ---
-description: Work one GitHub issue end to end — read it, branch in a worktree, route the work to the right workflow and agents, gate it with pnpm check/test and /check, then merge it into main (while PRs are off) and report back on the issue. The default entry point for a session driven by an issue.
+description: Work one GitHub issue end to end — read it, branch in a worktree, route the work to the right workflow and agents, gate it with pnpm check/test and /check, then open a PR, merge it once CI gate is green, and report back on the issue. The default entry point for a session driven by an issue.
 argument-hint: <issue number or URL>
 ---
 
@@ -9,12 +9,10 @@ splits into independent parts (then one branch per part, each naming the
 issue). For a round of issue #3, the orchestrator runs the round instead;
 this command is for a single issue or a single task from a round.
 
-**Workflow note.** Until the operator turns PRs back on (issue #22, steps
-10–11), work lands **straight on `main`** (CLAUDE.md § Working alongside
-other Claude sessions). § 6 below is that flow. When PRs return, replace § 6
-with: push the branch, open a PR with `.github/pull_request_template.md`
-whose Summary ends `Closes #<n>`, drive it to green, and leave the merge to
-the operator.
+**Workflow note.** Every change reaches `main` through a pull request
+(CLAUDE.md § Working alongside other Claude sessions): `main` is protected,
+admins included, and merges a PR only once its required `CI gate` check is
+green, squash or rebase (linear history). § 6 below is that flow.
 
 ## 1. Read the issue
 
@@ -25,14 +23,16 @@ changes what gets built (two readings of the ask, a hydrology or licence
 decision), ask before building; if it's a detail, pick the reasonable
 default, say which, and carry on.
 
-Check it isn't already done or in flight: `git log --oneline main --grep
-'#<n>'`, and `git worktree list` / `git branch --list '*<n>*'` for a branch
-another session started.
+Check it isn't already done or in flight: `git log --oneline origin/main
+--grep '#<n>'`, `gh pr list --search '#<n>' --state all`, and
+`git worktree list` / `git branch --list '*<n>*'` for a branch another
+session started.
 
 ## 2. Branch in a worktree
 
 ```
-git worktree add ../pitman-<n>-<slug> -b <type>/<n>-<slug> main
+git fetch origin
+git worktree add ../pitman-<n>-<slug> -b <type>/<n>-<slug> origin/main
 ```
 
 `<type>` is `fix`, `feat`, `docs`, `chore` or `test`. If the session was
@@ -81,21 +81,36 @@ skips, and you say so in the report.
    why in your report.
 3. Docs and tests changed with the code, or the report says why not.
 
-## 6. Commit, merge, report (PRs off)
+## 6. Commit, open a PR, merge, report
 
 - Commit path-scoped, one logical unit per commit:
   `git commit -m "<type>(<area>): <what>" -- <paths>`. No `Co-Authored-By`
-  or generated-by trailer.
+  or generated-by trailer, in commits or in the PR.
 - **A sub-agent stops here** and reports its branch, commits, files and
-  test results; the orchestrator merges.
-- **The orchestrating session** merges the branch into `main` in the main
-  checkout (`git merge --no-ff <branch>` or a fast-forward), reruns
-  `pnpm check && pnpm test` on `main`, and pushes `main`. Never force-push.
-- Comment on the issue with what landed (commit hashes, what's left), and
-  close it only if it is fully done: `gh issue comment <n> --body-file …`,
-  `gh issue close <n>`. Don't close #3, #21 or #22 (trackers).
+  test results; it never pushes. The orchestrator brings its branch into
+  the orchestrator's own (merge or cherry-pick).
+- **The orchestrating session** brings the branch up to date
+  (`git fetch origin && git rebase origin/main`; `git merge origin/main`
+  instead once the branch is pushed), pushes it (`git push -u origin
+  <branch>`; the `pre-push` hook runs `pnpm check && pnpm test` on code
+  changes), and opens the PR: `gh pr create --base main --title
+  "<type>(<area>): <what>" --body-file <file>`, the body following
+  `.github/pull_request_template.md` with a Summary ending `Closes #<n>`
+  (`Part of #<n>` when the issue stays open). `pr-title-lint` checks the
+  title, and a squash merge makes it the commit subject on `main`.
+- Drive it to green with the `steward` skill (`gh pr checks <pr> --watch`).
+  A red check is fixed with another commit on the branch, never by
+  re-running until it passes.
+- Merge once `CI gate` is green and every review conversation is resolved:
+  `gh pr merge <pr> --squash --delete-branch` (`--rebase` when each commit
+  is worth keeping on `main`). Never `--admin`, never push to `main`.
+- Comment on the issue with what landed (the PR, its merge commit, what's
+  left), and close it only if it is fully done and `Closes #<n>` didn't
+  already: `gh issue comment <n> --body-file …`, `gh issue close <n>`.
+  Don't close #3, #21 or #22 (trackers).
 
 ## 7. Clean up
 
-`git worktree remove ../pitman-<n>-<slug>` and delete the merged branch
-(`git branch -d <branch>`).
+`git worktree remove ../pitman-<n>-<slug>`, then delete the local branch
+with `git branch -D <branch>` (a squash merge leaves its commits off `main`,
+so `-d` refuses it), and `git pull --ff-only` in the main checkout.

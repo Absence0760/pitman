@@ -3,9 +3,10 @@ name: pr-mergeable
 # Says out loud when `ci.yml` has not run on a PR (estate standard: threkir's
 # and IC-WBT's pr-mergeable.yml, copied unchanged apart from this header).
 #
-# For when PRs return (issue #22 step 10). Until then work lands straight on
-# main and the only open PRs are Dependabot's, which is exactly the case this
-# covers: a Dependabot PR that conflicts with main gets no CI run at all.
+# Every change reaches main through a PR (CLAUDE.md), and a PR whose ci.yml
+# never ran never reports the required "CI gate", so it can't merge; this says
+# why instead of leaving it pending. Dependabot PRs are the usual case: one
+# that conflicts with main gets no CI run at all.
 #
 # `ci.yml` triggers on `pull_request`, which runs against the MERGE REF. GitHub
 # cannot compute a merge ref for a PR with conflicts, so no CI run is created

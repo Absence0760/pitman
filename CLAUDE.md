@@ -37,12 +37,12 @@ The plan, ground rules and round structure live in issue #3; specs live in `docs
 
 More than one Claude session may run in **this one checkout at the same time** — sharing a single working tree *and* a single git index, so a careless `git add` + `git commit` sweeps up another session's in-flight work. The `.claude/hooks/git-scope-guard.py` PreToolUse hook enforces the rules below; if a git command is denied, its message names the scoped alternative — follow it, don't work around it.
 
-- **Commit each piece of work, straight to `main` (for now).** Land every logical unit of work as its own path-scoped commit as you finish it — don't leave the tree dirty across tasks or batch unrelated changes into one commit. Until the operator turns PRs back on (issue #22, steps 10–11), the orchestrating session commits and pushes **directly to `main`**, after `pnpm check && pnpm test` pass. Sub-agents work on their own branch in their own worktree and **don't push**; the orchestrator merges their branches into `main` and pushes. Never force-push `main`. (No `Co-Authored-By`/generated-by trailer — write commits as a human would.)
+- **Every change reaches `main` through a pull request.** Work on a branch cut from `origin/main` in a worktree, and land every logical unit of work as its own path-scoped commit as you finish it — don't leave the tree dirty across tasks or batch unrelated changes into one commit. The orchestrating session pushes the branch, opens the PR (`.github/pull_request_template.md`; a Summary ending `Closes #<n>` when it finishes an issue), and merges it once the required **`CI gate`** check is green — squash or rebase, never a merge commit (`main` keeps linear history). Sub-agents commit on their own branch in their own worktree and **don't push**; the orchestrator takes their branches into its PR. **Never push to `main`** — branch protection refuses it, admins included (`docs/decisions.md` § Repository follow-ups; `docs/deployment.md` steps 29–32) — and never force-push it. Run `pnpm check && pnpm test` before pushing; the `pre-push` hook does too. (No `Co-Authored-By`/generated-by trailer — write commits and PR text as a human would.)
 - **Commit path-scoped, always:** `git commit -m "…" -- path/to/file ...`. A path-scoped commit records only those paths and ignores anything else staged. Bare `git commit`, `git add -u/-A/.`, `git commit -a`, and `git commit --amend` *with staged changes* are blocked — they snapshot the shared index.
 - **Only touch what your task owns.** Don't stage, edit, delete, or `restore` files outside your task. Before committing, `git status` and confirm every path is yours.
 - **Never whole-tree:** no `git add .`, `checkout/restore .`, `reset --hard`, `git rm .`, `git stash` (without `-- <path>`), or `git clean -f` — each clobbers across the tree.
 - **HEAD moves under you.** Other sessions commit mid-task; your path-scoped commits still stack cleanly. Don't be alarmed if `git log` shows commits you didn't make, or files you didn't change show as modified — leave those alone.
-- **For large independent work, prefer a git worktree** (`git worktree add ../<slug> -b <branch>`) — your own tree + index, no sharing, then merge. Subagents doing parallel file edits should pass `isolation: "worktree"`.
+- **For large independent work, prefer a git worktree** (`git worktree add ../<slug> -b <branch> origin/main`) — your own tree + index, no sharing, then a PR. Subagents doing parallel file edits should pass `isolation: "worktree"`.
 
 ## Code organization
 
@@ -106,15 +106,15 @@ Run these as slash-commands. Each delegates to a specialised agent (`.claude/age
 - `/check` — pre-commit gate: `code-reviewer` + `test-gap-checker` + `doc-hygiene-checker` in parallel on the working diff (advisory).
 - `/safe-edit` — workflow for security-sensitive or load-bearing changes.
 - `/polish-ui` — typography / layout polish on a target frontend surface.
-- `/release-readiness` — go/no-go checklist before pushing to `main` or approving a waiting production deploy.
+- `/release-readiness` — go/no-go checklist before merging a PR into `main` or approving a waiting production deploy.
 - `/audit/all` — runs the security, deps, infra and cost audits in parallel; `/audit/<area>` for a single sweep. Areas: `secrets`, `infra`, `deps`, `xss`, `cost-controls`, `auth`, `accessibility`, `popia`, `data-export-completeness`, `account-deletion-completeness`, `cookie-consent`, `third-party-data-flows`.
 - `/persona` — runs the bug-hunting persona auditors (`.claude/agents/personas/persona-*.md`): real-world points of view (new user, power user, admin, international user, accessibility, integrator, adversary, data subject) that find logic / UX / domain bugs a code review misses. Each writes a living report to `reviews/<persona>.md` (git-ignored). Protocol + how to add domain personas: `.claude/personas/README.md`.
 
 Pitman's own additions (listed in `.claude/README.md` § Pitman additions):
 
-- `/issue <n>` — one issue end to end: worktree, routing, gate, merge into `main` while PRs are off.
+- `/issue <n>` — one issue end to end: worktree, routing, gate, a PR merged into `main` once `CI gate` is green.
 - `/audit/licenses`, `/audit/docs-drift` — dependency and data licences; docs against the code.
-- Skill `steward` (`.claude/skills/steward/SKILL.md`): drive a red CI run on `main` (or a PR, once PRs return) to green, with the local command for every CI job.
+- Skill `steward` (`.claude/skills/steward/SKILL.md`): drive a red PR (or a red run on `main`) to green, with the local command for every CI job.
 - Agents: `wrsm-engine-reviewer` (run it on every `packages/wrsm` change), `persona-hydrologist`, `za-legal-researcher`, `infra-auditor`, `ui-designer`.
 - Hook: `.claude/hooks/security-patterns.sh` flags engine-purity, float32-rounding, private-env, S3-region and machine-path patterns after each edit (never blocks).
 
@@ -128,7 +128,7 @@ These are adapted to Pitman; `pnpm check:claude` fails on a template placeholder
 - `.github/workflows/gitleaks-sweep.yml` — weekly full-history secret scan; opens a `secret-scan` issue on failure
 - `.github/workflows/coverage.yml` — weekly `pnpm test:coverage` report (never a gate)
 - `.github/workflows/terraform.yml` — `infra/` fmt + validate + Trivy, credential-free
-- `.github/workflows/pr-mergeable.yml` — flags a conflicted PR on which `ci.yml` never ran (Dependabot's, while PRs are off)
+- `.github/workflows/pr-mergeable.yml` — flags a conflicted PR on which `ci.yml` never ran (so "CI gate" never reported)
 - `.github/workflows/fresh-clone.yml` — a clean checkout runs `pnpm install`, `pnpm dev:data:synthetic`, `pnpm dev` and both servers answer (setup-path changes, weekly, by hand; `docs/run-locally.md` § Fresh clone)
 - `.github/codeql/codeql-config.yml` — CodeQL paths-ignore (`docs/formats/examples/**`)
 - `.github/workflows/audit.yml` — weekly `pnpm audit` + auto-issue (base-owned)

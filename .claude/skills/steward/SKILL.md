@@ -1,33 +1,36 @@
 ---
 name: steward
-description: How to drive a red CI run on main (now) or a pull request (once PRs return) in pitman to green — reading CI, reproducing each job locally with the exact command, what counts as a flake, a branch that fell behind, reviews, and when to ask the operator. Use when watching, fixing or babysitting CI or a PR here.
+description: How to drive a red pull request (or a red CI run on main) in pitman to green — reading CI, reproducing each job locally with the exact command, what counts as a flake, a branch that fell behind, reviews, and when to ask the operator. Use when watching, fixing or babysitting CI or a PR here.
 ---
 
 # Steward: driving pitman's CI to green
 
-**PRs are off for now.** Until the operator turns them back on (issue #22,
-steps 10–11), work is committed and pushed straight to `main`
-(`CLAUDE.md` § Working alongside other Claude sessions). So today this skill
-applies to a **red workflow run on `main`**: the push already landed, and the
-fix is another path-scoped commit on `main`. The PR-only parts (merge state,
-`pr-mergeable`, `pr-title-lint`, review threads) apply once PRs return; the
-only PRs open meanwhile are Dependabot's. The root `CLAUDE.md` rules still
-apply; this adds how CI here behaves and what to do about it. For one failed
-run end to end, `/fix-ci` (`.claude/commands/fix-ci.md`) is the procedure;
-this is the map it works from.
+**Every change reaches `main` through a pull request** (`CLAUDE.md` § Working
+alongside other Claude sessions). `main` is protected, admins included:
+`CI gate` is the one required check, history is linear, review conversations
+must be resolved, and nobody pushes to it. So this skill mostly drives a
+**red PR** to green, and the fix is another commit on the PR's branch. A red
+run on `main` itself (a push-only or weekly workflow, or a break that only
+shows once two green PRs meet) is fixed through a PR too. The root
+`CLAUDE.md` rules still apply; this adds how CI here behaves and what to do
+about it. For one failed run end to end, `/fix-ci`
+(`.claude/commands/fix-ci.md`) is the procedure; this is the map it works
+from.
 
 ## Read the run first
 
-`gh run list --branch main --limit 10`, then `gh run view <run>` and
+For a PR: `gh pr checks <pr>` (add `--watch` to wait). For `main`:
+`gh run list --branch main --limit 10`. Then `gh run view <run>` and
 `gh run view <run> --log-failed` for the failing job. Quote the job, the
 step and the first real error line before changing anything.
 
 `CI gate` (the `ci-gate` job in `.github/workflows/ci.yml`) fans in on
 `test`, `e2e` and `doc-links` and is green only when none failed. A red
-`CI gate` names the upstream job; that job is the thing to fix. Branch
-protection and the required check return with PRs.
+`CI gate` names the upstream job; that job is the thing to fix. It is the
+one check branch protection requires, so nothing merges past it, and
+`dependabot-auto-merge.yml`'s queued merges wait on it too.
 
-With PRs on: `pr-mergeable` failing means GitHub couldn't build a merge ref
+`pr-mergeable` failing means GitHub couldn't build a merge ref
 (a conflict), so **ci.yml didn't run at all**; green checks from the other
 workflows prove nothing. Resolve the conflict first.
 
@@ -58,7 +61,7 @@ Run the same command the job runs, scoped to what failed. Install once with
 | `.github/workflows/coverage.yml` / Unit coverage (`unit`) | `pnpm test:tools`, then `pnpm test:coverage`. A report, never a gate: it fails only when a test does |
 | `.github/workflows/gitleaks.yml` / `scan` (and the weekly `.github/workflows/gitleaks-sweep.yml`) | `pre-commit run gitleaks --all-files` (`.pre-commit-config.yaml`). The finding names the file and rule: remove the secret and treat it as leaked (rotate), never allowlist a real one |
 | `.github/workflows/audit.yml` / `audit` (weekly) | `pnpm audit --audit-level=moderate`. It opens or updates a `dependency-audit` issue; fix by bumping the dependency (or an override with a reason), not by raising the level |
-| `.github/workflows/security.yml` / Analyze (CodeQL) | no local equivalent. Fails on this private repo because code scanning needs GitHub Advanced Security (`docs/decisions.md` § Repository follow-ups): known, not yours, until the repo goes public |
+| `.github/workflows/security.yml` / Analyze (CodeQL) | no local equivalent. Fails while the repo is private because code scanning needs GitHub Advanced Security (`docs/decisions.md` § Repository follow-ups): known, not yours, until the repo goes public (`docs/deployment.md` step 26); after that a failure is real |
 | `.github/workflows/deploy-backend.yml` / `deploy-frontend.yml` / Decide whether to deploy (`gate`) | `node --test scripts/deploy/deploy-gate.test.mjs`. Runs after CI succeeds on a push to main (`workflow_run`), or by hand; its error names the refusal (a manual run off `main`, or no successful CI run on that commit: wait for or re-run CI). Skipped means CI failed or the repo variables aren't set, not a bug |
 | `.github/workflows/deploy-backend.yml` / Build Lambda bundle (`build`) | `pnpm check && pnpm build` (the Lambda bundle is `pnpm backend build`). The `deploy` job runs only behind the `production` environment's approval; its smoke test is `curl -fsS "$SITE/api/health"` |
 | `.github/workflows/deploy-frontend.yml` / Build + CSP check (`build`) | `pnpm build && node infra/scripts/check-csp.mjs frontend/build`. Its `deploy` job is behind `production` too |
@@ -86,8 +89,9 @@ runs in CI on purpose: a CI failure there is real.
 
 ## Main moved under you
 
-Another session may have pushed. Never force-push `main`, never rebase a
-shared branch:
+Another PR merged first, so your branch is behind (CI tests the merge with
+`main`, so it can go red for a change that isn't yours). Bring the branch up
+to date; never force-push `main`, never rebase a branch someone else has:
 
 ```
 git fetch origin
@@ -98,7 +102,11 @@ A conflict in `pnpm-lock.yaml`: take `main`'s, then `pnpm install` to
 regenerate. Never edit `docs/formats/examples/` to resolve anything: those
 files are byte-exact (`CLAUDE.md` rule 6).
 
-## Reviews (once PRs return)
+## Reviews and conversations
+
+Branch protection requires every review conversation to be resolved before
+merging.
+
 
 - A small, local ask (a rename, a nit, an added test): do it, push, reply in
   the thread naming the commit, resolve it.
@@ -112,13 +120,15 @@ files are byte-exact (`CLAUDE.md` rule 6).
 - Anything irreversible or outside the fix: a Terraform `apply`, approving a
   `production` deploy, a release, deleting a branch that isn't yours.
 - Rotating a secret, or anything that needs `infra-secrets`.
-- Merging a PR (once PRs return): the operator's call even when green.
+- Merging with `--admin`, or merging a PR that isn't yours (a Dependabot
+  major bump included). Your own PR is merged by the orchestrating session
+  once `CI gate` is green and every conversation is resolved (`/issue` § 6).
 - A fix that changes a recorded decision (`docs/decisions.md`) or a
   documented departure (`docs/departures.md`).
 
 ## Done
 
-Done when the latest run on `main` (or the PR's head) has `CI gate` green and
+Done when the PR's head (or the latest run on `main`) has `CI gate` green and
 every other triggered workflow green or failing only for a known, recorded
 reason above, and nothing is waiting on you. Say so once, with the run link,
 and stop.

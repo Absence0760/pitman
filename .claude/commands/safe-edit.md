@@ -51,7 +51,7 @@ The cost of this loop is real (~2-3x tokens, ~30-60s extra latency, one or two `
    - Any Notes or Out-of-scope observations the reviewer surfaced (worth knowing, not blocking).
    - Whether `pnpm check && pnpm test` pass.
 
-6. **Commit** per root `CLAUDE.md` § Working alongside other Claude sessions: path-scoped (`git commit -m "…" -- <paths>`; never `git add -A` or a bare `git commit`), only the paths this task owns, a conventional-commit message in the style of the recent log with no `Co-Authored-By` or generated-by trailer. A sub-agent in its own worktree commits on its branch and never pushes; the orchestrating session merges into `main` and pushes.
+6. **Commit** per root `CLAUDE.md` § Working alongside other Claude sessions: path-scoped (`git commit -m "…" -- <paths>`; never `git add -A` or a bare `git commit`), only the paths this task owns, a conventional-commit message in the style of the recent log with no `Co-Authored-By` or generated-by trailer. A sub-agent in its own worktree commits on its branch and never pushes; the orchestrating session pushes its branch, opens a PR and merges it once `CI gate` is green (`/issue` § 6).
 
 ## Loop-termination guarantees
 

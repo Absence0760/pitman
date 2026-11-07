@@ -2,7 +2,7 @@
 description: Pre-deploy readiness gate. Pitman deploys after CI passes on a push to main (each deploy waits for approval in the production environment), so this checks the working tree, main, CI status, and what each deploy workflow will ship since its last successful run. Reports a green/red checklist. Read-only; never pushes, approves or deploys.
 ---
 
-Run a readiness audit before pushing to `main` or approving a waiting deploy in the `production` environment. Report a green/red checklist; never push, approve a deployment, run a workflow or tag anything. The operator does that after reviewing the report.
+Run a readiness audit before merging a PR into `main` or approving a waiting deploy in the `production` environment. Report a green/red checklist; never push, approve a deployment, run a workflow or tag anything. The operator does that after reviewing the report.
 
 ## Why this exists
 
@@ -10,7 +10,7 @@ Pitman has no release tags. `deploy-frontend.yml` and `deploy-backend.yml` run w
 
 ## When to use
 
-**Right fit:** you're about to push to `main`, or a deploy run is waiting for approval, and you want a single yes/no.
+**Right fit:** a deploy run is waiting for approval (every PR merged into `main` that CI then passes starts one), or you're about to merge a PR and want to know what the deploys will then ship since their last run, from an up-to-date `main` checkout; and you want a single yes/no.
 
 **Wrong fit — refuse:** you're on a feature branch or in a sub-agent worktree. Deploys come from `main`; say so and stop.
 
@@ -29,7 +29,7 @@ Not `main` → abort: "deploys come from `main`; you're on `<branch>`."
 Mark each **green** / **red** with a one-line reason for any red.
 
 - **Working tree clean** — `git status --porcelain` is empty. Other sessions may share this checkout (CLAUDE.md § Working alongside other Claude sessions): list dirty paths and say whose they look like, don't clean them. A tracked `backend/.env`, `infra/terraform.tfvars` or `infra/backend.config` is a separate Critical.
-- **main in sync** — `git fetch origin main` then `git rev-list --left-right --count origin/main...HEAD`. Behind → red. Ahead → amber ("these commits deploy when pushed").
+- **main in sync** — `git fetch origin main` then `git rev-list --left-right --count origin/main...HEAD`. Behind → red. Ahead → red: `main` takes pull requests only, so local commits on it can never be pushed; move them to a branch and open a PR.
 - **Local gate** — `pnpm check && pnpm test && pnpm test:tools && pnpm check:claude` pass on HEAD.
 - **CI green** — `gh run list --workflow ci.yml --branch main --limit 1 --json headSha,status,conclusion`: for the pushed HEAD, `completed/success` → green. Also note the latest `terraform.yml`, `security.yml` and `audit.yml` runs; a failed one is amber.
 

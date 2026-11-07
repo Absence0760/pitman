@@ -57,10 +57,12 @@ The repo's git hooks need no separate install: `pnpm install` points `core.hooks
 
 ## Opening a PR
 
-- Title: same conventional-commit format as commits.
-- Description: fill in the `pull_request_template.md`. The "Money / data safety checklist" is there for a reason — even ticking the boxes is a useful prompt to think through each item.
+Every change reaches `main` through a pull request: `main` is protected (admins included) and merges a PR only once its required **`CI gate`** check is green and every review conversation is resolved. Nobody pushes to `main` directly.
+
+- Branch from `origin/main`; title in the same conventional-commit format as commits (`pr-title-lint` checks it).
+- Description: fill in `.github/pull_request_template.md`. The "Pitman rules" list is there for a reason — even ticking the boxes is a useful prompt to think through each item.
 - Mark as **Draft** while CI is still running; flip to ready when checks are green.
-- Don't squash on merge unless you're cleaning up a noisy WIP series — preserving meaningful commits in `main` makes `git blame` more useful.
+- `main` keeps linear history, so merge with **squash** (the usual case; the PR title becomes the commit subject) or **rebase** (when each commit is worth keeping on its own). Merge commits are refused.
 
 ## Reviewing a PR
 

@@ -24,7 +24,7 @@ Claude Code resolves an agent by its frontmatter `name:`, not its path, so the f
 - **`safe-edit.md`** — coder ↔ `code-reviewer` loop for security-sensitive or load-bearing changes.
 - **`polish-ui.md`** — runs `ui-polisher` on one surface.
 - **`persona.md`** — runs one, several or all `persona-*` auditors and consolidates their reports.
-- **`release-readiness.md`** — go/no-go before pushing to `main` or approving a waiting production deploy (Pitman deploys after CI passes on a push to `main`, through the `production` environment; there are no release tags).
+- **`release-readiness.md`** — go/no-go before merging a PR into `main` or approving a waiting production deploy (Pitman deploys after CI passes on a push to `main`, through the `production` environment; there are no release tags).
 - **Hunts and loops** — `audit-and-fix.md`, `bug-hunt.md`, `coverage-hunt.md`, `perf-hunt.md`, `ux-hunt.md`, `a11y-hunt.md`, `improve-round.md`, `fix-ci.md`, `endpoint-inventory.md`: stack-agnostic workflows that discover the app first.
 - **`audit/`** — focused, read-only audits; `audit/README.md` is the index:
   - Security: `secrets.md`, `xss.md`, `auth.md` (route gating and admin checks)
@@ -53,13 +53,13 @@ domain and stack), with every fact rewritten for Pitman.
 - **`ui-designer.md`** — build or review one screen against `docs/design/ui-playbook.md` (IC-WBT's playbook as a read-only reference where Pitman's is silent).
 
 ### Commands
-- **`issue.md`** — `/issue <n>`: one issue end to end in a worktree, routed to the right agents, gated, merged into `main` while PRs are off (the PR variant is noted inline for when PRs return, issue #22 step 10).
+- **`issue.md`** — `/issue <n>`: one issue end to end in a worktree, routed to the right agents, gated, then a PR merged into `main` once `CI gate` is green.
 - **`audit/licenses.md`** — `/audit/licenses`: dependency licences (what ships in the SPA and Lambda bundles) plus data attribution and what must never be committed.
 - **`audit/docs-drift.md`** — `/audit/docs-drift`: README, `CLAUDE.md`, `docs/STACK.md`, `docs/*` and `.claude/` listings against the code, scripts, workflows and Terraform.
 - **`audit/popia.md`** — `/audit/popia`: replaces the template's GDPR audit; Pitman's personal data is a short list of sign-in records, held in South Africa.
 
 ### Skills
-- **`skills/steward/SKILL.md`** — drive a red CI run to green: every job in pitman's workflows with the exact local command that reproduces it, what counts as a flake, main moving under you, and when to ask the operator. Applies to a red run on `main` while PRs are off (issue #22 steps 10–11), and to PRs once they return. Adapted from IC-WBT's.
+- **`skills/steward/SKILL.md`** — drive a red CI run to green: every job in pitman's workflows with the exact local command that reproduces it, what counts as a flake, main moving under you, and when to ask the operator. Applies to a red PR, and to a red run on `main` (fixed through a PR too). Adapted from IC-WBT's.
 
 ### Hooks
 - **`hooks/security-patterns.sh`** (PostToolUse on Edit/Write/MultiEdit) — grep rules for engine purity and determinism, float32 rounding in `src/io/` writers, private env in the frontend, `S3Client` with no region, and hard-coded machine paths. Runs after the edit, so it never blocks; findings reach the next turn. Bypass a line with `// noqa: <rule>`. Tests: `bash .claude/hooks/security-patterns.test.sh`.

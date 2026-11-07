@@ -19,9 +19,11 @@ name: Terraform
 # would need a reviewer approval on every infra push. The real plan stays an
 # operator step (infra/README.md).
 #
-# Standalone triggers (not called from ci.yml) while work goes straight to
-# main; when PRs return (issue #22 step 10), consider calling it from ci.yml
-# so it gates the `CI gate`.
+# Standalone triggers (not called from ci.yml): it runs on every PR that
+# touches infra/ and shows red there, but it is not a required check, since a
+# path-filtered workflow never reports on other PRs and a required check that
+# never reports blocks the merge. To make it required, call it from ci.yml
+# behind the `changes` job so the `CI gate` waits on it.
 
 on:
   push:
