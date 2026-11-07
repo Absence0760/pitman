@@ -9,6 +9,7 @@ import { eventsLogged, guardLogs } from '../__tests__/logGuard.js';
 import { ADMIN, bootstrap, cookieFor, TEST_ORIGIN, testAuth, type TestAuth } from '../__tests__/session.js';
 import { NOT_CONFIGURED } from './middleware.js';
 import { authRuntimeFromEnv, type AuthRuntime } from './runtime.js';
+import { AUTH_MESSAGES } from './routes.js';
 
 guardLogs();
 
@@ -211,6 +212,71 @@ describe('POST /auth/code and POST /auth/verify', () => {
 		expect((await call(a, 'POST', '/auth/code', { body: '["a@example.test"]' })).status).toBe(400);
 		expect((await call(a, 'POST', '/auth/verify', { body: { email: ADMIN } })).status).toBe(400);
 		expect((await call(a, 'POST', '/auth/verify', { body: { email: ADMIN, code: 123456 } })).status).toBe(400);
+	});
+});
+
+describe('the alarm signals (auth-kit v0.2.0 fields, through a fake kit until the bump)', () => {
+	/** The runtime with some of auth-kit's calls replaced. */
+	const withKit = (t: TestAuth, kit: Partial<TestAuth['auth']['kit']>): { auth: AuthRuntime } => ({ auth: { ...t.auth, kit: { ...t.auth.kit, ...kit } } });
+	const answer = async (res: Response) => ({ status: res.status, retryAfter: res.headers.get('retry-after'), body: await res.json() });
+
+	it('logs auth.send_capped when a listed address reaches its daily cap, and answers exactly as for an unlisted one', async () => {
+		const t = testAuth();
+		const capped = (listed: boolean) => app(withKit(t, { requestCode: async () => ({ status: 'throttled', retryAfterMs: 78_580_000, limit: 'day', capReached: true, listed }) as never }));
+		const unlisted = await answer(await askCode(capped(false), STRANGER));
+		expect(eventsLogged()).toEqual([]);
+		const listed = await answer(await askCode(capped(true), ADMIN));
+		expect(eventsLogged()).toEqual([{ event: 'auth.send_capped' }]);
+		expect(listed).toEqual(unlisted);
+		expect(listed).toEqual({ status: 429, retryAfter: '78580', body: { error: AUTH_MESSAGES.throttled } });
+		// The hourly limit or the 60 s gap is not the daily cap.
+		await askCode(app(withKit(t, { requestCode: async () => ({ status: 'throttled', retryAfterMs: 60_000, limit: 'hour', listed: true }) as never })), ADMIN);
+		expect(eventsLogged()).toHaveLength(1);
+	});
+
+	it('logs auth.locked for a listed address’s lock only, and answers the same either way', async () => {
+		const t = testAuth();
+		const locking = (listed: boolean) => app(withKit(t, { verifyCode: async () => ({ status: 'locked', retryAfterMs: 60_000, lockStarted: true, listed }) as never }));
+		const unlisted = await answer(await verify(locking(false), STRANGER, '000000'));
+		expect(eventsLogged()).toEqual([]);
+		const listed = await answer(await verify(locking(true), ADMIN, '000000'));
+		expect(eventsLogged()).toEqual([{ event: 'auth.locked' }]);
+		expect(listed).toEqual(unlisted);
+		expect(listed).toEqual({ status: 429, retryAfter: '60', body: { error: AUTH_MESSAGES.locked } });
+	});
+
+	it('logs auth.slow_code_request, without the address, when a send runs past the floor, and still answers 202', async () => {
+		const t = testAuth({ mailDelayMs: 2_500 });
+		await bootstrap(t);
+		const a = app(t);
+		const res = await askCode(a, ADMIN);
+		expect(res.status).toBe(202);
+		expect(await res.json()).toEqual({});
+		expect(t.outbox).toHaveLength(1);
+		expect(t.sleeps).toEqual([]);
+		expect(eventsLogged()).toEqual([{ event: 'auth.slow_code_request' }]);
+	});
+
+	it('logs nothing when the send fits inside the floor', async () => {
+		const t = testAuth({ mailDelayMs: 400 });
+		await bootstrap(t);
+		expect((await askCode(app(t), ADMIN)).status).toBe(202);
+		expect(t.sleeps).toEqual([600]);
+		expect(eventsLogged()).toEqual([]);
+	});
+
+	it('logs an unexpected error by name and code, never its message, which may hold an address', async () => {
+		const t = testAuth();
+		const admin = await bootstrap(t);
+		const failing = withKit(t, {
+			listUsers: async () => {
+				throw Object.assign(new Error(`ConditionalCheckFailed for user ${ADMIN}`), { name: 'TransactionCanceledException', code: 'TransactionCanceledException' });
+			}
+		});
+		const res = await call(app(failing), 'GET', '/users', { cookie: await cookieFor(t, admin) });
+		expect(res.status).toBe(500);
+		expect(await res.json()).toEqual({ error: 'Internal server error' });
+		expect(eventsLogged()).toEqual([{ event: 'unhandled_error', error: 'TransactionCanceledException', code: 'TransactionCanceledException' }]);
 	});
 });
 

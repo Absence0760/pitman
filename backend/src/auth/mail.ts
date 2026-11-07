@@ -43,9 +43,20 @@ export function consoleMailer(): Mailer {
 	};
 }
 
+/**
+ * The SES client's bounds. The send runs inside /auth/code's 1 s floor, and the SDK's defaults (3 attempts
+ * with backoff, no request timeout) could stretch a listed address's request well past it, which an
+ * unlisted one never does. Two attempts, each cut off after 1 s (0.5 s to connect), keep the worst case
+ * near 2.5 s; a request past the floor is logged as `auth.slow_code_request`, and a failed send as
+ * `mail.send_failed`, still answering 202.
+ */
+export const SES_CLIENT_OPTIONS = { maxAttempts: 2, requestHandler: { connectionTimeout: 500, requestTimeout: 1_000 } } as const;
+
+/** The Lambda's SES client: its region and role (SES lives in the same region, A-AUTH-7), bounded as above. */
+export const sesClient = () => new SESv2Client({ ...SES_CLIENT_OPTIONS, requestHandler: { ...SES_CLIENT_OPTIONS.requestHandler } });
+
 export function sesMailer(options: { from: string; configurationSet: string; client?: Pick<SESv2Client, 'send'> }): Mailer {
-	// The Lambda's region and role (SES lives in the same region, A-AUTH-7).
-	const client = options.client ?? new SESv2Client({});
+	const client = options.client ?? sesClient();
 	return async ({ to, code }) => {
 		const message = signInMessage(code);
 		await client.send(

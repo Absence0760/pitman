@@ -268,11 +268,12 @@ store, the operator actions) are the private package `@absence0760/auth-kit`
 |---|---|
 | `config.ts` | Reads the environment (`docs/deployment.md` § Lambda environment); on Lambda any gap is a problem, and the gate answers 503 |
 | `store.ts` | auth-kit's memory store (`USER_STORE=memory`, local dev and tests) or its DynamoDB store (`dynamodb`, the Lambda or DynamoDB Local) |
-| `mail.ts` | The email text and the transports: `console` (dev, prints the code), `ses` (SES v2 with the configuration set); `mail.smtp.ts` (nodemailer to Mailpit) is built by `server.ts` only, so it never enters the Lambda bundle |
+| `mail.ts` | The email text and the transports: `console` (dev, prints the code), `ses` (SES v2 with the configuration set; 2 attempts, 1 s each); `mail.smtp.ts` (nodemailer to Mailpit) is built by `server.ts` only, so it never enters the Lambda bundle |
 | `cookies.ts` | `__Host-pitman_session` from auth-kit; the dev-only plain `pitman_session` |
 | `runtime.ts` | Binds auth-kit, mailer and cookie into the one object `createApp({ auth })` takes |
 | `middleware.ts` | The gate: `verifySession` on the cookie, sets `c.var.user`, 401 `{ error }` |
 | `routes.ts` | The routes below |
+| `signals.ts` | Reads auth-kit's v0.2.0 `listed` / `limit` / `capReached` fields to decide `auth.locked` and `auth.send_capped` (listed addresses only); never changes an answer |
 | `mailEvents.ts` | SES bounce and complaint notifications from SQS |
 
 Middleware order in `app.ts`: the CloudFront shared secret → CORS → `csrf()`

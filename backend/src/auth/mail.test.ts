@@ -4,7 +4,7 @@
 import type { SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { describe, expect, it } from 'vitest';
 import { guardLogs, linesLogged } from '../__tests__/logGuard.js';
-import { consoleMailer, createMailer, maskAddress, sesMailer, signInMessage } from './mail.js';
+import { consoleMailer, createMailer, maskAddress, SES_CLIENT_OPTIONS, sesClient, sesMailer, signInMessage } from './mail.js';
 
 guardLogs();
 
@@ -34,6 +34,13 @@ describe('the sign-in email', () => {
 				Content: { Simple: { Subject: { Data: 'Your Pitman sign-in code', Charset: 'UTF-8' }, Body: { Text: { Data: signInMessage('012345').text, Charset: 'UTF-8' } } } }
 			}
 		]);
+	});
+
+	it('bounds the SES client: 2 attempts, 0.5 s to connect and 1 s a request, about 2.5 s at worst', async () => {
+		expect(SES_CLIENT_OPTIONS).toEqual({ maxAttempts: 2, requestHandler: { connectionTimeout: 500, requestTimeout: 1_000 } });
+		const client = sesClient();
+		expect(await client.config.maxAttempts()).toBe(2);
+		client.destroy();
 	});
 
 	it('picks the transport from the configuration', () => {

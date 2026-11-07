@@ -101,6 +101,26 @@ describe('the operator scripts', () => {
 		expect(run.out()).not.toContain(USER);
 	});
 
+	it('clear-lock also lifts a spent daily send budget (the remedy for auth.send_capped)', async () => {
+		let now = Date.parse('2026-11-07T08:00:00Z');
+		const store = memoryStore();
+		const kit = createAuthKit({ store, codeSecret: randomSecret(cryptoRandom), sessionKeys: [{ kid: 'k', secret: randomSecret(cryptoRandom) }], clock: { now: () => now } });
+		const admin = await kit.bootstrapAdmin(ADMIN);
+		if (!admin.ok) throw new Error(admin.error);
+		// Ten sends, spaced past the 60 s gap and the hourly limit: the day's budget.
+		for (let i = 0; i < 10; i++) {
+			expect((await kit.requestCode(ADMIN)).status).toBe('accepted');
+			now += i === 4 ? 60 * 60_000 : 61_000;
+		}
+		// An hour on, the hourly limit has passed but the daily cap holds, for most of a day.
+		now += 60 * 60_000;
+		const capped = await kit.requestCode(ADMIN);
+		expect(capped.status).toBe('throttled');
+		expect(capped.status === 'throttled' && capped.retryAfterMs).toBeGreaterThan(10 * 60 * 60_000);
+		expect(await clearLock(io([ADMIN]).io, async () => ({ kit, where: 'the test store' }))).toBe(0);
+		expect((await kit.requestCode(ADMIN)).status).toBe('accepted');
+	});
+
 	it('erase asks for confirmation, leaves no copy of the address, and clears its SES suppression itself', async () => {
 		const { store, getKit } = await seeded();
 		const removed: string[] = [];

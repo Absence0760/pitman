@@ -8,6 +8,7 @@ import { Hono, type Context } from 'hono';
 import { sessionCookieFor } from './cookies.js';
 import { NOT_CONFIGURED, type AuthEnv } from './middleware.js';
 import type { AuthRuntime } from './runtime.js';
+import { lockAlarm, sendCapped } from './signals.js';
 
 const logEvent = (fields: Record<string, unknown>) => console.log(JSON.stringify(fields));
 
@@ -48,6 +49,8 @@ export function publicAuthRoutes(auth: AuthRuntime) {
 		if (!auth.ready) return c.json({ error: NOT_CONFIGURED }, 503);
 		const body = await jsonObject(c);
 		if (!body) return c.json({ error: AUTH_MESSAGES.notJson }, 400);
+		const clock = auth.latency.clock ?? { now: () => Date.now() };
+		const started = clock.now();
 		// One floor for everything a listed address costs more than an unlisted one: the code and the email.
 		const r = await withMinimumLatency(
 			auth.latency.minMs,
@@ -65,6 +68,11 @@ export function publicAuthRoutes(auth: AuthRuntime) {
 			},
 			auth.latency
 		);
+		// Past the floor, the time a request took can tell a listed address (it sent mail) from an unlisted
+		// one: logged, with no address, for the alarm auth-kit asks for. The answer is unchanged.
+		if (clock.now() - started > auth.latency.minMs) logEvent({ event: 'auth.slow_code_request' });
+		// A listed address just spent its daily send budget: it can't sign in for up to a day (signals.ts).
+		if (sendCapped(r)) logEvent({ event: 'auth.send_capped' });
 		switch (r.status) {
 			case 'accepted':
 				return c.json({}, 202);
@@ -92,7 +100,8 @@ export function publicAuthRoutes(auth: AuthRuntime) {
 		}
 		if (v.status === 'locked') {
 			// The alarm's metric filter counts this line (A-AUTH-7). No address: the lock is keyed by one.
-			if (v.lockStarted) logEvent({ event: 'auth.locked' });
+			// A listed address's lock only, once auth-kit says which (signals.ts); the answer is the same either way.
+			if (lockAlarm(v)) logEvent({ event: 'auth.locked' });
 			c.header('Retry-After', retryAfter(v.retryAfterMs));
 			return c.json({ error: AUTH_MESSAGES.locked }, 429);
 		}

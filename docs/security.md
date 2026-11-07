@@ -142,10 +142,25 @@ privacy notice and AWS account. Network files still never leave the browser.
   than SES, or the dev cookie leaves sign-in unconfigured, and every gated
   route answers 503 (`auth/config.ts`).
 - **Logs**: an event name and at most a user id: `auth.locked` (when a lock
-  starts), `mail.send_failed`, `mail.bounce`, `mail.complaint`,
-  `auth.unconfigured`. Never an address, a code or a token; every auth test
+  starts on a listed address), `auth.send_capped` (a listed address has just
+  spent its daily send budget), `auth.slow_code_request` (a `POST /auth/code`
+  ran past the 1 s floor, so its timing could tell a listed address from an
+  unlisted one), `mail.send_failed`, `mail.bounce`, `mail.complaint`,
+  `auth.unconfigured`, `cloudfront_secret.unset`, and `unhandled_error` with
+  the error's name and code only. Never an address, a code, a token or an
+  error message (SES puts the recipient in its messages); every auth test
   file fails if any line it logs holds an address
   (`src/__tests__/logGuard.ts`). The console transport (dev) masks the address.
+  Which address is listed comes from auth-kit v0.2.0 (`listed`, `limit`,
+  `capReached`; `auth/signals.ts`); until pitman takes that tag,
+  `auth.send_capped` never fires and `auth.locked` counts every lock start,
+  as before. The HTTP answer never depends on it.
+- **SES send bounds**: the SES client makes at most 2 attempts, each cut off
+  after 1 s (0.5 s to connect), so a throttled or slow SES holds a listed
+  address's code request to about 2.5 s at worst instead of the SDK's
+  unbounded default (`SES_CLIENT_OPTIONS` in `auth/mail.ts`); a send that
+  fails is logged and still answers 202. The durable fix is to send off the
+  request path (a queue), so the floor never has to cover a send.
 - **Operator actions** (`pnpm admin:bootstrap`, `admin:recover`,
   `admin:clear-lock`, `admin:erase`) run with the operator's AWS profile, read
   the address from stdin (never argv, so never shell history), read the code
@@ -173,7 +188,15 @@ v0.2.0 lands.
   codes and locks, and changes the `erased:` pseudonym of later erasures).
 - **Known risks**: anyone can lock out an admin by failing codes against
   their address (alarm on `auth.locked`; `pnpm admin:clear-lock`, or
-  `pnpm admin:recover` to restore admin rights; keep two admins); SES
+  `pnpm admin:recover` to restore admin rights; keep two admins). Worse and
+  quieter: anyone can spend an address's daily send budget (5 code requests,
+  an hour's wait, 5 more) and the address then gets no code for up to 24 h,
+  and again the next day; existing 7-day sessions hide it until they expire.
+  It is logged as `auth.send_capped` (listed addresses only, from auth-kit
+  v0.2.0) for an alarm beside `auth.locked`; the remedy is the same
+  `pnpm admin:clear-lock`, which deletes the address's send counters as well
+  as its lock. The durable fix is in auth-kit: a requester must not be able
+  to spend an address's whole daily budget. SES
   production access can take days; signing keys are visible in the Lambda's
   environment and Terraform state, the same accepted gap as the CloudFront
   secret.
@@ -213,8 +236,8 @@ A request to erase a person's address (POPIA), in order:
    rotate all secrets if `kms:Decrypt` was available.
 3. **AWS account compromised** — full account recovery, rotate everything,
    re-provision infrastructure.
-4. **Someone is locked out of sign-in** (an `auth.locked` alarm, or a user
-   reports it) — `pnpm admin:clear-lock` clears the lock without changing
+4. **Someone is locked out of sign-in** (an `auth.locked` or
+   `auth.send_capped` alarm, or a user reports it) — `pnpm admin:clear-lock` clears the lock without changing
    their role; `pnpm admin:recover` also makes them an admin (the way back in
    when no admin can sign in). Both are audited.
 5. **A session or an admin's mailbox is compromised** — another admin removes

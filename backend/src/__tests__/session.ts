@@ -26,7 +26,7 @@ export function testClock(start = Date.parse('2026-11-07T08:00:00Z')): TestClock
 	return { now: () => t, advance: (ms) => void (t += ms) };
 }
 
-export function testAuth(options: { devCookie?: boolean; mailFails?: boolean; store?: MemoryStore; minLatencyMs?: number } = {}): TestAuth {
+export function testAuth(options: { devCookie?: boolean; mailFails?: boolean; mailDelayMs?: number; store?: MemoryStore; minLatencyMs?: number } = {}): TestAuth {
 	const store = options.store ?? memoryStore();
 	const outbox: SignInMail[] = [];
 	const clock = testClock();
@@ -36,6 +36,8 @@ export function testAuth(options: { devCookie?: boolean; mailFails?: boolean; st
 		codeKey: randomSecret(cryptoRandom),
 		sessionKey: randomSecret(cryptoRandom),
 		mail: async (m) => {
+			// A slow send (SES throttling, a retry): moves the test clock, never a real wait.
+			if (options.mailDelayMs) clock.advance(options.mailDelayMs);
 			if (options.mailFails) throw Object.assign(new Error(`could not deliver to ${m.to}`), { name: 'MessageRejected' });
 			outbox.push(m);
 		},

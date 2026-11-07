@@ -17,6 +17,7 @@ import { DemSource, demLocationFromEnv } from './delineation/source.js';
 import { MAX_BODY_BYTES } from './http/area.js';
 import { jsonOnly } from './http/jsonOnly.js';
 import { rateLimit } from './http/rateLimit.js';
+import { logUnexpected } from './http/logError.js';
 import { CROSS_ORIGIN_REFUSED, sameOriginWrites } from './http/sameOrigin.js';
 import { mapGridRoutes } from './mapgrid/routes.js';
 import { MapGridCatalog, mapGridSourcesFromEnv } from './mapgrid/source.js';
@@ -179,7 +180,8 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	app.onError((err, c) => {
 		// csrf() throws a 403.
 		if (err instanceof HTTPException && err.status === 403) return c.json({ error: CROSS_ORIGIN_REFUSED }, 403);
-		console.error('Unhandled error', err);
+		// Name and code only: a message can carry a request's values, an address among them (A-AUTH-11).
+		logUnexpected('unhandled_error', err);
 		return c.json({ error: 'Internal server error' }, 500);
 	});
 
