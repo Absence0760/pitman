@@ -90,6 +90,8 @@ export interface AccessExport {
 	address: string;
 	/** Every kind in personal-records.ts, in its order. */
 	records: { [K in PersonalRecordKind]: { what: string; found: number; data: unknown } };
+	/** Who has or has had access (POPIA s23(1)(b)). */
+	recipients: readonly string[];
 	notHeld: string[];
 }
 
@@ -164,6 +166,7 @@ export async function gatherExport(kit: AuthKit, email: string, suppression: Sup
 		generatedAt: new Date(clock.now()).toISOString(),
 		address: email,
 		records,
+		recipients: RECIPIENTS,
 		notHeld: [
 			'Network files and the working copy stay in your browser; Pitman’s servers never receive them. The data API receives only area outlines.',
 			'Server logs record events with at most a user id, never an address, code or token, and are deleted after 30 days.',
@@ -172,6 +175,16 @@ export async function gatherExport(kit: AuthKit, email: string, suppression: Sup
 		]
 	};
 }
+
+/**
+ * Who has or has had access to the records (POPIA s23(1)(b): "the identity of all third parties, or categories of
+ * third parties, who have, or have had, access"). Fixed: Pitman shares nothing with anyone else.
+ */
+export const RECIPIENTS = [
+	'Amazon Web Services, which runs Pitman’s servers, database and mail (Amazon SES) in South Africa (af-south-1), as Pitman’s operator.',
+	'Pitman’s admins, who see the user list and the audit record on the Users page.',
+	'Pitman’s owner, who runs the operator scripts (this export among them).'
+] as const;
 
 /** The repository's root (this file is backend/scripts/export-address.ts). */
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));

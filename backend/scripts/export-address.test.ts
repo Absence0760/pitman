@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { createAuthKit, cryptoRandom, memoryStore, randomSecret } from '@absence0760/auth-kit';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { guardLogs } from '../src/__tests__/logGuard.js';
-import { type AccessExport, main as exportAddress, outputPath, sesSuppressionLookup, sesSuppressionReader, type SuppressionLookup } from './export-address.js';
+import { type AccessExport, main as exportAddress, outputPath, RECIPIENTS, sesSuppressionLookup, sesSuppressionReader, type SuppressionLookup } from './export-address.js';
 import { OperatorError } from './operator.js';
 
 guardLogs();
@@ -90,6 +90,9 @@ describe('admin:export', () => {
 		]);
 		expect(rows[1]?.actionInWords).toMatch(/access request/);
 		expect(JSON.stringify(data)).not.toContain(ADMIN);
+		// POPIA s23(1)(b): who has or has had access, so the cover note can't forget it.
+		expect(data.recipients).toEqual([...RECIPIENTS]);
+		expect(data.recipients.join(' ')).toMatch(/Amazon Web Services.*admins.*owner/s);
 		const audit = store.dump().filter((i) => i.pk === 'AUDIT' && i.action === 'export');
 		expect(audit.map((a) => [a.actor, a.target])).toEqual([['operator', USER]]);
 

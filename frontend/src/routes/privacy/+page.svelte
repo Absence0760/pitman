@@ -120,12 +120,14 @@
 			{:else}
 				To ask, write to the admin who added you, from the address your request is about.
 			{/if}
-			To make sure it is you, we will ask you to reply from that address, and we answer only to it.
+			To make sure it is you, we will ask you to reply from that address, and we answer only to it. If you act for someone else, send written proof
+			of your authority to act for them. You may also use the Information Regulator’s PAIA Form 2.
 		</p>
 		<p>
-			A request for access is answered free of charge within 30 days, with a copy of everything Pitman keeps under your address: your user record,
-			your sign-in limits and any live code’s expiry, each audit-record entry that names you, and whether Amazon SES has stopped mail to you. Other
-			people’s addresses in those entries are withheld.
+			A request for access is answered free of charge within 30 days of receiving it (or, if we cannot manage that, by a later date you agree to, no
+			more than 30 days later). You get a copy of everything Pitman keeps under your address: your user record, your sign-in limits and any live
+			code’s expiry, each audit-record entry that names you, and whether Amazon SES has stopped mail to you. You are also told who has had access to
+			it. Other people’s addresses in those entries are withheld.
 		</p>
 		<p>
 			Deleting your address removes you from the user list and replaces it in the audit record, so you can no longer sign in. It is complete after the

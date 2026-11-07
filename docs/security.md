@@ -303,22 +303,31 @@ A request under POPIA s23 to confirm whether Pitman holds personal
 information about someone, and for a copy of it. There is no self-serve
 "download my data"; the operator answers, in order:
 
-1. **Acknowledge it and start the clock.** Note the date it arrived. Answer
-   within 30 days (the period PAIA s56 sets for a private body; POPIA s25
-   brings PAIA's procedure to an access request); if that can't be met, tell the
-   requester before it runs out, why, and the new date, at most 30 days
-   later (PAIA s57). There is no fee: confirming whether information is held
-   is free under s23(1)(a), and Pitman charges nothing for the copy.
+1. **Acknowledge it and start the clock.** Note the date it arrived and
+   answer within 30 days of that date. POPIA requires an answer "within a
+   reasonable time" (s23(1)(b)(i)); Pitman holds itself to the 30 days PAIA
+   s56(1) sets for a private body, which the Information Regulator's PAIA
+   Guide also applies to POPIA requests. (POPIA s25 applies only PAIA s18 and
+   s53, the form of the request.) If that can't be met, ask the requester,
+   before the 30 days run out, to agree in writing to one extension of no
+   more than 30 days, giving the reason and the new date, and saying they may
+   complain to the Information Regulator (the PAIA s57(1)(e) model). There is
+   no fee: confirming whether information is held is free under s23(1)(a),
+   and Pitman charges nothing for the copy (s23(1)(b)(ii) allows only "a
+   prescribed fee, if any", and none is prescribed under POPIA).
 2. **Verify who is asking.** Answer only to the mailbox the request is
    about. A request from that address counts once the requester replies from
    it to the operator's acknowledgement (which proves they read that
    mailbox, not just that they typed it as the sender). A listed user can
    instead sign in once after asking: the Users page's audit log then shows
-   their `signin` at that time. A request from anywhere else (another
-   address, someone acting for the person) needs proof of identity and,
-   for a representative, written authority, before anything is sent; never
-   send the answer anywhere but the address it is about. If it can't be
-   verified, send nothing and tell the requester why.
+   their `signin` at that time. A request from another address is answered
+   by asking the person to write from the address concerned, or to sign in;
+   don't ask for an ID document, as Pitman holds nothing an ID could be
+   matched to. Someone acting for the person must give written proof of
+   their authority to act and to receive the information (PAIA s53(2)(f),
+   applied by POPIA s25), plus proof of their own identity; send the answer
+   to the address concerned, or to the representative once that authority is
+   verified. If it can't be verified, send nothing and tell the requester why.
 3. **The operator runs `pnpm admin:export`**, types the address when asked,
    then a file path outside the repository: an absolute path or one
    starting `~/` (the script runs in `backend/`, so it refuses a relative
@@ -375,9 +384,10 @@ information about someone, and for a copy of it. There is no self-serve
    as a request parameter of `GetSuppressedDestination` or of the log
    search; check it at the first access request and note the answer here
    and in § Erasure.
-5. **Send it** to the verified address only: the export file, and a short
-   cover note saying what each section is, that other people's addresses
-   are withheld, what is not held, and that they may ask for correction
+5. **Send it** to the verified address (or verified representative): the
+   export file, and a short cover note saying what each section is, that
+   other people's addresses are withheld, what is not held, who has or has
+   had access to it (s23(1)(b); the export's `recipients` list), and that they may ask for correction
    (POPIA s23(2) requires saying so) or deletion (§ Erasure) or complain to the Information Regulator (the
    privacy notice's contacts). Then delete the operator's copy; the `export`
    audit row is the record that it was made.
