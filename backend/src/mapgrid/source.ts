@@ -15,6 +15,7 @@ import { gunzipSync } from 'node:zlib';
 import { CopyUnavailableError, DEFAULT_BUCKET_REGION } from '../chirps/copy.js';
 import { S3_CONNECTION_TIMEOUT_MS, type S3Sender } from '../chirps/mirror/store.js';
 import { type IndexedRainMap, indexRainMap, rainMapFromJson } from './rainMap.js';
+import { logUnexpected } from '../http/logError.js';
 
 /** One grid the API can read. */
 export interface MapGridSource {
@@ -111,7 +112,7 @@ export class MapGridCatalog {
 				try {
 					bytes = await src.read();
 				} catch (err) {
-					console.error('MAP grid read failed', err);
+					logUnexpected('map_grid.read_failed', err);
 					throw new CopyUnavailableError('the MAP grid is not answering; try again shortly');
 				}
 				if (bytes === undefined) {
@@ -124,7 +125,7 @@ export class MapGridCatalog {
 				try {
 					return parseGridFile(bytes, src.dataset, src.where.endsWith('.gz'));
 				} catch (err) {
-					console.error('MAP grid parse failed', err);
+					logUnexpected('map_grid.parse_failed', err);
 					throw new CopyUnavailableError(`the MAP grid ${src.dataset} can't be read: ${(err as Error).message}`);
 				}
 			})();

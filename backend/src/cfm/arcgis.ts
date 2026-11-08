@@ -7,6 +7,7 @@ import { CopyUnavailableError } from '../chirps/copy.js';
 import type { Position } from '../geo/geojson.js';
 import { ApiError } from '../http/errors.js';
 import type { LayerFeature } from './adapter.js';
+import { logUnexpected } from '../http/logError.js';
 
 /** Records per page: under ArcGIS Server's default maxRecordCount (2 000), and a page shorter than this doesn't end the read. */
 export const CFM_PAGE_SIZE = 1_000;
@@ -87,13 +88,13 @@ export async function queryLayer(o: QueryOptions): Promise<LayerFeature[]> {
 				signal: AbortSignal.timeout(Math.min(left, CFM_REQUEST_TIMEOUT_MS))
 			});
 			if (!response.ok) {
-				console.error('CFM query failed', response.status);
+				console.error(JSON.stringify({ event: 'cfm.query_failed', status: response.status }));
 				throw new CopyUnavailableError(`Cape Farm Mapper answered HTTP ${response.status}; try again shortly`);
 			}
 			text = await response.text();
 		} catch (err) {
 			if (err instanceof CopyUnavailableError) throw err;
-			console.error('CFM query failed', (err as Error).name);
+			logUnexpected('cfm.query_failed', err);
 			throw new CopyUnavailableError('Cape Farm Mapper is not answering; try again shortly');
 		}
 		bytes += text.length;
@@ -107,7 +108,7 @@ export async function queryLayer(o: QueryOptions): Promise<LayerFeature[]> {
 		// ArcGIS reports its own errors in a 200, an expired token (498, 499) among them.
 		if (body.error !== undefined) {
 			const code = body.error?.code;
-			console.error('CFM query refused', code);
+			console.error(JSON.stringify({ event: 'cfm.query_refused', ...(typeof code === 'number' ? { code } : {}) }));
 			const token = code === 498 || code === 499;
 			throw new CopyUnavailableError(token ? 'Cape Farm Mapper refused Pitman’s token; the operator needs to renew it' : 'Cape Farm Mapper refused the query; try again shortly');
 		}
