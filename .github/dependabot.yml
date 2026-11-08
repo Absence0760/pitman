@@ -37,10 +37,19 @@ updates:
       default-days: 7
       exclude:
         - "@absence0760/auth-kit"
+    # The frontend stays on TypeScript 6 until svelte-kit sync and svelte-check
+    # support 7 (docs/STACK.md; sveltejs/kit#17537, sveltejs/language-tools#3063),
+    # so no major TypeScript bump is proposed. The other workspaces are already
+    # on 7; drop this once the frontend moves.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 10
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+        # auth-kit gets its own PR, which dependabot-auto-merge.yml never merges.
+        exclude-patterns: ["@absence0760/auth-kit"]
 
   - package-ecosystem: terraform
     directory: "/infra"

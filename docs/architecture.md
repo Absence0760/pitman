@@ -372,17 +372,21 @@ Layout, by topic:
   (invented dams in all three of D4's sources). Matching is the engine's
   `matchDams`, run in the browser, so changing the radius sends no request.
 - `src/http/`: the `{ area }` body check, the result cache, the rate limit,
-  error responses.
+  error responses, `logUnexpected` (an error logged by name and code only).
+- `src/usage/`: the per-user daily quota (`quota.ts`) and where it counts
+  (`store.ts`: memory, or the DynamoDB usage table on the Lambda).
 
 Request path: Lambda's own IAM check of CloudFront's OAC signature (before
 the function runs; R4-I6) → CloudFront shared secret (timing-safe compare) → CORS → 2 MiB
-body limit → per-client rate limit → geometry check (≤ 50 000 positions,
+body limit → per-client rate limit → the per-user daily quota on CHIRPS,
+delineation, channels and land use → geometry check (≤ 50 000 positions,
 ≤ 1 000 rings, bounded check work) → the result cache, keyed by (geometry
 hash, copy, manifest revision) for CHIRPS and (geometry hash, grids) for the
 MAP grid → the read. Refusals are `{ error }` JSON: 400 bad body or
 geometry, 404, 413, 422 an area the data can't answer (outside the copy,
-over 2 000 cells, no data, grid coverage under 90 %, a box too wide, too dense
-or with no grid, these last with a `code`), 429, 503 the data
+over 2 000 cells or 16 CHIRPS chunks, no data, grid coverage under 90 %, a box too wide, too dense
+or with no grid, these last with a `code`), 429 (the per-client rate or the
+user's day), 503 the data or the usage count
 isn't configured or isn't answering, 504 the CHIRPS read passed its 25 s
 deadline, or a channel box its 20 s one (asking again finishes it; the tiles
 done are kept).
@@ -396,6 +400,22 @@ and reserved concurrency bounds the rest. The opened CHIRPS copy (array +
 manifest) is kept 5 minutes, so a new manifest `revision` is seen within that
 time; a MAP grid and the quaternary file are read once per instance. The
 cells route isn't cached: it is a slice of memory.
+
+**Per user, across instances.** Ten instances would give one client ten
+times the rate above, so the routes that cost real money also have a daily
+quota per signed-in user (`DAILY_QUOTAS` in `app.ts`, `src/usage/`, R4-D7):
+200 CHIRPS reads, 300 delineations, 400 channel boxes and 100 land-use reads
+a UTC day, about ten times a heavy day of real work. The count is one
+conditional `UpdateItem` per request on the usage table (`USAGE_STORE=dynamodb`,
+`USAGE_TABLE`; hash key `pk` = `quota#<route>#<user id>#<day>`, TTL
+`expires_at` a day after the day ends), so the check and the count are one
+atomic call; local dev and tests count in memory with no setup. Every
+request that reaches the route counts, a cached answer or a refusal
+included. Over the day: 429 with `Retry-After` and when it resets (00:00
+UTC). A Lambda with any other `USAGE_STORE`, or a count that doesn't
+answer, is a 503 on those routes, never uncounted work. MAP-grid and
+quaternary requests aren't counted: they read a file the instance already
+holds.
 
 ## Deployment targets
 

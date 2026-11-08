@@ -41,6 +41,8 @@
 		"admin:clear-lock": "pnpm -C backend exec tsx scripts/clear-lock.ts",
 		"admin:erase": "pnpm -C backend exec tsx scripts/erase-address.ts",
 		"admin:export": "pnpm -C backend exec tsx scripts/export-address.ts",
+		"//-- infra --": "Operator actions on the production stack, run by hand with the operator's AWS profile (first argument, default pitman). `infra:breaker-reset` re-arms the spend breaker after a trip (every pitman-breaker-api-* alarm back to OK, the API's reserved concurrency back to lambda_reserved_concurrency, the bounce DLQ redriven) and refuses while the clock hour's Duration would re-trip it; a plain terraform apply re-opens the API but leaves the alarms in ALARM. docs/security.md § Incident playbook; infra/scripts/breaker-reset.sh.",
+		"infra:breaker-reset": "bash infra/scripts/breaker-reset.sh",
 		"//-- workspaces --": "Run any script in one workspace: `pnpm frontend <script>`, `pnpm wrsm <script>`; `pnpm wrsm-cli wrsm run <dir>` runs the CLI under tsx.",
 		"frontend": "pnpm --filter @pitman/frontend",
 		"backend": "pnpm --filter @pitman/backend",

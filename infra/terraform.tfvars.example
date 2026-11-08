@@ -15,9 +15,9 @@ github_repo    = "Absence0760/pitman"
 bootstrap_slug = "pitman"
 
 # --- API Lambda --------------------------------------------------------------
-lambda_memory_mb            = 1024
+lambda_memory_mb            = 1024 # 1024-2048, and x lambda_reserved_concurrency <= 10240
 lambda_timeout_seconds      = 30
-lambda_reserved_concurrency = 10 # 5-50 (>= 5 for the SQS trigger); needs the account's concurrency quota >= this + 10
+lambda_reserved_concurrency = 10 # 5-10 (>= 5 for the SQS triggers); needs the account's concurrency quota >= this + 11 (the breaker reserves 1)
 lambda_log_retention_days   = 30
 
 # --- IC-WBT's buckets (leave empty until Round 4.1's grants are merged) ------
@@ -25,7 +25,7 @@ lambda_log_retention_days   = 30
 # icwbt_account_id     = "<12-digit IC-WBT account ID>"
 # chirps_bucket        = "water-management-mirror-<IC-WBT account ID>"
 # chirps_prefix        = "rnl"
-# chirps_root_metadata = true
+# chirps_root_metadata = false # the reader never opens the root zarr.json
 # map_grid_bucket      = "water-management-reference-<IC-WBT account ID>"
 # map_grid_key         = "reference/map-grid/<the WAAS file's key>"
 
@@ -39,8 +39,20 @@ auth_waf_rate_limit_per_ip         = 100
 waf_api_rate_limit_per_ip          = 300
 waf_site_rate_limit_per_ip         = 2000
 lambda_invocations_alarm_per_hour  = 2000
-cloudfront_requests_alarm_per_hour = 50000 # edge requests per hour; nothing else bounds a spread flood
-cloudfront_gb_alarm_per_hour       = 5     # edge egress per hour
+cloudfront_requests_alarm_per_hour = 20000 # edge requests per hour, checked per 5 minutes; nothing else bounds a spread flood
+cloudfront_gb_alarm_per_hour       = 1     # edge egress per hour, checked per 5 minutes
+route53_queries_alarm_per_hour     = 20000 # DNS queries on the zone per hour, checked per 5 minutes
+
+# The spend breaker (breaker.tf): sets the API's reserved concurrency to 0.
+# Reset with terraform apply once the cause is found.
+breaker_concurrency_threshold = 6       # copies, 3 x 5 minutes in a row; 4 to lambda_reserved_concurrency
+breaker_duration_ms_per_hour  = 7200000 # 2 copies busy the whole hour; x memory/1024 <= 7 200 000
+
+# --- Cape Farm Mapper (D3) -----------------------------------------------------
+# Never type the token here: decrypt it from infra-secrets into a gitignored
+# *.auto.tfvars (docs/deployment.md § Lambda environment).
+# cfm_crops_layer_url = "https://<the crops layer>/FeatureServer/<n>"
+# cfm_dams_layer_url  = ""
 
 # Must be above 0. Until "IAM access to billing information" is enabled in
 # the account (docs/deployment.md § First deploy), set 0 AND the explicit

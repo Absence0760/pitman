@@ -19,6 +19,7 @@ import { CHANNEL_TILE_DEG, channelTile, type ChannelTile } from './channels.js';
 import { DelineationRefused, TIME_BUDGET_MS } from './delineate.js';
 import type { DemSource } from './source.js';
 import { delineateTributary, type Tributary } from './tributary.js';
+import { logUnexpected } from '../http/logError.js';
 
 /** The longest side of a channel box (degrees): at most 3 × 3 tiles, each a 1 024-cell routing. Larger areas ask box by box. */
 export const MAX_CHANNEL_BOX_DEG = 0.4;
@@ -82,7 +83,7 @@ function refusal(err: DelineationRefused) {
 }
 
 function unreadable(err: unknown) {
-	console.error('DEM read failed', err);
+	logUnexpected('delineation.failed', err);
 	return new ApiError(503, 'the elevation model could not be read just now; try again shortly');
 }
 

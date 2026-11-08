@@ -16,6 +16,7 @@ import { FeedFormatError, FeedUnavailableError } from './errors.js';
 import { type FinalsArray, openFinals } from './mirror/arrays.js';
 import { type Manifest, readManifest } from './mirror/manifest.js';
 import { type MirrorStore, openStore, type S3Sender } from './mirror/store.js';
+import { logUnexpected } from '../http/logError.js';
 
 export type CopyKind = 'local' | 's3';
 
@@ -115,7 +116,7 @@ export class ChirpsCopy {
 		try {
 			[manifest, finals] = await Promise.all([readManifest(this.#store, 'rnl'), openFinals(this.#store, 'rnl')]);
 		} catch (err) {
-			console.error('CHIRPS copy open failed', err);
+			logUnexpected('chirps.copy_open_failed', err);
 			// A bad manifest or layout is the copy's fault, not the request's: a 503 either way.
 			if (err instanceof FeedFormatError) throw new CopyUnavailableError(err.message);
 			throw new CopyUnavailableError('the rain data copy is not answering; try again shortly');

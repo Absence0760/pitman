@@ -18,6 +18,7 @@ import { delineate, DelineationRefused, toLonLat, toPx, type CatchmentMask, type
 import type { Dem } from './dem.js';
 import { simplifyRing, traceRings, type Pt } from './outline.js';
 import { rasterize } from './rasterize.js';
+import { logUnexpected } from '../http/logError.js';
 
 /** `A_T` below this is refused: the DEM's own channel threshold (subdivide.md). */
 export const MIN_TRIBUTARY_KM2 = 1;
@@ -125,7 +126,8 @@ function split(within: AreaGeometry, outline: AreaGeometry, areaQ: number): { tr
 		tributaryParts = keepParts(differenceGeometry(within, remainderParts), SLIVER_KM2);
 	} catch (err) {
 		if (err instanceof DelineationRefused) throw err;
-		console.error('polygon difference failed', err);
+		// Name and code only: the message can carry a vertex of the user's polygon.
+		logUnexpected('delineation.polygon_difference_failed', err);
 		return null;
 	}
 	if (!tributaryParts) throw tooSmall(0);
@@ -187,7 +189,7 @@ export async function delineateTributary(
 		if (pieces) break;
 	}
 	if (!pieces) {
-		console.error('tributary outline failed at every tolerance');
+		console.error(JSON.stringify({ event: 'delineation.outline_failed' }));
 		throw new DelineationRefused('outline', 'The tributary’s outline could not be made into a valid polygon. Click a little further along the channel.');
 	}
 	const outsidePct = (100 * outsideM2) / d.areaM2;

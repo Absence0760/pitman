@@ -118,6 +118,8 @@ describe('POST /delineate', () => {
 		const log = vi.spyOn(console, 'error').mockImplementation(() => {});
 		const broken = new DemSource({ info: base.info, tile: async () => Promise.reject(new Error('socket hang up')) });
 		const res = await post(app(broken), { point: TRIBUTARY, within: Z01A });
+		// One JSON line, the error's name only: never its message or stack, which can carry a bucket, a key or a vertex.
+		expect(log.mock.calls).toEqual([[JSON.stringify({ event: 'delineation.failed', error: 'Error' })]]);
 		log.mockRestore();
 		expect(res.status).toBe(503);
 		expect(((await res.json()) as { error: string }).error).toMatch(/could not be read/);

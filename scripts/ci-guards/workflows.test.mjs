@@ -211,3 +211,12 @@ for (const [file, surface, deployJob, mustDeployOn] of [
 		assert.match(deploy, /id-token: write/);
 	});
 }
+
+test('Dependabot never auto-merges an auth-kit bump: it gets its own PR, and the merge step skips it', () => {
+	const auto = workflows.find((w) => w.name === 'dependabot-auto-merge.yml')?.text ?? '';
+	const merge = steps(auto).find((s) => s.includes('gh pr merge')) ?? '';
+	assert.match(merge, /^\s+if: .*!contains\(steps\.meta\.outputs\.dependency-names, '@absence0760\/auth-kit'\)/m);
+	const config = readFileSync(new URL('../../.github/dependabot.yml', import.meta.url), 'utf8');
+	const group = /minor-and-patch:\n((?: {8}.*\n)+)/.exec(config)?.[1] ?? '';
+	assert.match(group, /exclude-patterns: \["@absence0760\/auth-kit"\]/);
+});

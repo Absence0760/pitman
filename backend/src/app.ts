@@ -23,8 +23,10 @@ import { mapGridRoutes } from './mapgrid/routes.js';
 import { MapGridCatalog, mapGridSourcesFromEnv } from './mapgrid/source.js';
 import { quaternaryRoutes } from './quaternaries/routes.js';
 import { QuaternaryStore, quaternarySourceFromEnv } from './quaternaries/source.js';
+import { dailyQuota } from './usage/quota.js';
+import { type UsageStore, usageStoreFromEnv } from './usage/store.js';
 
-/** Per-instance request limits per client (http/rateLimit.ts): the WAF rule is the global one. */
+/** Per-instance request limits per client (http/rateLimit.ts): the WAF rule is the global per-IP one, DAILY_QUOTAS the per-user one. */
 export const RATE_LIMITS = {
 	chirps: { limit: 30, windowMs: 10 * 60_000 },
 	mapGrid: { limit: 120, windowMs: 10 * 60_000 },
@@ -33,11 +35,38 @@ export const RATE_LIMITS = {
 	delineate: { limit: 30, windowMs: 10 * 60_000 },
 	channels: { limit: 60, windowMs: 10 * 60_000 },
 	quaternaries: { limit: 120, windowMs: 10 * 60_000 },
-	// One fetch per area on the screen, cached; each miss may cost up to 40 upstream pages.
+	// One fetch per area on the screen, cached; each miss may cost up to 20 upstream pages a layer (cfm/arcgis.ts CFM_MAX_PAGES).
 	landUse: { limit: 20, windowMs: 10 * 60_000 },
 	// Sign-in and the Users page, per instance; the WAF's /api/auth/* rule (A-AUTH-9) is the global one,
 	// and auth-kit's per-address send limits and lockout the real ones.
 	auth: { limit: 60, windowMs: 10 * 60_000 }
+} as const;
+
+/**
+ * Requests per signed-in user per UTC day on the routes that cost real money (usage/quota.ts, decision R4-D7),
+ * counted across every instance. The per-IP limits above bound a burst; these bound a day. Each is ~10 × a heavy
+ * day of real work, so a hydrologist never meets one, and the worst a user (or a stolen session) can cost is:
+ *
+ *   Lambda, every request held to the 30 s timeout at 1 GB: 30 GB-s × $0.00001768 = $0.00053 a request.
+ *   chirps      200/day × (16 chunks × 45 years = 720 GETs, R4-D6) = 144 000 GETs × $0.0004/1 000 = $0.058 (IC-WBT's bill)
+ *                       + 200 × $0.00053 = $0.106 Lambda                                         → $0.16/day,  $4.91/month
+ *   delineate   300/day × $0.00053 = $0.159 Lambda, + ≤ ~60 ranged DEM GETs each (6 × 6 512-px tiles at the 3 072-cell
+ *                       window, plus PMTiles directories; cached per instance) = 18 000 × $0.0004/1 000 = $0.007
+ *                                                                                                  → $0.17/day,  $4.99/month
+ *   channels    400/day × $0.00053 = $0.212 Lambda, + ≤ ~60 DEM GETs each = $0.010                → $0.22/day,  $6.65/month
+ *   landUse     100/day × $0.00053 = $0.053 Lambda; upstream ≤ 100 × 2 layers × 20 pages = 4 000 Cape Farm Mapper
+ *                       calls (cfm/arcgis.ts), not billed to Pitman                                  → $0.05/day,  $1.59/month
+ *   one user's worst day: $0.60, a 30-day month $18.14, of which $2.23 is S3 GETs on IC-WBT's buckets (mirror and tiles);
+ *   the reserved concurrency still caps the whole service's Lambda line: 10 × 1 GB × 2 592 000 s ≈ $458/month.
+ *
+ * MAP-grid means and cells, and the quaternary list, are not counted: they read a file each instance loads once and
+ * keeps (mapgrid/source.ts, quaternaries/source.ts), so a request costs milliseconds of Lambda and no upstream call.
+ */
+export const DAILY_QUOTAS = {
+	chirps: 200,
+	delineate: 300,
+	channels: 400,
+	landUse: 100
 } as const;
 
 /** The answer to every request on a Lambda whose CloudFront shared secret is unset. */
@@ -59,6 +88,9 @@ export interface AppDeps {
 		landUse?: { limit: number; windowMs: number };
 		auth?: { limit: number; windowMs: number };
 	};
+	/** The per-user daily counts (usage/store.ts). Default: from USAGE_STORE; tests pass a memory store or a problem. */
+	usage: UsageStore | { problem: string };
+	dailyQuotas: Partial<Record<keyof typeof DAILY_QUOTAS, number>>;
 	/** Sign-in (auth/runtime.ts). Default: built from the environment; tests pass one on a memory store. */
 	auth: AuthRuntime;
 	now: () => number;
@@ -75,6 +107,8 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	const landUse = deps.landUse ?? landUseSourceFromEnv();
 	const limits = deps.rateLimits ?? RATE_LIMITS;
 	const auth = deps.auth ?? authRuntimeFromEnv(process.env);
+	const usage = deps.usage ?? usageStoreFromEnv(process.env);
+	const quotas = { ...DAILY_QUOTAS, ...deps.dailyQuotas };
 
 	// CloudFront-stamped shared secret. In prod, CloudFront stamps every
 	// /api/* request with X-CloudFront-Shared-Secret via the origin's
@@ -118,6 +152,8 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 			origin: (origin) => (allowedOrigins.includes(origin) ? origin : null),
 			// No credentials and no PATCH/DELETE: the browser only ever calls the API same-origin (CloudFront's
 			// /api/* in production, the Vite proxy in dev), so CORS never has to carry the session cookie.
+			// PATCH /users/:id and DELETE /users/:id (the admin's Users page) do exist; they are same-origin only,
+			// so CORS doesn't list them, and sameOriginWrites below refuses them from anywhere else.
 			allowMethods: ['GET', 'POST', 'OPTIONS'],
 			allowHeaders: ['Content-Type'],
 			maxAge: 600
@@ -173,6 +209,11 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	app.use('/channels', rateLimit({ ...(limits.channels ?? RATE_LIMITS.channels), now }));
 	app.use('/quaternaries', rateLimit({ ...(limits.quaternaries ?? RATE_LIMITS.quaternaries), now }));
 	app.use('/cfm/*', rateLimit({ ...(limits.landUse ?? RATE_LIMITS.landUse), now }));
+	// Then the per-user day (DAILY_QUOTAS): after the per-IP limit, so a burst is refused before it costs a write.
+	app.use('/chirps/*', dailyQuota({ usage, route: 'chirps', what: 'CHIRPS rainfall reads', limit: quotas.chirps, now }));
+	app.use('/delineate', dailyQuota({ usage, route: 'delineate', what: 'tributary delineations', limit: quotas.delineate, now }));
+	app.use('/channels', dailyQuota({ usage, route: 'channels', what: 'channel boxes', limit: quotas.channels, now }));
+	app.use('/cfm/*', dailyQuota({ usage, route: 'landUse', what: 'land-use reads', limit: quotas.landUse, now }));
 	app.route('/chirps', chirpsRoutes({ copy: chirps, now }));
 	app.route('/map-grid', mapGridRoutes({ catalog: mapGrids, today: deps.today }));
 	app.route('/', delineationRoutes({ dem, now }));

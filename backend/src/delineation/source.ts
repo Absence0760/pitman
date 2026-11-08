@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CopyUnavailableError, DEFAULT_BUCKET_REGION } from '../chirps/copy.js';
 import { openDem, type Dem, type DemInfo } from './dem.js';
+import { logUnexpected } from '../http/logError.js';
 
 export const DEFAULT_DEM_LOCAL_FILE = '.local/dem/synthetic.pmtiles';
 
@@ -58,7 +59,7 @@ export class DemSource {
 		try {
 			info = await dem.info();
 		} catch (err) {
-			console.error('DEM read failed', err);
+			logUnexpected('dem.read_failed', err);
 			throw new CopyUnavailableError('the elevation model could not be read just now; try again shortly');
 		}
 		return { dem, info, attribution: 'kind' in l && l.kind === 'remote' ? COPERNICUS_NOTICE : info.attribution };

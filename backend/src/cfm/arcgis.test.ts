@@ -87,6 +87,7 @@ describe('queryLayer', () => {
 		expect((err as Error).message).not.toContain(TOKEN);
 		const other = vi.fn<typeof fetch>(async () => json({ error: { code: 400, message: 'upstream words' } }));
 		await expect(queryLayer(options(other))).rejects.toThrow(/refused the query/);
+		expect(vi.mocked(console.error).mock.calls).toEqual([[JSON.stringify({ event: 'cfm.query_refused', code: 498 })], [JSON.stringify({ event: 'cfm.query_refused', code: 400 })]]);
 	});
 
 	it('answers a failed read as unavailable, and logs neither the token nor the upstream body', async () => {
@@ -96,5 +97,7 @@ describe('queryLayer', () => {
 		await expect(queryLayer(options(vi.fn<typeof fetch>(async () => new Response('<html>'))))).rejects.toThrow(/can’t read/);
 		await expect(queryLayer(options(vi.fn<typeof fetch>(async () => json({}))))).rejects.toThrow(/can’t read/);
 		expect(JSON.stringify(log.mock.calls)).not.toContain(TOKEN);
+		// One JSON event line each, a status or an error's name only.
+		expect(log.mock.calls.slice(0, 2)).toEqual([[JSON.stringify({ event: 'cfm.query_failed', status: 500 })], [JSON.stringify({ event: 'cfm.query_failed', error: 'TypeError' })]]);
 	});
 });

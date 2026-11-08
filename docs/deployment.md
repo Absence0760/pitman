@@ -111,12 +111,30 @@ Set by Terraform (`infra/lambda.tf`), never by CI. The names match what
 | `SES_CONFIGURATION_SET` | `pitman` | the configuration set every message must name (TLS required, suppression, events) |
 | `MAIL_QUEUE` | `sqs` | `POST /auth/code` enqueues the sign-in email rather than sending it (#30, A-AUTH-14) |
 | `MAIL_QUEUE_URL` | the `pitman-mail-send` queue's URL (`infra/mail_queue.tf`) | where it enqueues; `lambda.ts` also sends this queue's batches to the mail worker |
+| `USAGE_STORE` | `dynamodb` | where the per-user daily quotas are counted (R4-D7, R4-I9). Without it (and `USAGE_TABLE`) on Lambda, `/chirps`, `/delineate`, `/channels` and `/cfm` answer 503 |
+| `USAGE_TABLE` | `pitman-usage` (`infra/usage.tf`) | the usage table: hash key `pk`, TTL on `expires_at`; the role may only `UpdateItem` it |
+| `CFM_SOURCE` | `cfm` when `cfm_token` is set, else empty | Cape Farm Mapper's source (`backend/src/cfm/source.ts`; empty = `/cfm` answers 503) |
+| `CFM_TOKEN` | `cfm_token` (sensitive; empty by default) | the operator's Cape Farm Mapper token (D3, R7-C9), below |
+| `CFM_CROPS_LAYER_URL` / `CFM_DAMS_LAYER_URL` | `cfm_crops_layer_url` / `cfm_dams_layer_url` (https only; crops required with a token) | the layers the token reads |
+
+**The Cape Farm Mapper token comes in through Terraform.** Terraform owns
+this whole environment block, so a token set by hand in the console would be
+wiped by the next apply. It lives in the operator's sops file
+(`../infra-secrets/pitman/prod.sops.yaml`, under a key such as `cfm_token`) and reaches the
+plan by **decrypt-to-tfvars**, on the operator's machine only: write a
+gitignored `infra/cfm.auto.tfvars` (`*.tfvars` is ignored) holding
+`cfm_token = "…"` from `sops -d --extract '["cfm_token"]' ../infra-secrets/pitman/prod.sops.yaml`,
+plan and apply, then `rm infra/cfm.auto.tfvars infra/tfplan`. The token then
+sits in the Terraform state and the function's configuration, like the
+sign-in keys (`docs/security.md` § Known gaps). This replaces nothing yet:
+**issue #22 decision 15 (Secrets Manager, R7-C9) is still open**, and if it
+goes that way the function reads the token at start-up and `cfm_token` goes.
 
 **Not set yet, so those routes answer 503 by design** (not a failed deploy):
 `QUATERNARIES_SOURCE` (the quaternary catalogue, `/quaternaries`, until
 Pitman's own bucket exists, D-1), `DEM_SOURCE` (delineation and channels,
 until Round 5's DEM grant), `CFM_SOURCE` / `CFM_TOKEN` (Cape Farm Mapper land
-use, `/cfm`, until the token is wired, D3), and, until IC-WBT's grants
+use, `/cfm`, until `cfm_token` is set, above, D3), and, until IC-WBT's grants
 (§ Then: IC-WBT's data), `CHIRPS_SOURCE` and `MAP_GRID_SOURCE`
 (`/chirps`, `/map-grid`). Each answers 503 with a "not configured" message
 to a signed-in user; anonymous callers get 401 first.
@@ -134,6 +152,32 @@ af-south-1).
 Logs are JSON (`infra/lambda.tf`): application lines at `INFO` and above
 (everything the backend writes; the log-line alarms read them), platform
 lines at `WARN` and above (no START/END/REPORT per invocation).
+
+**The spend breaker can set the function's reserved concurrency to 0**
+(`infra/breaker.tf`, R4-I7): when 6 or more copies run in each of three
+5-minute periods, more than 7 200 000 ms run in an hour, or more than 3 000
+invocations run in each of three 5-minute periods. The API then answers 429
+and sign-in stops until it is reset. Find the cause first
+(`docs/security.md` § Incident playbook), then:
+
+- **Reset with `pnpm infra:breaker-reset pitman`** (`infra/scripts/breaker-reset.sh`;
+  the argument is the AWS profile). It puts every `pitman-breaker-api-*`
+  alarm back to OK, restores the reserved concurrency to
+  `lambda_reserved_concurrency` (read from `infra/terraform.tfvars`, else
+  10), and redrives `pitman-mail-events-dlq` into its queue with
+  `aws sqs start-message-move-task` (bounces and complaints that
+  dead-lettered while the mapping was throttled). It doesn't redrive the
+  sign-in mail DLQ: those codes have expired. It refuses while the current
+  clock hour's Duration is already over the Duration trip, because that
+  alarm would re-trip at once; wait for the hour to turn (UTC) or set
+  `BREAKER_RESET_NOW=1`.
+- **Why not just `terraform apply`:** a trip fires only when an alarm moves
+  into ALARM. A routine `terraform apply` during an incident re-opens the API
+  (the function owns `reserved_concurrent_executions`, so the breaker's 0 is
+  a one-line in-place change) but doesn't touch the alarms, which stay in
+  ALARM and can't trip again until they have gone back to OK by themselves.
+  Run the script after any such apply.
+- The deploy role can't change concurrency, so a deploy never resets it.
 
 Sign-in's variables (`backend/src/auth/config.ts`). **Until they are all
 set, every route but `/health` and `POST /auth/logout` answers 503** (fail
@@ -274,8 +318,8 @@ access portal URL in IAM Identity Center → Settings, in `personal-mgmt`
 
 33. Enable `af-south-1` in the account: `aws account enable-region --region-name af-south-1 --region us-east-1 --profile pitman`.
 34. **Gate:** wait until it reports `ENABLED` (minutes, sometimes hours): `aws account get-region-opt-status --region-name af-south-1 --region us-east-1 --profile pitman --query RegionOptStatus --output text`.
-35. Check the Lambda concurrency quota (must be at least `lambda_reserved_concurrency` + 10 = 20): `aws service-quotas get-service-quota --service-code lambda --quota-code L-B99A9384 --region af-south-1 --profile pitman --query Quota.Value`. A `NoSuchResourceException` means the quota has never been touched: read the default instead with `aws service-quotas get-aws-default-service-quota --service-code lambda --quota-code L-B99A9384 --region af-south-1 --profile pitman --query Quota.Value`.
-36. If it's below 20, ask for 1 000 (usually granted automatically, can take a day): `aws service-quotas request-service-quota-increase --service-code lambda --quota-code L-B99A9384 --desired-value 1000 --region af-south-1 --profile pitman`.
+35. Check the Lambda concurrency quota (must be at least `lambda_reserved_concurrency` + the breaker's 1 + 10 = 21): `aws service-quotas get-service-quota --service-code lambda --quota-code L-B99A9384 --region af-south-1 --profile pitman --query Quota.Value`. A `NoSuchResourceException` means the quota has never been touched: read the default instead with `aws service-quotas get-aws-default-service-quota --service-code lambda --quota-code L-B99A9384 --region af-south-1 --profile pitman --query Quota.Value`.
+36. If it's below 21, ask for 1 000 (usually granted automatically, can take a day): `aws service-quotas request-service-quota-increase --service-code lambda --quota-code L-B99A9384 --desired-value 1000 --region af-south-1 --profile pitman`.
 37. Check whether the org manages root centrally: `aws iam list-organizations-features --profile mgmt --query EnabledFeatures`. The budget (`infra/alarms.tf`) can't be created until **IAM access to billing information** is on in the account, a root-only toggle, and an account the org created has no root password.
 38. Turn billing access on, or take the explicit opt-out:
     - **If step 37 lists neither `RootCredentialsManagement` nor `RootSessions`:** open the root sign-in page (signin.aws.amazon.com, "Root user"), enter the `account_email` from step 12, choose "Forgot password", set a strong password from the reset mail (keep it in Bitwarden), sign in, add MFA, then Account → "IAM user and role access to Billing information" → Edit → Activate. Sign out of root.
@@ -287,10 +331,10 @@ access portal URL in IAM Identity Center → Settings, in `personal-mgmt`
 40. Write the variables: `cp infra/terraform.tfvars.example infra/terraform.tfvars && $EDITOR infra/terraform.tfvars`. Set `alert_email` to a real mailbox you read (the example address is refused at plan time); keep `budget_monthly_usd = 25`, or 0 with the opt-out from step 38; leave the IC-WBT block commented out.
 41. Initialise against the real state bucket: `AWS_PROFILE=pitman terraform -chdir=infra init -backend-config=backend.config` → "Terraform has been successfully initialized!".
 42. Plan into a file: `AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan` → `Plan: N to add, 0 to change, 0 to destroy`. A validation error names the variable to fix (an example `alert_email`, a 0 budget without the opt-out).
-43. **Gate:** read the plan before applying it: nothing to change or destroy on a first apply; the Lambda, its role and grants, the user table, the WAF, CloudFront, SES and about two dozen alarms in two regions. The saved `infra/tfplan` holds the generated keys in plaintext; it is gitignored, and step 44 deletes it.
+43. **Gate:** read the plan before applying it: nothing to change or destroy on a first apply; the Lambda, its role and grants, the user and usage tables, the spend breaker (topic, function, role), the WAF, CloudFront, SES and about two dozen alarms in two regions. The saved `infra/tfplan` holds the generated keys in plaintext; it is gitignored, and step 44 deletes it.
 44. Apply exactly that plan, then delete it (about 15 minutes: the certificate and CloudFront): `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan` → `Apply complete!`.
 45. Confirm both "AWS Notification - Subscription Confirmation" emails (one per alert topic, af-south-1 and us-east-1): click the link in each.
-46. **Gate:** fire a test alarm in each region and check both mails arrive (each alarm goes back to OK at its next evaluation, with no mail): `aws cloudwatch set-alarm-state --alarm-name pitman-lambda-errors --state-value ALARM --state-reason test --region af-south-1 --profile pitman`, then `aws cloudwatch set-alarm-state --alarm-name pitman-cloudfront-requests --state-value ALARM --state-reason test --region us-east-1 --profile pitman` → an "ALARM: …" mail for each within a few minutes. No mail: that region's subscription isn't confirmed (step 45).
+46. **Gate:** fire a test alarm in each region and check both mails arrive (each alarm goes back to OK at its next evaluation, with no mail): `aws cloudwatch set-alarm-state --alarm-name pitman-lambda-errors --state-value ALARM --state-reason test --region af-south-1 --profile pitman`, then `aws cloudwatch set-alarm-state --alarm-name pitman-cloudfront-requests --state-value ALARM --state-reason test --region us-east-1 --profile pitman` → an "ALARM: …" mail for each within a few minutes. No mail: that region's subscription isn't confirmed (step 45). Never use a `pitman-breaker-api-*` alarm for this: setting one to ALARM trips the breaker for real and stops the API (`pnpm infra:breaker-reset pitman` undoes it).
 
 ### The first deploys
 
@@ -325,8 +369,8 @@ that both alarms stay OK.
 55. Check the domain identity has verified (the DKIM CNAMEs, MAIL FROM MX and SPF are in the zone from step 44; DNS can take up to an hour): `aws sesv2 get-email-identity --email-identity pitman.jaredhoward.com --region af-south-1 --profile pitman --query '{sending:VerifiedForSendingStatus,dkim:DkimAttributes.Status,mailFrom:MailFromAttributes.MailFromDomainStatus}'` → `true`, `SUCCESS`, `SUCCESS`.
 56. Check DMARC is published: `dig +short TXT _dmarc.pitman.jaredhoward.com` → `"v=DMARC1; p=none; adkim=r; aspf=r"`.
 57. Once AWS answers, check production access: `aws sesv2 get-account --region af-south-1 --profile pitman --query '{production:ProductionAccessEnabled,sending:SendingEnabled}'` → both `true`.
-58. Confirm the af-south-1 alarms exist (Lambda errors, throttles, invocations, duration, SES bounce and complaint rates, the user table, `auth.locked`, `mail.send_failed`, `auth.unconfigured`, `auth.send_capped`, `auth.slow_code_request`, `cloudfront-secret-unset`, `mail-record-failed`, `mail-events-unrecorded`, `mail-events-dropped`, the mail-events DLQ, and for the sign-in mail queue `mail-enqueue-failed`, `mail-send-dropped`, `mail-send-dlq` and `mail-send-age`): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region af-south-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
-59. Confirm the us-east-1 alarms exist (`pitman-cloudfront-requests`, `pitman-cloudfront-bytes`, `pitman-cloudfront-5xx`, `pitman-waf-blocked`, `pitman-waf-auth-blocked`): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region us-east-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
+58. Confirm the af-south-1 alarms exist (Lambda errors, throttles, invocations, duration, SES bounce and complaint rates, the user table, `auth.locked`, `mail.send_failed`, `auth.unconfigured`, `auth.send_capped`, `auth.slow_code_request`, `cloudfront-secret-unset`, `mail-record-failed`, `mail-events-unrecorded`, `mail-events-dropped`, the mail-events DLQ, and for the sign-in mail queue `mail-enqueue-failed`, `mail-send-dropped`, `mail-send-dlq` and `mail-send-age`, the spend breaker's `breaker-api-concurrency`, `breaker-api-duration`, `breaker-api-invocations` and `breaker-errors`, and `usage-table-throttles`): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region af-south-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
+59. Confirm the us-east-1 alarms exist (`pitman-cloudfront-requests`, `pitman-cloudfront-bytes`, `pitman-route53-queries`, `pitman-cloudfront-5xx`, `pitman-waf-blocked`, `pitman-waf-auth-blocked`): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region us-east-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
 
 The first admin is added later with `pnpm admin:bootstrap` (A-AUTH-5,
 § Sign-in), never through Terraform.
@@ -350,7 +394,7 @@ matching the identity policy `infra/lambda.tf` already carries. Rows from
 
 | Row | Bucket | Grant to Pitman's Lambda role | Pitman side |
 |---|---|---|---|
-| 1 | `water-management-mirror-<id>` | `s3:GetObject` on `rnl/*` (and `zarr.json` at the root, if 4.2's test shows the reader opens it) | `ChirpsRead` |
+| 1 | `water-management-mirror-<id>` | `s3:GetObject` on `rnl/*` only: not the root `zarr.json`, which the reader never opens (`store.test.ts`; `chirps_root_metadata` defaults to off, R4-I11) | `ChirpsRead` |
 | 2 | same | `s3:ListBucket` on the bucket, `StringLike s3:prefix ["rnl/*"]` | `ChirpsListPrefix` |
 | 5 | `water-management-reference-<id>` | `s3:GetObject` on the one MAP-grid key | `MapGridRead` |
 
@@ -378,7 +422,7 @@ CI's one secret is `AUTH_KIT_READ_TOKEN` (§ Sign-in), a read-only token for the
 Secrets that come later (the Cape Farm Mapper token, D3) live SOPS-encrypted
 in the private `infra-secrets/pitman/` under `alias/pitman-sops`, never in
 this repo; the operator creates and edits them (`sops infra-secrets/pitman/prod.sops.yaml`), and
-Claude only checks that they exist. See `../infra-secrets/README.md`.
+Claude only checks that they exist. The token reaches the Lambda through the `cfm_token` variable (§ Lambda environment). See `../infra-secrets/README.md`.
 
 ## Sign-in
 
@@ -419,7 +463,9 @@ setup is Absence0760/auth-kit#2; the pitman side:
   in `pnpm-workspace.yaml`'s `onlyBuiltDependencies` (and `allowBuilds` for
   pnpm 11), commit SHA included, so a bump also replaces that line with the
   one the failing install prints: a moved tag can't run new build code
-  without a reviewed change.
+  without a reviewed change. An auth-kit bump comes as its own Dependabot PR
+  and is never auto-merged: `dependabot-auto-merge.yml` skips it, and
+  `scripts/ci-guards/workflows.test.mjs` guards that.
 - **The first admin**, once, after the first deploy with sign-in configured
   (P2 applied): run `pnpm admin:bootstrap` and type your address when it asks.
   It uses the `pitman` profile (`AWS_PROFILE`), reads the table and code key
@@ -440,7 +486,7 @@ setup is Absence0760/auth-kit#2; the pitman side:
 
 ## Changing the infrastructure
 
-`AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan`, read it, then `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan` (the saved plan holds the generated keys in plaintext; `tfplan` is gitignored); re-run step 47 if an output changed. Claude never runs `apply` (nor a plan against the real backend). CI checks every `infra/` change credential-free (`terraform.yml`: fmt, validate, Trivy); `terraform -chdir=infra test` runs the mocked-provider tests in `infra/tests/`, and `node --test infra/scripts/*.test.mjs` the CSP guard's and the CloudFront functions' tests.
+`AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan`, read it, then `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan` (the saved plan holds the generated keys in plaintext; `tfplan` is gitignored); re-run step 47 if an output changed. Claude never runs `apply` (nor a plan against the real backend). CI checks every `infra/` change credential-free (`terraform.yml`: fmt, validate, Trivy); `terraform -chdir=infra test` runs the mocked-provider tests in `infra/tests/`, and `node --test infra/scripts/*.test.mjs` the CSP guard's, the CloudFront functions' and the spend breaker's tests.
 
 ## Rollback
 

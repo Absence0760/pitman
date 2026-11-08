@@ -3,11 +3,13 @@
 # quaternaries, CHIRPS monthly totals, the MAP-grid mean; Round 5 adds
 # delineation, which is why memory and timeout are sized for it now.
 #
-# Cost bound: reserved concurrency x memory x timeout. At the defaults
-# (10 x 1 GB, arm64 at af-south-1's ~$0.0000177 per GB-second) a flood that
-# keeps every copy busy costs ~$0.0002 a second (~$15 a day) plus requests;
-# the WAF's /api/* rate rule, the invocation
-# alarm and the budget (alarms.tf) are the layers in front of that.
+# Cost bound: reserved concurrency x memory x seconds. At the defaults
+# (10 x 1 GB, arm64 at af-south-1's $0.00001768 per GB-second) a flood that
+# keeps every copy busy costs $0.00018 a second ($15.28 a day, $458.27 a
+# month) plus requests. The breaker (breaker.tf) sets the reserved
+# concurrency to 0 within about 15 minutes of saturation, or 1-2 hours of
+# more than 2 copies on average; the WAF's /api/* rate rule, the invocation
+# alarm and the budget (alarms.tf) are the other layers.
 # ----------------------------------------------------------------------------
 
 data "aws_iam_policy_document" "lambda_assume_role" {
@@ -175,6 +177,8 @@ resource "aws_lambda_function" "backend" {
   memory_size = var.lambda_memory_mb
   timeout     = var.lambda_timeout_seconds
 
+  # Owned here, never ignore_changes: the breaker (breaker.tf) sets it to 0,
+  # and the next apply puts it back. That apply is the breaker's reset.
   reserved_concurrent_executions = var.lambda_reserved_concurrency
 
   # JSON logs, so the platform's START/END/REPORT lines (three per
@@ -221,6 +225,20 @@ resource "aws_lambda_function" "backend" {
       # (issue #30, mail_queue.tf). lambda.ts also dispatches on this URL.
       MAIL_QUEUE     = "sqs"
       MAIL_QUEUE_URL = aws_sqs_queue.mail_send.url
+
+      # Per-user quotas on the costly routes (usage.tf): one conditional
+      # UpdateItem per counted request.
+      USAGE_STORE = "dynamodb"
+      USAGE_TABLE = aws_dynamodb_table.usage.name
+
+      # Cape Farm Mapper (D3, R7-C9). Terraform owns this block, so the token
+      # comes in as a sensitive variable (decrypt-to-tfvars from the
+      # operator's sops file) or a hand-set one would be wiped by the next
+      # apply. Empty token: CFM_SOURCE empty, /cfm/* answers 503.
+      CFM_SOURCE          = var.cfm_token != "" ? "cfm" : ""
+      CFM_TOKEN           = var.cfm_token
+      CFM_CROPS_LAYER_URL = var.cfm_crops_layer_url
+      CFM_DAMS_LAYER_URL  = var.cfm_dams_layer_url
     }
   }
 

@@ -262,21 +262,34 @@ resource "aws_sqs_queue_redrive_allow_policy" "mail_events_dlq" {
   })
 }
 
-# Only the ses-events topic may send here.
+# Only the ses-events topic may send here, and every request must be TLS
+# (the same Deny as the sign-in mail queue's, mail_queue.tf).
 resource "aws_sqs_queue_policy" "mail_events" {
   queue_url = aws_sqs_queue.mail_events.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid       = "SesEventsTopicOnly"
-      Effect    = "Allow"
-      Principal = { Service = "sns.amazonaws.com" }
-      Action    = "sqs:SendMessage"
-      Resource  = aws_sqs_queue.mail_events.arn
-      Condition = {
-        ArnEquals = { "aws:SourceArn" = aws_sns_topic.ses_events.arn }
-      }
-    }]
+    Statement = [
+      {
+        Sid       = "SesEventsTopicOnly"
+        Effect    = "Allow"
+        Principal = { Service = "sns.amazonaws.com" }
+        Action    = "sqs:SendMessage"
+        Resource  = aws_sqs_queue.mail_events.arn
+        Condition = {
+          ArnEquals = { "aws:SourceArn" = aws_sns_topic.ses_events.arn }
+        }
+      },
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "sqs:*"
+        Resource  = aws_sqs_queue.mail_events.arn
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
+        }
+      },
+    ]
   })
 }
 
