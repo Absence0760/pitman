@@ -9,6 +9,7 @@
 //   pnpm -r [--no-bail] run y                                 at least one workspace declares `y`
 //   pnpm y                                                    the root declares `y`
 //   node scripts/x.mjs / node --test a/*.test.mjs b/…         every file exists, every glob matches
+//   bash scripts/x.sh [args]                                  the file exists
 //   docker compose up -d --wait dynamodb mailpit              docker-compose.yml declares each service
 //
 // and the format:
@@ -211,6 +212,7 @@ export function checkRootScripts(manifest, tree) {
 			const [bin] = words;
 			if (bin === 'pnpm') checkPnpm(script, words);
 			else if (bin === 'node') checkNode(script, words);
+			else if (bin === 'bash') checkBash(script, words);
 			else if (bin === 'docker' && words[1] === 'compose') checkCompose(script, words);
 			else unverifiable.push(`${script}: \`${bin}\` is not a command this guard reads`);
 		}
@@ -294,6 +296,15 @@ export function checkRootScripts(manifest, tree) {
 		}
 		const entry = args.find((w) => !w.startsWith('-'));
 		if (entry === undefined) return void unverifiable.push(`${script}: \`node\` with no entry file`);
+		checkPath(script, entry);
+	}
+
+	/** `bash <file> [args]`: the file exists. `bash -c` runs inline shell this guard can't read. @param {string} script @param {string[]} words */
+	function checkBash(script, words) {
+		const args = words.slice(1);
+		if (args.includes('-c')) return void unverifiable.push(`${script}: \`bash -c\` runs inline shell`);
+		const entry = args.find((w) => !w.startsWith('-'));
+		if (entry === undefined) return void unverifiable.push(`${script}: \`bash\` with no script file`);
 		checkPath(script, entry);
 	}
 

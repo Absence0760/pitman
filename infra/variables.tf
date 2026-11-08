@@ -388,6 +388,27 @@ variable "breaker_duration_ms_per_hour" {
   }
 }
 
+variable "breaker_invocations_per_5_minutes" {
+  description = <<-EOT
+    Trip the breaker when the API Lambda is invoked more than this many
+    times in each of 3 consecutive 5-minute periods: the flood of fast
+    requests the Duration trip can't see. 3 000 is 10 a second for 15
+    minutes; the frontend never polls, so a handful of users make tens per
+    5 minutes. Below it, requests cost at most 10 x 2 592 000 = 25.92 M x
+    $0.27/M = $7.00 a month, plus ~400 B of log line each, 10.4 GB x $0.678
+    + storage = ~$7.40. Validated 600-6 000 (2-20 a second): lower could trip
+    on a busy afternoon, higher lets $14 of requests and $15 of logs through
+    a month and
+    nears Lambda's own limit (10 x lambda_reserved_concurrency a second).
+  EOT
+  type        = number
+  default     = 3000
+  validation {
+    condition     = var.breaker_invocations_per_5_minutes >= 600 && var.breaker_invocations_per_5_minutes <= 6000
+    error_message = "breaker_invocations_per_5_minutes must be 600-6 000 (2-20 requests a second sustained)."
+  }
+}
+
 # ----------------------------------------------------------------------------
 # Cape Farm Mapper (D3, R7-C9)
 # ----------------------------------------------------------------------------

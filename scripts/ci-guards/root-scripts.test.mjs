@@ -9,7 +9,7 @@ const TREE = {
 	backend: { name: '@app/backend', scripts: { dev: 'tsx watch', check: 'tsc' } },
 	'packages/engine': { name: '@app/engine', scripts: { check: 'tsc' } },
 };
-const FILES = ['backend/scripts/seed.ts', 'scripts/tool/run.mjs', 'scripts/tool/a.test.mjs'];
+const FILES = ['backend/scripts/seed.ts', 'scripts/tool/run.mjs', 'scripts/tool/a.test.mjs', 'scripts/tool/run.sh'];
 
 /**
  * The verdict on `scripts`, placed under a `//-- dev --` divider unless `raw`. A baseline script that
@@ -82,6 +82,14 @@ test('node: the entry file exists; node --test: every file or glob matches', () 
 	]);
 	assert.match(verdict({ 'dev:x': 'node ../elsewhere/x.mjs' }).errors.join(), /outside the repository/);
 	assert.match(verdict({ 'dev:x': 'node $SCRIPT' }).unverifiable.join(), /run time/);
+});
+
+test('bash: the script file exists; bash -c is reported, never passed', () => {
+	assert.deepEqual(verdict({ 'dev:x': 'bash scripts/tool/run.sh pitman' }).errors, []);
+	assert.ok(verdict({ 'dev:x': 'bash scripts/tool/run.sh' }).ok.includes('dev:x: scripts/tool/run.sh exists'));
+	assert.deepEqual(verdict({ 'dev:x': 'bash scripts/tool/gone.sh' }).errors, ['dev:x: missing file scripts/tool/gone.sh']);
+	assert.match(verdict({ 'dev:x': "bash -c 'echo hi'" }).unverifiable.join(), /inline shell/);
+	assert.match(verdict({ 'dev:x': 'bash' }).unverifiable.join(), /no script file/);
 });
 
 test('docker compose: each named service is in docker-compose.yml; logs -f is follow, not a file', () => {

@@ -198,9 +198,30 @@ run "budget_is_gross_with_80_and_100_lines" {
   assert {
     condition = alltrue([
       for n in aws_budgets_budget.monthly[0].notification :
-      n.subscriber_email_addresses == toset(["alerts@pitman.jaredhoward.com"]) && n.subscriber_sns_topic_arns == toset(["arn:aws:sns:af-south-1:111111111111:pitman-prod-alerts"])
+      n.subscriber_email_addresses == toset(["alerts@pitman.jaredhoward.com"]) && n.subscriber_sns_topic_arns == toset(["arn:aws:sns:us-east-1:111111111111:pitman-prod-alerts"])
     ])
-    error_message = "Every budget line emails alert_email directly and notifies the primary topic."
+    error_message = "Every budget line emails alert_email directly and notifies the us-east-1 topic (not the opt-in region's)."
+  }
+  # Budgets may publish to the us-east-1 topic only, as AWS's guide gives the
+  # statement; CloudWatch to both.
+  assert {
+    condition = jsonencode([
+      for s in data.aws_iam_policy_document.alerts_publish["us_east_1"].statement : {
+        sid        = s.sid
+        principals = flatten([for p in s.principals : tolist(p.identifiers)])
+        conditions = { for c in s.condition : "${c.test} ${c.variable}" => tolist(c.values) }
+      }
+      ]) == jsonencode([
+      { sid = "AllowCloudWatch", principals = ["cloudwatch.amazonaws.com"], conditions = { "StringEquals aws:SourceAccount" = ["111111111111"] } },
+      { sid = "AllowBudgets", principals = ["budgets.amazonaws.com"], conditions = { "ArnLike aws:SourceArn" = ["arn:aws:budgets::111111111111:*"], "StringEquals aws:SourceAccount" = ["111111111111"] } },
+    ])
+    error_message = "The us-east-1 topic admits CloudWatch and this account's budgets (SourceAccount and SourceArn)."
+  }
+  assert {
+    condition = jsonencode([
+      for s in data.aws_iam_policy_document.alerts_publish["primary"].statement : flatten([for p in s.principals : tolist(p.identifiers)])
+    ]) == jsonencode([["cloudwatch.amazonaws.com"]])
+    error_message = "The af-south-1 topic admits CloudWatch only: the budget no longer publishes there."
   }
 }
 
@@ -447,10 +468,10 @@ run "breaker_wiring" {
     )
     error_message = "The breaker function subscribes to the breaker topic and only that topic may invoke it."
   }
-  # Both trips mail the operator and fire the breaker; neither is wired to the us-east-1 topic.
+  # Every trip mails the operator and fires the breaker; none is wired to the us-east-1 topic.
   assert {
     condition = alltrue([
-      for a in [aws_cloudwatch_metric_alarm.breaker_concurrency, aws_cloudwatch_metric_alarm.breaker_duration] :
+      for a in [aws_cloudwatch_metric_alarm.breaker_concurrency, aws_cloudwatch_metric_alarm.breaker_duration, aws_cloudwatch_metric_alarm.breaker_invocations] :
       a.alarm_actions == toset(["arn:aws:sns:af-south-1:111111111111:pitman-prod-alerts", "arn:aws:sns:af-south-1:111111111111:pitman-breaker"]) &&
       a.namespace == "AWS/Lambda" && a.dimensions["FunctionName"] == "pitman-backend" && a.treat_missing_data == "notBreaching"
     ])
@@ -480,6 +501,46 @@ run "breaker_wiring" {
   }
   assert {
     condition = (
+      aws_cloudwatch_metric_alarm.breaker_invocations.alarm_name == "pitman-breaker-api-invocations" &&
+      aws_cloudwatch_metric_alarm.breaker_invocations.metric_name == "Invocations" &&
+      aws_cloudwatch_metric_alarm.breaker_invocations.statistic == "Sum" &&
+      aws_cloudwatch_metric_alarm.breaker_invocations.period == 300 &&
+      aws_cloudwatch_metric_alarm.breaker_invocations.evaluation_periods == 3 &&
+      aws_cloudwatch_metric_alarm.breaker_invocations.datapoints_to_alarm == 3 &&
+      aws_cloudwatch_metric_alarm.breaker_invocations.comparison_operator == "GreaterThanThreshold" &&
+      aws_cloudwatch_metric_alarm.breaker_invocations.threshold == 3000
+    )
+    error_message = "Invocations trip: Sum above 3 000 in 3 of 3 five-minute periods (10 a second for 15 minutes)."
+  }
+  # Every trip is named pitman-breaker-api-*, the prefix the topic policy and
+  # the reset script (infra/scripts/breaker-reset.sh) rely on; breaker_errors isn't.
+  assert {
+    condition = alltrue([
+      for a in [aws_cloudwatch_metric_alarm.breaker_concurrency, aws_cloudwatch_metric_alarm.breaker_duration, aws_cloudwatch_metric_alarm.breaker_invocations] :
+      startswith(a.alarm_name, "pitman-breaker-api-")
+    ]) && !startswith(aws_cloudwatch_metric_alarm.breaker_errors.alarm_name, "pitman-breaker-api-")
+    error_message = "The three trips share the pitman-breaker-api- prefix; the errors alarm must not."
+  }
+  # Only those alarms, in this account and region, may publish to the breaker topic.
+  assert {
+    condition = jsonencode([
+      for s in data.aws_iam_policy_document.breaker_publish.statement : {
+        principals = flatten([for p in s.principals : tolist(p.identifiers)])
+        actions    = tolist(s.actions)
+        conditions = { for c in s.condition : "${c.test} ${c.variable}" => tolist(c.values) }
+      }
+      ]) == jsonencode([{
+        principals = ["cloudwatch.amazonaws.com"]
+        actions    = ["sns:Publish"]
+        conditions = {
+          "ArnLike aws:SourceArn"          = ["arn:aws:cloudwatch:af-south-1:111111111111:alarm:pitman-breaker-api-*"]
+          "StringEquals aws:SourceAccount" = ["111111111111"]
+        }
+    }])
+    error_message = "Only CloudWatch, for this account's pitman-breaker-api-* alarms, may publish to the breaker topic."
+  }
+  assert {
+    condition = (
       aws_cloudwatch_metric_alarm.breaker_errors.dimensions["FunctionName"] == "pitman-breaker" &&
       aws_cloudwatch_metric_alarm.breaker_errors.metric_name == "Errors" &&
       aws_cloudwatch_metric_alarm.breaker_errors.alarm_actions == toset(["arn:aws:sns:af-south-1:111111111111:pitman-prod-alerts"])
@@ -491,6 +552,22 @@ run "breaker_wiring" {
     condition     = aws_lambda_function.backend.reserved_concurrent_executions == 10
     error_message = "The API function sets reserved_concurrent_executions from the variable, so an apply restores it after a trip."
   }
+}
+
+run "breaker_invocations_threshold_bounds" {
+  command = plan
+  variables {
+    breaker_invocations_per_5_minutes = 6001
+  }
+  expect_failures = [var.breaker_invocations_per_5_minutes]
+}
+
+run "breaker_invocations_threshold_too_low_refused" {
+  command = plan
+  variables {
+    breaker_invocations_per_5_minutes = 599
+  }
+  expect_failures = [var.breaker_invocations_per_5_minutes]
 }
 
 run "breaker_concurrency_threshold_above_reserved_refused" {

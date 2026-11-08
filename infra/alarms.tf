@@ -9,8 +9,9 @@
 # apply fails with AccessDeniedException.
 #
 # Two topics, because a CloudWatch alarm can only notify an SNS topic in its
-# own region: `alerts` (primary region: Lambda alarms, the budget) and
-# `alerts_us_east_1` (CloudFront and WAF metrics exist only in us-east-1).
+# own region: `alerts` (primary region: Lambda alarms, the breaker) and
+# `alerts_us_east_1` (CloudFront, WAF and Route 53 metrics exist only in
+# us-east-1; also the budget, below).
 # alert_email (required, and refused on a reserved example domain) subscribes
 # to both.
 # ----------------------------------------------------------------------------
@@ -42,9 +43,15 @@ resource "aws_sns_topic_subscription" "alerts_us_east_1_email" {
   endpoint  = var.alert_email
 }
 
-# Budgets and CloudWatch may publish, and only on behalf of this account.
-# The budget also emails alert_email directly, so it still reaches the
-# operator if the topic subscription was never confirmed.
+# CloudWatch may publish to each topic, only on behalf of this account.
+# Budgets publishes only to the us-east-1 topic: Budgets is a global service
+# billed from us-east-1, and its SNS guide
+# (docs.aws.amazon.com/cost-management/latest/userguide/budgets-sns-policy.html)
+# requires a same-account topic but says nothing of opt-in regions, so the
+# budget doesn't depend on af-south-1. Its statement is AWS's recommended
+# one: aws:SourceAccount plus aws:SourceArn on this account's budgets. The
+# budget also emails alert_email directly, so it still reaches the operator
+# if the topic subscription was never confirmed.
 data "aws_iam_policy_document" "alerts_publish" {
   for_each = {
     primary   = aws_sns_topic.alerts.arn
@@ -52,17 +59,40 @@ data "aws_iam_policy_document" "alerts_publish" {
   }
 
   statement {
-    sid       = "AllowBudgetsAndCloudWatch"
+    sid       = "AllowCloudWatch"
     actions   = ["sns:Publish"]
     resources = [each.value]
     principals {
       type        = "Service"
-      identifiers = ["budgets.amazonaws.com", "cloudwatch.amazonaws.com"]
+      identifiers = ["cloudwatch.amazonaws.com"]
     }
     condition {
       test     = "StringEquals"
       variable = "aws:SourceAccount"
       values   = [local.account_id]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = each.key == "us_east_1" ? [each.value] : []
+    content {
+      sid       = "AllowBudgets"
+      actions   = ["sns:Publish"]
+      resources = [statement.value]
+      principals {
+        type        = "Service"
+        identifiers = ["budgets.amazonaws.com"]
+      }
+      condition {
+        test     = "StringEquals"
+        variable = "aws:SourceAccount"
+        values   = [local.account_id]
+      }
+      condition {
+        test     = "ArnLike"
+        variable = "aws:SourceArn"
+        values   = ["arn:aws:budgets::${local.account_id}:*"]
+      }
     }
   }
 }
@@ -108,7 +138,7 @@ resource "aws_budgets_budget" "monthly" {
     threshold_type             = "PERCENTAGE"
     notification_type          = "FORECASTED"
     subscriber_email_addresses = [var.alert_email]
-    subscriber_sns_topic_arns  = [aws_sns_topic.alerts.arn]
+    subscriber_sns_topic_arns  = [aws_sns_topic.alerts_us_east_1.arn]
   }
 
   notification {
@@ -117,7 +147,7 @@ resource "aws_budgets_budget" "monthly" {
     threshold_type             = "PERCENTAGE"
     notification_type          = "ACTUAL"
     subscriber_email_addresses = [var.alert_email]
-    subscriber_sns_topic_arns  = [aws_sns_topic.alerts.arn]
+    subscriber_sns_topic_arns  = [aws_sns_topic.alerts_us_east_1.arn]
   }
 
   notification {
@@ -126,7 +156,7 @@ resource "aws_budgets_budget" "monthly" {
     threshold_type             = "PERCENTAGE"
     notification_type          = "ACTUAL"
     subscriber_email_addresses = [var.alert_email]
-    subscriber_sns_topic_arns  = [aws_sns_topic.alerts.arn]
+    subscriber_sns_topic_arns  = [aws_sns_topic.alerts_us_east_1.arn]
   }
 }
 
