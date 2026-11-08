@@ -106,11 +106,8 @@ run "cross_account_grants_are_exact" {
   assert {
     condition = one([
       for s in jsondecode(aws_iam_role_policy.lambda_cross_account_read[0].policy).Statement : s.Resource if s.Sid == "ChirpsRead"
-      ]) == [
-      "arn:aws:s3:::water-management-mirror-222222222222/rnl/*",
-      "arn:aws:s3:::water-management-mirror-222222222222/zarr.json",
-    ]
-    error_message = "ChirpsRead must cover rnl/* and the root zarr.json only."
+    ]) == ["arn:aws:s3:::water-management-mirror-222222222222/rnl/*"]
+    error_message = "ChirpsRead must cover rnl/* only by default: the reader never opens the root zarr.json (R4-I11)."
   }
   assert {
     condition = one([
@@ -138,20 +135,23 @@ run "cross_account_grants_are_exact" {
   }
 }
 
-run "root_metadata_grant_can_be_dropped" {
+run "root_metadata_grant_only_when_asked" {
   command = plan
 
   variables {
     icwbt_account_id     = "222222222222"
     chirps_bucket        = "water-management-mirror-222222222222"
-    chirps_root_metadata = false
+    chirps_root_metadata = true
   }
 
   assert {
     condition = one([
       for s in jsondecode(aws_iam_role_policy.lambda_cross_account_read[0].policy).Statement : s.Resource if s.Sid == "ChirpsRead"
-    ]) == ["arn:aws:s3:::water-management-mirror-222222222222/rnl/*"]
-    error_message = "With chirps_root_metadata = false, ChirpsRead covers rnl/* only."
+      ]) == [
+      "arn:aws:s3:::water-management-mirror-222222222222/rnl/*",
+      "arn:aws:s3:::water-management-mirror-222222222222/zarr.json",
+    ]
+    error_message = "With chirps_root_metadata = true, ChirpsRead adds the root zarr.json and nothing else."
   }
 }
 
@@ -196,6 +196,47 @@ run "unreserved_concurrency_rejected" {
     lambda_reserved_concurrency = -1
   }
   expect_failures = [var.lambda_reserved_concurrency]
+}
+
+run "memory_above_2048_rejected" {
+  command = plan
+  variables {
+    lambda_memory_mb = 3008
+  }
+  expect_failures = [var.lambda_memory_mb]
+}
+
+run "concurrency_above_10_rejected" {
+  command = plan
+  variables {
+    lambda_reserved_concurrency   = 11
+    breaker_concurrency_threshold = 6
+  }
+  expect_failures = [var.lambda_reserved_concurrency]
+}
+
+run "concurrency_times_memory_above_10_gb_rejected" {
+  command = plan
+  variables {
+    lambda_memory_mb             = 2048
+    lambda_reserved_concurrency  = 6
+    breaker_duration_ms_per_hour = 3600000
+  }
+  expect_failures = [var.lambda_reserved_concurrency]
+}
+
+run "five_copies_of_2_gb_accepted" {
+  command = plan
+  variables {
+    lambda_memory_mb              = 2048
+    lambda_reserved_concurrency   = 5
+    breaker_concurrency_threshold = 5
+    breaker_duration_ms_per_hour  = 3600000
+  }
+  assert {
+    condition     = aws_lambda_function.backend.memory_size * aws_lambda_function.backend.reserved_concurrent_executions == 10240
+    error_message = "5 x 2 GB is the other end of the 10 GB ceiling."
+  }
 }
 
 run "forever_log_retention_rejected" {
@@ -355,4 +396,106 @@ run "site_limit_below_api_limit_rejected" {
     waf_site_rate_limit_per_ip = 400
   }
   expect_failures = [aws_wafv2_web_acl.frontend]
+}
+
+# --- the deploy role's policy (oidc.tf) ----------------------------------------
+
+run "deploy_policy_is_exact" {
+  command = plan
+
+  override_resource {
+    target          = aws_s3_bucket.frontend
+    override_during = plan
+    values = {
+      arn = "arn:aws:s3:::pitman-frontend-111111111111"
+    }
+  }
+  override_resource {
+    target          = aws_cloudfront_distribution.frontend
+    override_during = plan
+    values = {
+      arn = "arn:aws:cloudfront::111111111111:distribution/E2EXAMPLE"
+    }
+  }
+  override_resource {
+    target          = aws_lambda_function.backend
+    override_during = plan
+    values = {
+      arn = "arn:aws:lambda:af-south-1:111111111111:function:pitman-backend"
+    }
+  }
+
+  assert {
+    condition = jsonencode({ for s in data.aws_iam_policy_document.github_deploy.statement : s.sid => sort(s.actions) }) == jsonencode({
+      FrontendBucketWrite    = ["s3:DeleteObject", "s3:GetObject", "s3:PutObject"]
+      FrontendBucketList     = ["s3:ListBucket"]
+      CloudFrontInvalidation = ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"]
+      LambdaUpdate           = ["lambda:GetFunctionConfiguration", "lambda:UpdateFunctionCode"]
+    })
+    error_message = "The deploy role syncs the site bucket, invalidates the distribution and replaces the function's code, nothing else (no GetFunction, no concurrency or configuration change)."
+  }
+  assert {
+    condition     = alltrue([for s in data.aws_iam_policy_document.github_deploy.statement : s.effect == null || s.effect == "Allow"])
+    error_message = "Allow statements only."
+  }
+  assert {
+    condition = alltrue(flatten([
+      for s in data.aws_iam_policy_document.github_deploy.statement : [for r in s.resources : !strcontains(r, "*") || endswith(r, "/*")]
+    ]))
+    error_message = "No wildcard resource other than the site bucket's objects."
+  }
+}
+
+# --- the site bucket and the edge ---------------------------------------------
+
+run "site_bucket_is_private_and_tls_only" {
+  command = plan
+
+  override_resource {
+    target          = aws_cloudfront_distribution.frontend
+    override_during = plan
+    values = {
+      arn = "arn:aws:cloudfront::111111111111:distribution/E2EXAMPLE"
+    }
+  }
+
+  assert {
+    condition = (
+      aws_s3_bucket_public_access_block.frontend.block_public_acls &&
+      aws_s3_bucket_public_access_block.frontend.block_public_policy &&
+      aws_s3_bucket_public_access_block.frontend.ignore_public_acls &&
+      aws_s3_bucket_public_access_block.frontend.restrict_public_buckets
+    )
+    error_message = "All four public-access-block flags stay on."
+  }
+  assert {
+    condition = one([
+      for s in data.aws_iam_policy_document.frontend_bucket_policy.statement : s.actions if s.sid == "AllowCloudFrontServicePrincipalRead"
+    ]) == toset(["s3:GetObject"])
+    error_message = "CloudFront may only GetObject."
+  }
+  assert {
+    condition = jsonencode(flatten([
+      for s in data.aws_iam_policy_document.frontend_bucket_policy.statement : [
+        for c in s.condition : tolist(c.values) if c.variable == "AWS:SourceArn"
+      ] if s.sid == "AllowCloudFrontServicePrincipalRead"
+    ])) == jsonencode(["arn:aws:cloudfront::111111111111:distribution/E2EXAMPLE"])
+    error_message = "The read is conditioned on this distribution's ARN (OAC)."
+  }
+  assert {
+    condition = one([
+      for s in data.aws_iam_policy_document.frontend_bucket_policy.statement :
+      s.effect == "Deny" && jsonencode(flatten([for c in s.condition : tolist(c.values) if c.variable == "aws:SecureTransport"])) == jsonencode(["false"])
+      if s.sid == "DenyInsecureTransport"
+    ])
+    error_message = "Every non-TLS request to the bucket is denied."
+  }
+  assert {
+    condition     = aws_cloudfront_distribution.frontend.price_class == "PriceClass_200"
+    error_message = "PriceClass_200 (South African and Indian edges; not All)."
+  }
+  assert {
+    condition     = aws_cloudfront_distribution.frontend.viewer_certificate[0].minimum_protocol_version == "TLSv1.2_2021"
+    error_message = "Viewers need TLS 1.2 (TLSv1.2_2021) at least."
+  }
 }

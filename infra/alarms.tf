@@ -98,8 +98,8 @@ resource "aws_budgets_budget" "monthly" {
   # Forecasted is the only notification that catches a runaway during the
   # month (though AWS needs some spend history before it forecasts, so it is
   # quiet in the first weeks); actual lags by up to a day. The early actual
-  # line is 80 %, not 50 %: the fixed baseline is about $11.80 a month
-  # ($13.60 with VAT, infra/README.md § Cost), so 50 % of $25 would fire
+  # line is 80 %, not 50 %: the fixed baseline is about $12.70 a month
+  # ($14.60 with VAT, infra/README.md § Cost), so 50 % of $25 would fire
   # every month. The CloudWatch alarms are the fast layer; this is the
   # backstop.
   notification {
@@ -174,10 +174,10 @@ resource "aws_cloudwatch_metric_alarm" "lambda_invocations" {
   evaluation_periods  = 1
   metric_name         = "Invocations"
   namespace           = "AWS/Lambda"
-  period              = 3600
+  period              = 300
   statistic           = "Sum"
-  threshold           = var.lambda_invocations_alarm_per_hour
-  alarm_description   = "API Lambda invoked more than lambda_invocations_alarm_per_hour times in an hour: a flood spread over IPs the WAF's per-IP rule doesn't catch."
+  threshold           = ceil(var.lambda_invocations_alarm_per_hour / 12)
+  alarm_description   = "API Lambda invoked faster than lambda_invocations_alarm_per_hour an hour, over 5 minutes: a flood spread over IPs the WAF's per-IP rule doesn't catch. The breaker (breaker.tf) stops sustained compute; this is the mail."
   alarm_actions       = [aws_sns_topic.alerts.arn]
   treat_missing_data  = "notBreaching"
 
@@ -229,9 +229,14 @@ resource "aws_cloudwatch_metric_alarm" "cloudfront_5xx" {
 # Traffic at the edge (us-east-1, free default CloudFront metrics). The one
 # spend path nothing caps: a flood spread over many IPs stays under every
 # per-IP WAF rule, is served from the edge cache and never reaches the
-# Lambda, so none of the Lambda alarms see it, and the budget lags by a day.
-# Each request costs about $1.80 per million (WAF + CloudFront) plus egress,
-# so these hourly sums are the early warning. Thresholds: variables.tf.
+# Lambda, so none of the Lambda alarms or the breaker see it, and the budget
+# lags by a day. Each request costs $1.90 per million (CloudFront $1.20 at
+# South African and Indian edges, WAF $0.60, Functions $0.10) plus $0.110 a
+# GB, so these 5-minute sums are the early warning: mail within about 5-10
+# minutes, not the 1-2 hours of an hourly sum. The variables stay per hour;
+# each threshold is a twelfth of one. Thresholds and what passes under them:
+# variables.tf. The durable fix, CloudFront's flat-rate plan, is the
+# operator's decision (infra/README.md § Cost).
 resource "aws_cloudwatch_metric_alarm" "cloudfront_requests" {
   provider            = aws.us_east_1
   alarm_name          = "${local.project}-cloudfront-requests"
@@ -239,10 +244,10 @@ resource "aws_cloudwatch_metric_alarm" "cloudfront_requests" {
   evaluation_periods  = 1
   metric_name         = "Requests"
   namespace           = "AWS/CloudFront"
-  period              = 3600
+  period              = 300
   statistic           = "Sum"
-  threshold           = var.cloudfront_requests_alarm_per_hour
-  alarm_description   = "CloudFront served more than cloudfront_requests_alarm_per_hour requests in an hour: far above an invite-only tool's traffic, likely a flood spread over many IPs (each request is billed; nothing caps it). Kill switch: docs/security.md § Incident playbook."
+  threshold           = ceil(var.cloudfront_requests_alarm_per_hour / 12)
+  alarm_description   = "CloudFront served requests faster than cloudfront_requests_alarm_per_hour an hour, over 5 minutes: far above an invite-only tool's traffic, likely a flood spread over many IPs (each request is billed; nothing caps it). Kill switch: docs/security.md § Incident playbook."
   alarm_actions       = [aws_sns_topic.alerts_us_east_1.arn]
   treat_missing_data  = "notBreaching"
 
@@ -259,16 +264,40 @@ resource "aws_cloudwatch_metric_alarm" "cloudfront_bytes" {
   evaluation_periods  = 1
   metric_name         = "BytesDownloaded"
   namespace           = "AWS/CloudFront"
-  period              = 3600
+  period              = 300
   statistic           = "Sum"
-  threshold           = var.cloudfront_gb_alarm_per_hour * 1024 * 1024 * 1024
-  alarm_description   = "CloudFront sent more than cloudfront_gb_alarm_per_hour GB to viewers in an hour: egress far above an invite-only tool's traffic (billed per GB; nothing caps it). Kill switch: docs/security.md § Incident playbook."
+  threshold           = ceil(var.cloudfront_gb_alarm_per_hour * 1024 * 1024 * 1024 / 12)
+  alarm_description   = "CloudFront sent GB to viewers faster than cloudfront_gb_alarm_per_hour an hour, over 5 minutes: egress far above an invite-only tool's traffic (billed per GB; nothing caps it). Kill switch: docs/security.md § Incident playbook."
   alarm_actions       = [aws_sns_topic.alerts_us_east_1.arn]
   treat_missing_data  = "notBreaching"
 
   dimensions = {
     DistributionId = aws_cloudfront_distribution.frontend.id
     Region         = "Global"
+  }
+}
+
+# DNS queries on the site's zone (us-east-1: Route 53's public DNS query
+# metrics are published only there). Queries for the CloudFront alias
+# records are free, but a random-subdomain flood (NXDOMAIN answers) and the
+# SES records are billed at $0.40 per million, and nothing caps them. The
+# zone is the bootstrap's, looked up in s3_cloudfront.tf.
+resource "aws_cloudwatch_metric_alarm" "route53_queries" {
+  provider            = aws.us_east_1
+  alarm_name          = "${local.project}-route53-queries"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "DNSQueries"
+  namespace           = "AWS/Route53"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = ceil(var.route53_queries_alarm_per_hour / 12)
+  alarm_description   = "The site's hosted zone answered DNS queries faster than route53_queries_alarm_per_hour an hour, over 5 minutes: far above an invite-only tool's traffic (resolvers cache the records), likely a random-subdomain flood. Billed per query; nothing caps it."
+  alarm_actions       = [aws_sns_topic.alerts_us_east_1.arn]
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    HostedZoneId = data.aws_route53_zone.site.zone_id
   }
 }
 
@@ -421,11 +450,12 @@ resource "aws_cloudwatch_metric_alarm" "users_table" {
 # opaque id and the event name only (A-AUTH-11).
 #
 # The pattern is a quoted term, not a JSON selector ({ $.event = ... }): the
-# function logs in Lambda's default Text format, which prefixes every line
-# with a timestamp, request id and level, so the log event is not a JSON
-# document and a JSON selector never matches it. The term matches the event
-# name wherever it sits in the line, in either log format and whether the
-# backend logs an object or a JSON string. Nothing else logs `auth.locked`.
+# function logs in Lambda's JSON format (lambda.tf), which wraps each line
+# the backend writes in a record whose `message` field holds it, so the event
+# name sits inside a string, not at `$.event`, and a JSON selector on it
+# never matches. The term matches the event name wherever it sits, in either
+# log format and whether the backend logs an object or a JSON string.
+# Nothing else logs `auth.locked`.
 resource "aws_cloudwatch_log_metric_filter" "auth_locked" {
   name           = "${local.project}-auth-locked"
   log_group_name = aws_cloudwatch_log_group.lambda.name

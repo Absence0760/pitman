@@ -301,6 +301,33 @@ run "users_table_grant_is_exact" {
   }
 }
 
+# The usage table (per-user quotas, R4-I9): UpdateItem only, on that table only.
+run "usage_table_grant_is_exact" {
+  command = plan
+
+  override_resource {
+    target          = aws_dynamodb_table.usage
+    override_during = plan
+    values = {
+      arn = "arn:aws:dynamodb:af-south-1:111111111111:table/pitman-usage"
+    }
+  }
+
+  assert {
+    condition = jsondecode(aws_iam_role_policy.lambda_usage_table.policy).Statement == [{
+      Sid      = "UsageTable"
+      Effect   = "Allow"
+      Action   = "dynamodb:UpdateItem"
+      Resource = "arn:aws:dynamodb:af-south-1:111111111111:table/pitman-usage"
+    }]
+    error_message = "One plain Allow of dynamodb:UpdateItem on the usage table's ARN: no read, scan, delete, or the user table."
+  }
+  assert {
+    condition     = aws_iam_role_policy.lambda_usage_table.role == aws_iam_role.lambda.id
+    error_message = "The grant is on the API Lambda's role."
+  }
+}
+
 # --- SES (A-AUTH-7) ---------------------------------------------------------------
 
 run "ses_sender" {
@@ -373,6 +400,7 @@ run "ses_grant_is_exact" {
         aws_iam_role_policy.lambda_ses_send.policy,
         aws_iam_role_policy.lambda_mail_events.policy,
         aws_iam_role_policy.lambda_mail_send.policy,
+        aws_iam_role_policy.lambda_usage_table.policy,
       ] : strcontains(p, "DeleteSuppressedDestination") || strcontains(p, "ses:*") || strcontains(p, "\"*\"")
     ])
     error_message = "No Lambda policy grants ses:DeleteSuppressedDestination, ses:* or a bare * (removing a suppression is the operator's job)."
@@ -427,6 +455,20 @@ run "mail_events_chain" {
   assert {
     condition     = jsondecode(aws_sqs_queue_policy.mail_events.policy).Statement[0].Principal.Service == "sns.amazonaws.com" && jsondecode(aws_sqs_queue_policy.mail_events.policy).Statement[0].Action == "sqs:SendMessage"
     error_message = "The queue policy grants SNS SendMessage and nothing else."
+  }
+  assert {
+    condition = (
+      length(jsondecode(aws_sqs_queue_policy.mail_events.policy).Statement) == 2 &&
+      jsondecode(aws_sqs_queue_policy.mail_events.policy).Statement[1] == {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "sqs:*"
+        Resource  = "arn:aws:sqs:af-south-1:111111111111:pitman-mail-events"
+        Condition = { Bool = { "aws:SecureTransport" = "false" } }
+      }
+    )
+    error_message = "The bounce queue refuses every request not over TLS, like the sign-in mail queue."
   }
   assert {
     condition     = jsondecode(aws_sns_topic_policy.ses_events.policy).Statement[0].Condition.ArnEquals["aws:SourceArn"] == aws_sesv2_configuration_set.main.arn
@@ -485,7 +527,8 @@ run "reserved_concurrency_below_sqs_minimum_refused" {
 run "reserved_concurrency_five_accepted" {
   command = plan
   variables {
-    lambda_reserved_concurrency = 5
+    lambda_reserved_concurrency   = 5
+    breaker_concurrency_threshold = 5
   }
 
   assert {

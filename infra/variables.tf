@@ -52,12 +52,20 @@ variable "bootstrap_slug" {
 # ----------------------------------------------------------------------------
 
 variable "lambda_memory_mb" {
-  description = "API Lambda memory. At least 1024 (docs/data.md § Backend: delineation: up to ~460 MB at the 3 072-cell window); CPU scales with it, so the CHIRPS block decode is faster too."
+  description = <<-EOT
+    API Lambda memory. At least 1024 (docs/data.md § Backend: delineation: up
+    to ~460 MB at the 3 072-cell window); CPU scales with it, so the CHIRPS
+    block decode is faster too. At most 2048, and memory x
+    lambda_reserved_concurrency at most 10 240 MB (checked on that variable),
+    so every copy busy for a month costs at most
+    10 GB x 2 592 000 s x $0.00001768 (af-south-1 arm64) = $458.27 before the
+    breaker (breaker.tf) stops it; the old 10 240 MB x 50 bound was $22 913.
+  EOT
   type        = number
   default     = 1024
   validation {
-    condition     = var.lambda_memory_mb >= 1024 && var.lambda_memory_mb <= 10240
-    error_message = "lambda_memory_mb must be between 1024 (delineation) and 10240 (Lambda's maximum)."
+    condition     = var.lambda_memory_mb >= 1024 && var.lambda_memory_mb <= 2048
+    error_message = "lambda_memory_mb must be 1024-2048: at least 1024 for delineation, at most 2048 so the concurrency x memory ceiling stays near $460 a month."
   }
 }
 
@@ -72,12 +80,33 @@ variable "lambda_timeout_seconds" {
 }
 
 variable "lambda_reserved_concurrency" {
-  description = "Reserved concurrency of the API Lambda: the most copies that can run at once, which caps worst-case spend (concurrency x memory x seconds). Lambda keeps 10 unreserved, so the account's concurrency quota must be at least this + 10; a new account's quota can be 10, so ask Service Quotas for more first (docs/deployment.md). At least 5: the two queues' event source mappings (mail events, ses.tf; sign-in mail, mail_queue.tf) each run up to 2 batches inside this cap, and AWS recommends reserved concurrency of 5 or more for an SQS trigger (below the mapping's maximum, Lambda throttles the queue's polls)."
+  description = <<-EOT
+    Reserved concurrency of the API Lambda: the most copies that can run at
+    once, which caps worst-case spend (concurrency x memory x seconds). Lambda
+    keeps 10 unreserved and the breaker reserves 1 (breaker.tf), so the
+    account's concurrency quota must be at least this + 11; a new account's
+    quota can be 10, so ask Service Quotas for more first
+    (docs/deployment.md).
+
+    At least 5: the two queues' event source mappings (mail events, ses.tf;
+    sign-in mail, mail_queue.tf) each run up to 2 batches inside this cap,
+    and AWS recommends reserved concurrency of 5 or more for an SQS trigger
+    (below the mapping's maximum, Lambda throttles the queue's polls). At
+    most 10, and this x lambda_memory_mb at most 10 240 MB: every copy busy
+    for a month is then at most 10 GB x 2 592 000 s x $0.00001768 =
+    $458.27, and Lambda's request-rate quota (10 x this a second) at most
+    259.2 M requests x $0.27 per million = $69.98. The breaker (breaker.tf)
+    stops sustained use long before either.
+  EOT
   type        = number
   default     = 10
   validation {
-    condition     = var.lambda_reserved_concurrency >= 5 && var.lambda_reserved_concurrency <= 50
-    error_message = "lambda_reserved_concurrency must be 5-50: at least 5 for the SQS triggers (AWS's minimum recommendation, above the two mappings' combined maximum concurrency of 4), and there is deliberately no 'unreserved' (-1) option: the cap is the cost control."
+    condition     = var.lambda_reserved_concurrency >= 5 && var.lambda_reserved_concurrency <= 10
+    error_message = "lambda_reserved_concurrency must be 5-10: at least 5 for the SQS triggers (AWS's minimum recommendation, above the two mappings' combined maximum concurrency of 4), at most 10 for the cost ceiling, and there is deliberately no 'unreserved' (-1) option: the cap is the cost control."
+  }
+  validation {
+    condition     = var.lambda_reserved_concurrency * var.lambda_memory_mb <= 10240
+    error_message = "lambda_reserved_concurrency x lambda_memory_mb must be at most 10 240 MB (10 copies of 1 GB, or 5 of 2 GB): about $458 a month with every copy busy."
   }
 }
 
@@ -137,9 +166,9 @@ variable "chirps_prefix" {
 }
 
 variable "chirps_root_metadata" {
-  description = "Also grant GetObject on the bucket-root zarr.json (Zarr v3 group metadata), if the reader opens the root group (docs/data.md § Cross-account access, 'The root zarr.json'; 4.2 confirms)."
+  description = "Also grant GetObject on the bucket-root zarr.json (Zarr v3 group metadata). Off: the reader opens `<prefix>/zarr.json` and never the root group (backend/src/chirps/mirror/arrays.ts; store.test.ts pins it), so the grant would only widen the cross-account read by an object nobody reads. Turn on only if a future reader opens the root group."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "map_grid_bucket" {
@@ -193,7 +222,7 @@ variable "dmarc_report_email" {
 # ----------------------------------------------------------------------------
 
 variable "waf_api_rate_limit_per_ip" {
-  description = "WAF rate limit on /api/*: requests per IP per 5-minute window. Each is a Lambda invocation that may fan out to a few hundred S3 GETs on IC-WBT's bill; a hydrologist extending a network makes a handful. AWS minimum 100."
+  description = "WAF rate limit on /api/*: requests per IP per 5-minute window. Each is a Lambda invocation that may fan out to at most 720 S3 GETs on IC-WBT's bill (16 chunks, R4-D6), and at most 144,000 CHIRPS GETs per user per day (R4-D7); a hydrologist extending a network makes a handful. AWS minimum 100."
   type        = number
   default     = 300
   validation {
@@ -223,7 +252,7 @@ variable "waf_site_rate_limit_per_ip" {
 }
 
 variable "budget_monthly_usd" {
-  description = "Monthly cost budget in USD; email + SNS at forecasted 100 %, actual 80 % and actual 100 % (80 %, not 50 %: the fixed baseline is about $11.80, about $13.60 with VAT, so a 50 % line on $25 would fire every month and teach the operator to ignore it). Credits and refunds are excluded, so new-account credits can't hide a runaway. Must be above 0; 0 is accepted only with no_budget_acknowledged = true (until IAM access to billing information is enabled on the account, docs/deployment.md § First deploy)."
+  description = "Monthly cost budget in USD; email + SNS at forecasted 100 %, actual 80 % and actual 100 % (80 %, not 50 %: the fixed baseline is about $12.70, about $14.60 with VAT, so a 50 % line on $25 would fire every month and teach the operator to ignore it). Credits and refunds are excluded, so new-account credits can't hide a runaway. Must be above 0; 0 is accepted only with no_budget_acknowledged = true (until IAM access to billing information is enabled on the account, docs/deployment.md § First deploy)."
   type        = number
   default     = 25
   validation {
@@ -256,27 +285,150 @@ variable "alert_email" {
 }
 
 variable "lambda_invocations_alarm_per_hour" {
-  description = "Alarm when the API Lambda is invoked more than this many times in an hour: the early sign of a flood the WAF lets through (spread over many IPs)."
+  description = "Alarm when the API Lambda is invoked faster than this many times an hour, measured over 5 minutes (threshold = this / 12, rounded up, per 5-minute sum): the early sign of a flood the WAF lets through (spread over many IPs). Mail only; the breaker (breaker.tf) is what stops it."
   type        = number
   default     = 2000
+  validation {
+    condition     = var.lambda_invocations_alarm_per_hour >= 12
+    error_message = "lambda_invocations_alarm_per_hour must be at least 12 (one invocation per 5-minute window)."
+  }
 }
 
 variable "cloudfront_requests_alarm_per_hour" {
-  description = "Alarm when CloudFront serves more than this many requests in an hour (AWS/CloudFront Requests, us-east-1). The edge is the one spend path no cap bounds: a flood spread over many IPs stays under the per-IP WAF rules and is served from cache without touching the Lambda, at about $1.80 per million requests (WAF + CloudFront). An invite-only tool's handful of users make a few thousand an hour; 50 000 is about $0.09 an hour, so the alarm fires long before the money matters."
+  description = <<-EOT
+    Alarm when CloudFront serves requests faster than this many an hour,
+    measured over 5 minutes (threshold = this / 12, rounded up, per 5-minute
+    sum; AWS/CloudFront Requests, us-east-1). The edge is the one spend path
+    no cap bounds: a flood spread over many IPs stays under the per-IP WAF
+    rules and is served from cache without touching the Lambda, at $1.90 per
+    million requests (CloudFront $1.20 at South African and Indian edges +
+    WAF $0.60 + CloudFront Functions $0.10). An invite-only tool's handful of
+    users make a few thousand an hour. Just under 20 000 an hour all month is
+    14.4 M requests x $1.90 = $27.36 that passes unseen (50 000 an hour let
+    $68.40 through).
+  EOT
   type        = number
-  default     = 50000
+  default     = 20000
   validation {
-    condition     = var.cloudfront_requests_alarm_per_hour > 0
-    error_message = "cloudfront_requests_alarm_per_hour must be above 0."
+    condition     = var.cloudfront_requests_alarm_per_hour >= 12
+    error_message = "cloudfront_requests_alarm_per_hour must be at least 12 (one request per 5-minute window)."
   }
 }
 
 variable "cloudfront_gb_alarm_per_hour" {
-  description = "Alarm when CloudFront sends more than this many GB to viewers in an hour (AWS/CloudFront BytesDownloaded, us-east-1). The whole site is a few MB per cold visit; 5 GB is about $0.55 an hour of South African egress. Revisit it when /tiles/* lands (docs/data.md row 6)."
+  description = <<-EOT
+    Alarm when CloudFront sends GB to viewers faster than this many an hour,
+    measured over 5 minutes (threshold = this / 12 per 5-minute sum, in
+    bytes; AWS/CloudFront BytesDownloaded, us-east-1). The whole site is a
+    few MB per cold visit. Just under 1 GB an hour all month is 720 GB x
+    $0.110 (South African egress) = $79.20 that passes unseen (5 GB an hour
+    let $396 through), before CloudFront's always-free 1 TB a month. Revisit
+    it when /tiles/* lands (docs/data.md row 6).
+  EOT
   type        = number
-  default     = 5
+  default     = 1
   validation {
     condition     = var.cloudfront_gb_alarm_per_hour > 0
     error_message = "cloudfront_gb_alarm_per_hour must be above 0."
+  }
+}
+
+variable "route53_queries_alarm_per_hour" {
+  description = <<-EOT
+    Alarm when the site's hosted zone answers DNS queries faster than this
+    many an hour, measured over 5 minutes (threshold = this / 12, rounded
+    up, per 5-minute sum; AWS/Route53 DNSQueries, us-east-1). Queries for
+    names other than the CloudFront aliases (a random-subdomain flood, the
+    SES records) are billed at $0.40 per million and nothing caps them.
+    Resolvers cache the records, so a handful of users make a few hundred
+    an hour. Just under 20 000 an hour all month is 14.4 M x $0.40 = $5.76
+    unseen.
+  EOT
+  type        = number
+  default     = 20000
+  validation {
+    condition     = var.route53_queries_alarm_per_hour >= 12
+    error_message = "route53_queries_alarm_per_hour must be at least 12 (one query per 5-minute window)."
+  }
+}
+
+# ----------------------------------------------------------------------------
+# Spend circuit breaker (breaker.tf, R4-I7)
+# ----------------------------------------------------------------------------
+
+variable "breaker_concurrency_threshold" {
+  description = "Trip the breaker (API reserved concurrency to 0) when the API Lambda's ConcurrentExecutions reaches this many copies in each of 3 consecutive 5-minute periods. A handful of users run one request at a time each, and the two queue mappings hold at most 4 copies for seconds; at saturation (10 copies) it trips in about 15 minutes, having spent 10 x 900 s x 1 GB x $0.00001768 = $0.16. At least 4 (the mappings alone can reach 4), and no more than lambda_reserved_concurrency (the metric can't exceed it, so the alarm would never fire)."
+  type        = number
+  default     = 6
+  validation {
+    condition     = var.breaker_concurrency_threshold >= 4 && var.breaker_concurrency_threshold <= var.lambda_reserved_concurrency
+    error_message = "breaker_concurrency_threshold must be at least 4 (the queue mappings alone can reach 4) and at most lambda_reserved_concurrency (above it the alarm can never fire)."
+  }
+}
+
+variable "breaker_duration_ms_per_hour" {
+  description = <<-EOT
+    Trip the breaker when the API Lambda's billed Duration over a clock hour
+    exceeds this many milliseconds. 7 200 000 = 2 copies busy the whole hour,
+    or 288 requests of 25 s (the longest CHIRPS read) in one hour; a
+    hydrologist makes a handful. It catches what the concurrency trip misses
+    (5 copies held for good, or 10 pulsed on and off), within 1-2 hours.
+    Below it, compute averages under threshold / 3 600 000 copies: at the
+    default 1 GB, 2 x 1 GB x 2 592 000 s x $0.00001768 = $91.66 a month at
+    most. Validated so that ceiling holds at any allowed memory
+    (this x lambda_memory_mb / 1024 at most 7 200 000), and at least
+    3 600 000 (one copy-hour an hour), below which ordinary use could trip
+    it.
+  EOT
+  type        = number
+  default     = 7200000
+  validation {
+    condition     = var.breaker_duration_ms_per_hour >= 3600000 && var.breaker_duration_ms_per_hour * var.lambda_memory_mb / 1024 <= 7200000
+    error_message = "breaker_duration_ms_per_hour must be at least 3 600 000 (one copy-hour an hour) and, scaled by lambda_memory_mb / 1024, at most 7 200 000 (2 GB-hours an hour, about $92 a month)."
+  }
+}
+
+# ----------------------------------------------------------------------------
+# Cape Farm Mapper (D3, R7-C9)
+# ----------------------------------------------------------------------------
+
+variable "cfm_token" {
+  description = <<-EOT
+    The operator's Cape Farm Mapper token (D3), passed to the Lambda as
+    CFM_TOKEN. Empty (the default): CFM_SOURCE stays empty and /cfm/* answers
+    503 "not configured". It comes from the operator's sops file
+    (infra-secrets/pitman/prod.sops.yaml) by decrypt-to-tfvars, never from a
+    file in this repo; Terraform owns the function's environment, so a token
+    set by hand would be wiped by the next apply (docs/deployment.md §
+    Lambda environment). It lands in state and the function's configuration,
+    like the sign-in keys; issue #22 decision 15 (Secrets Manager, R7-C9) is
+    still open and would replace this.
+  EOT
+  type        = string
+  default     = ""
+  sensitive   = true
+  validation {
+    condition     = var.cfm_token == "" || var.cfm_crops_layer_url != ""
+    error_message = "cfm_token is set but cfm_crops_layer_url is not: the backend needs both (backend/src/cfm/source.ts)."
+  }
+}
+
+variable "cfm_crops_layer_url" {
+  description = "Cape Farm Mapper crops layer URL (CFM_CROPS_LAYER_URL; question 3 of docs/data.md § Cape Farm Mapper). Required with cfm_token; https only, because the token travels with it."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.cfm_crops_layer_url == "" || can(regex("^https://[^/\\s]+/\\S+$", var.cfm_crops_layer_url))
+    error_message = "cfm_crops_layer_url must be empty or an https URL with a path."
+  }
+}
+
+variable "cfm_dams_layer_url" {
+  description = "Cape Farm Mapper dams layer URL (CFM_DAMS_LAYER_URL), optional until question 3 says a dams layer exists. https only."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.cfm_dams_layer_url == "" || can(regex("^https://[^/\\s]+/\\S+$", var.cfm_dams_layer_url))
+    error_message = "cfm_dams_layer_url must be empty or an https URL with a path."
   }
 }

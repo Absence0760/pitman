@@ -1,9 +1,11 @@
 # Credential-free tests of the spend and alerting guardrails (the pre-launch
-# infra review, 2026-11-07): the CloudFront traffic alarms (the one spend
-# path nothing caps), the budget (gross cost, its lines, the explicit opt-out
-# for 0), alert_email refusing empty and example addresses, the user table's
-# throughput ceiling, the Lambda's JSON logging, and DATA_REGION following
-# icwbt_region rather than aws_region.
+# infra review, 2026-11-07): the CloudFront traffic, Lambda invocation and
+# Route 53 query alarms (5-minute sums), the budget (gross cost, its lines,
+# the explicit opt-out for 0), alert_email refusing empty and example
+# addresses, the user and usage tables' throughput ceilings, the spend
+# circuit breaker (its single permission, its wiring, its thresholds' bounds),
+# the Cape Farm Mapper token wired from a variable, the Lambda's JSON
+# logging, and DATA_REGION following icwbt_region rather than aws_region.
 #   terraform -chdir=infra init -backend=false && terraform -chdir=infra test
 #
 # Mocked providers, `command = plan`, no AWS account, no state.
@@ -23,6 +25,11 @@ mock_provider "aws" {
     defaults = {
       arn  = "arn:aws:iam::111111111111:role/pitman-deploy"
       name = "pitman-deploy"
+    }
+  }
+  mock_data "aws_route53_zone" {
+    defaults = {
+      zone_id = "Z0PITMANEXAMPLE"
     }
   }
   mock_resource "aws_cloudwatch_log_group" {
@@ -80,21 +87,63 @@ run "cloudfront_traffic_alarms" {
   assert {
     condition = alltrue([
       for a in [aws_cloudwatch_metric_alarm.cloudfront_requests, aws_cloudwatch_metric_alarm.cloudfront_bytes] :
-      a.namespace == "AWS/CloudFront" && a.statistic == "Sum" && a.period == 3600 && a.evaluation_periods == 1 &&
+      a.namespace == "AWS/CloudFront" && a.statistic == "Sum" && a.period == 300 && a.evaluation_periods == 1 &&
       a.comparison_operator == "GreaterThanThreshold" && a.treat_missing_data == "notBreaching" &&
       a.dimensions["DistributionId"] == "EDFDVBD6EXAMPLE" && a.dimensions["Region"] == "Global" &&
       a.alarm_actions == toset(["arn:aws:sns:us-east-1:111111111111:pitman-prod-alerts"])
     ])
-    error_message = "Both traffic alarms sum an hour of this distribution's Global metric and notify the us-east-1 topic."
+    error_message = "Both traffic alarms sum 5 minutes of this distribution's Global metric (one period is enough: two would let a flood alternate windows) and notify the us-east-1 topic."
   }
   assert {
-    condition     = aws_cloudwatch_metric_alarm.cloudfront_requests.metric_name == "Requests" && aws_cloudwatch_metric_alarm.cloudfront_requests.threshold == 50000
-    error_message = "The requests alarm watches Requests, default 50 000 an hour."
+    condition     = aws_cloudwatch_metric_alarm.cloudfront_requests.metric_name == "Requests" && aws_cloudwatch_metric_alarm.cloudfront_requests.threshold == 1667
+    error_message = "The requests alarm watches Requests, default 20 000 an hour, so 1 667 per 5 minutes."
   }
   assert {
-    condition     = aws_cloudwatch_metric_alarm.cloudfront_bytes.metric_name == "BytesDownloaded" && aws_cloudwatch_metric_alarm.cloudfront_bytes.threshold == 5 * 1073741824
-    error_message = "The bytes alarm watches BytesDownloaded, default 5 GB an hour, in bytes."
+    condition     = aws_cloudwatch_metric_alarm.cloudfront_bytes.metric_name == "BytesDownloaded" && aws_cloudwatch_metric_alarm.cloudfront_bytes.threshold == 89478486
+    error_message = "The bytes alarm watches BytesDownloaded, default 1 GB an hour, so a twelfth of 1 GiB per 5 minutes, in bytes."
   }
+}
+
+run "lambda_invocations_alarm_is_5_minutes" {
+  command = plan
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.lambda_invocations.period == 300 &&
+      aws_cloudwatch_metric_alarm.lambda_invocations.statistic == "Sum" &&
+      aws_cloudwatch_metric_alarm.lambda_invocations.threshold == 167 &&
+      aws_cloudwatch_metric_alarm.lambda_invocations.alarm_actions == toset([aws_sns_topic.alerts.arn])
+    )
+    error_message = "Invocations: 2 000 an hour as 167 per 5 minutes, to the primary topic."
+  }
+}
+
+run "route53_queries_alarm" {
+  command = plan
+
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.route53_queries.namespace == "AWS/Route53" &&
+      aws_cloudwatch_metric_alarm.route53_queries.metric_name == "DNSQueries" &&
+      aws_cloudwatch_metric_alarm.route53_queries.statistic == "Sum" &&
+      aws_cloudwatch_metric_alarm.route53_queries.period == 300 &&
+      aws_cloudwatch_metric_alarm.route53_queries.threshold == 1667 &&
+      aws_cloudwatch_metric_alarm.route53_queries.dimensions["HostedZoneId"] == "Z0PITMANEXAMPLE"
+    )
+    error_message = "DNSQueries on the site's zone, 20 000 an hour as 1 667 per 5 minutes."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.route53_queries.alarm_actions == toset(["arn:aws:sns:us-east-1:111111111111:pitman-prod-alerts"])
+    error_message = "Route 53's metrics are in us-east-1, so the alarm notifies the us-east-1 topic."
+  }
+}
+
+run "route53_threshold_below_one_per_window_refused" {
+  command = plan
+  variables {
+    route53_queries_alarm_per_hour = 11
+  }
+  expect_failures = [var.route53_queries_alarm_per_hour]
 }
 
 run "cloudfront_alarm_thresholds_follow_variables" {
@@ -106,8 +155,8 @@ run "cloudfront_alarm_thresholds_follow_variables" {
   }
 
   assert {
-    condition     = aws_cloudwatch_metric_alarm.cloudfront_requests.threshold == 1234 && aws_cloudwatch_metric_alarm.cloudfront_bytes.threshold == 2147483648
-    error_message = "The thresholds come from the variables (GB converted to bytes)."
+    condition     = aws_cloudwatch_metric_alarm.cloudfront_requests.threshold == 103 && aws_cloudwatch_metric_alarm.cloudfront_bytes.threshold == 178956971
+    error_message = "The thresholds are a twelfth of the per-hour variables, rounded up (GB converted to bytes)."
   }
 }
 
@@ -261,9 +310,276 @@ run "users_table_throughput_capped" {
   command = plan
 
   assert {
-    condition     = aws_dynamodb_table.users.on_demand_throughput[0].max_read_request_units == 100 && aws_dynamodb_table.users.on_demand_throughput[0].max_write_request_units == 50
-    error_message = "The on-demand user table is capped at 100 read and 50 write request units a second."
+    condition     = aws_dynamodb_table.users.on_demand_throughput[0].max_read_request_units == 50 && aws_dynamodb_table.users.on_demand_throughput[0].max_write_request_units == 10
+    error_message = "The on-demand user table is capped at 50 read and 10 write request units a second ($43.55 a month at most)."
   }
+}
+
+# --- the usage table (per-user quotas, R4-I9) -------------------------------------
+
+run "usage_table_contract" {
+  command = plan
+
+  assert {
+    condition = (
+      aws_dynamodb_table.usage.name == "pitman-usage" &&
+      aws_dynamodb_table.usage.billing_mode == "PAY_PER_REQUEST" &&
+      aws_dynamodb_table.usage.hash_key == "pk" &&
+      aws_dynamodb_table.usage.range_key == null &&
+      one([for a in aws_dynamodb_table.usage.attribute : a.type if a.name == "pk"]) == "S" &&
+      length(aws_dynamodb_table.usage.attribute) == 1
+    )
+    error_message = "The backend's contract: pitman-usage, on-demand, hash key pk (S), no sort key, no index."
+  }
+  assert {
+    condition     = aws_dynamodb_table.usage.ttl[0].attribute_name == "expires_at" && aws_dynamodb_table.usage.ttl[0].enabled
+    error_message = "TTL on expires_at (epoch seconds)."
+  }
+  assert {
+    condition     = aws_dynamodb_table.usage.on_demand_throughput[0].max_read_request_units == 5 && aws_dynamodb_table.usage.on_demand_throughput[0].max_write_request_units == 10
+    error_message = "The usage table is capped at 5 read and 10 write units a second ($23.95 a month at most)."
+  }
+  assert {
+    condition     = !aws_dynamodb_table.usage.point_in_time_recovery[0].enabled
+    error_message = "No PITR on throwaway counters."
+  }
+  assert {
+    condition     = aws_lambda_function.backend.environment[0].variables["USAGE_STORE"] == "dynamodb" && aws_lambda_function.backend.environment[0].variables["USAGE_TABLE"] == "pitman-usage"
+    error_message = "The Lambda finds the table through USAGE_STORE and USAGE_TABLE."
+  }
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.usage_table_throttles.metric_name == "ThrottledRequests" &&
+      aws_cloudwatch_metric_alarm.usage_table_throttles.dimensions["TableName"] == "pitman-usage" &&
+      aws_cloudwatch_metric_alarm.usage_table_throttles.dimensions["Operation"] == "UpdateItem" &&
+      aws_cloudwatch_metric_alarm.usage_table_throttles.threshold == 0 &&
+      aws_cloudwatch_metric_alarm.usage_table_throttles.alarm_actions == toset([aws_sns_topic.alerts.arn])
+    )
+    error_message = "Any throttle on the usage table's UpdateItem mails the primary topic."
+  }
+}
+
+# --- the spend circuit breaker (breaker.tf, R4-I7) ----------------------------------
+
+run "breaker_wiring" {
+  command = plan
+
+  override_resource {
+    target          = aws_lambda_function.backend
+    override_during = plan
+    values = {
+      arn = "arn:aws:lambda:af-south-1:111111111111:function:pitman-backend"
+    }
+  }
+  override_resource {
+    target          = aws_lambda_function.breaker
+    override_during = plan
+    values = {
+      arn = "arn:aws:lambda:af-south-1:111111111111:function:pitman-breaker"
+    }
+  }
+  override_resource {
+    target          = aws_sns_topic.breaker
+    override_during = plan
+    values = {
+      arn = "arn:aws:sns:af-south-1:111111111111:pitman-breaker"
+    }
+  }
+  override_resource {
+    target          = aws_iam_role.breaker
+    override_during = plan
+    values = {
+      id  = "pitman-breaker"
+      arn = "arn:aws:iam::111111111111:role/pitman-breaker"
+    }
+  }
+  override_resource {
+    target          = aws_cloudwatch_log_group.breaker
+    override_during = plan
+    values = {
+      arn = "arn:aws:logs:af-south-1:111111111111:log-group:/aws/lambda/pitman-breaker"
+    }
+  }
+
+  # The role holds one action on the API, and its own logs.
+  assert {
+    condition = jsondecode(aws_iam_role_policy.breaker.policy).Statement == [
+      {
+        Sid      = "StopTheApi"
+        Effect   = "Allow"
+        Action   = "lambda:PutFunctionConcurrency"
+        Resource = "arn:aws:lambda:af-south-1:111111111111:function:pitman-backend"
+      },
+      {
+        Sid      = "OwnLogGroup"
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "arn:aws:logs:af-south-1:111111111111:log-group:/aws/lambda/pitman-breaker:*"
+      },
+    ]
+    error_message = "The breaker's role may only PutFunctionConcurrency on the API function, plus write its own log group."
+  }
+  assert {
+    condition     = aws_iam_role_policy.breaker.role == aws_iam_role.breaker.id && aws_lambda_function.breaker.role == aws_iam_role.breaker.arn
+    error_message = "The breaker runs under its own role, never the API's."
+  }
+  assert {
+    condition = (
+      aws_lambda_function.breaker.runtime == "nodejs24.x" &&
+      aws_lambda_function.breaker.architectures == tolist(["arm64"]) &&
+      aws_lambda_function.breaker.reserved_concurrent_executions >= 1 &&
+      aws_lambda_function.breaker.reserved_concurrent_executions <= 2 &&
+      aws_lambda_function.breaker.timeout <= 15 &&
+      aws_lambda_function.breaker.environment[0].variables["API_FUNCTION_NAME"] == "pitman-backend" &&
+      aws_cloudwatch_log_group.breaker.retention_in_days == 30
+    )
+    error_message = "Node 24 on arm64, 1-2 reserved copies, a short timeout, the API's name, 30-day logs."
+  }
+  # SNS -> Lambda, only from the breaker topic.
+  assert {
+    condition = (
+      aws_sns_topic_subscription.breaker.topic_arn == "arn:aws:sns:af-south-1:111111111111:pitman-breaker" &&
+      aws_sns_topic_subscription.breaker.protocol == "lambda" &&
+      aws_sns_topic_subscription.breaker.endpoint == "arn:aws:lambda:af-south-1:111111111111:function:pitman-breaker" &&
+      aws_lambda_permission.breaker_sns.principal == "sns.amazonaws.com" &&
+      aws_lambda_permission.breaker_sns.source_arn == "arn:aws:sns:af-south-1:111111111111:pitman-breaker" &&
+      aws_lambda_permission.breaker_sns.function_name == "pitman-breaker"
+    )
+    error_message = "The breaker function subscribes to the breaker topic and only that topic may invoke it."
+  }
+  # Both trips mail the operator and fire the breaker; neither is wired to the us-east-1 topic.
+  assert {
+    condition = alltrue([
+      for a in [aws_cloudwatch_metric_alarm.breaker_concurrency, aws_cloudwatch_metric_alarm.breaker_duration] :
+      a.alarm_actions == toset(["arn:aws:sns:af-south-1:111111111111:pitman-prod-alerts", "arn:aws:sns:af-south-1:111111111111:pitman-breaker"]) &&
+      a.namespace == "AWS/Lambda" && a.dimensions["FunctionName"] == "pitman-backend" && a.treat_missing_data == "notBreaching"
+    ])
+    error_message = "Each trip notifies the alert topic and the breaker topic, on the API function's metrics."
+  }
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.breaker_concurrency.metric_name == "ConcurrentExecutions" &&
+      aws_cloudwatch_metric_alarm.breaker_concurrency.statistic == "Maximum" &&
+      aws_cloudwatch_metric_alarm.breaker_concurrency.period == 300 &&
+      aws_cloudwatch_metric_alarm.breaker_concurrency.evaluation_periods == 3 &&
+      aws_cloudwatch_metric_alarm.breaker_concurrency.datapoints_to_alarm == 3 &&
+      aws_cloudwatch_metric_alarm.breaker_concurrency.comparison_operator == "GreaterThanOrEqualToThreshold" &&
+      aws_cloudwatch_metric_alarm.breaker_concurrency.threshold == 6
+    )
+    error_message = "Concurrency trip: Maximum >= 6 in 3 of 3 five-minute periods."
+  }
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.breaker_duration.metric_name == "Duration" &&
+      aws_cloudwatch_metric_alarm.breaker_duration.statistic == "Sum" &&
+      aws_cloudwatch_metric_alarm.breaker_duration.period == 3600 &&
+      aws_cloudwatch_metric_alarm.breaker_duration.evaluation_periods == 1 &&
+      aws_cloudwatch_metric_alarm.breaker_duration.threshold == 7200000
+    )
+    error_message = "Duration trip: an hour's Sum above 7 200 000 ms (2 copies busy the whole hour)."
+  }
+  assert {
+    condition = (
+      aws_cloudwatch_metric_alarm.breaker_errors.dimensions["FunctionName"] == "pitman-breaker" &&
+      aws_cloudwatch_metric_alarm.breaker_errors.metric_name == "Errors" &&
+      aws_cloudwatch_metric_alarm.breaker_errors.alarm_actions == toset(["arn:aws:sns:af-south-1:111111111111:pitman-prod-alerts"])
+    )
+    error_message = "A failed trip mails the operator (and never loops back into the breaker)."
+  }
+  # The breaker's 0 is drift: the API function owns its reserved concurrency, so apply resets it.
+  assert {
+    condition     = aws_lambda_function.backend.reserved_concurrent_executions == 10
+    error_message = "The API function sets reserved_concurrent_executions from the variable, so an apply restores it after a trip."
+  }
+}
+
+run "breaker_concurrency_threshold_above_reserved_refused" {
+  command = plan
+  variables {
+    lambda_reserved_concurrency   = 5
+    breaker_concurrency_threshold = 6
+  }
+  expect_failures = [var.breaker_concurrency_threshold]
+}
+
+run "breaker_concurrency_threshold_below_mappings_refused" {
+  command = plan
+  variables {
+    breaker_concurrency_threshold = 3
+  }
+  expect_failures = [var.breaker_concurrency_threshold]
+}
+
+run "breaker_duration_above_2_gb_hours_refused" {
+  command = plan
+  variables {
+    breaker_duration_ms_per_hour = 7200001
+  }
+  expect_failures = [var.breaker_duration_ms_per_hour]
+}
+
+run "breaker_duration_scales_with_memory" {
+  command = plan
+  variables {
+    lambda_memory_mb              = 2048
+    lambda_reserved_concurrency   = 5
+    breaker_concurrency_threshold = 5
+  }
+  # 7 200 000 ms at 2 GB is 4 GB-hours an hour, about $183 a month: refused.
+  expect_failures = [var.breaker_duration_ms_per_hour]
+}
+
+run "breaker_duration_below_one_copy_hour_refused" {
+  command = plan
+  variables {
+    breaker_duration_ms_per_hour = 3599999
+  }
+  expect_failures = [var.breaker_duration_ms_per_hour]
+}
+
+# --- Cape Farm Mapper's token survives an apply (R7-C9) -----------------------------
+
+run "cfm_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = nonsensitive(aws_lambda_function.backend.environment[0].variables["CFM_SOURCE"]) == "" && nonsensitive(aws_lambda_function.backend.environment[0].variables["CFM_TOKEN"]) == ""
+    error_message = "No token: CFM_SOURCE and CFM_TOKEN empty, /cfm/* answers 503."
+  }
+}
+
+run "cfm_token_wired_from_the_variable" {
+  command = plan
+  variables {
+    cfm_token           = "test-token-not-real"
+    cfm_crops_layer_url = "https://cfm.example.invalid/arcgis/rest/services/crops/FeatureServer/0"
+  }
+
+  assert {
+    condition = (
+      nonsensitive(aws_lambda_function.backend.environment[0].variables["CFM_SOURCE"]) == "cfm" &&
+      nonsensitive(aws_lambda_function.backend.environment[0].variables["CFM_TOKEN"]) == "test-token-not-real" &&
+      aws_lambda_function.backend.environment[0].variables["CFM_CROPS_LAYER_URL"] == "https://cfm.example.invalid/arcgis/rest/services/crops/FeatureServer/0" &&
+      aws_lambda_function.backend.environment[0].variables["CFM_DAMS_LAYER_URL"] == ""
+    )
+    error_message = "With a token, Terraform sets CFM_SOURCE=cfm, the token and the layer URLs, so an apply never wipes them."
+  }
+}
+
+run "cfm_token_without_crops_layer_refused" {
+  command = plan
+  variables {
+    cfm_token = "test-token-not-real"
+  }
+  expect_failures = [var.cfm_token]
+}
+
+run "cfm_layer_over_http_refused" {
+  command = plan
+  variables {
+    cfm_crops_layer_url = "http://cfm.example.invalid/arcgis/rest/services/crops/FeatureServer/0"
+  }
+  expect_failures = [var.cfm_crops_layer_url]
 }
 
 # --- Lambda logging --------------------------------------------------------------

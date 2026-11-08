@@ -16,7 +16,7 @@
 # the operator's credentials, so no address ever lands in Terraform state.
 #
 # Cost: on-demand, a handful of users; cents a month, capped by
-# on_demand_throughput below. PITR is $0.20 per GB-month of a table measured
+# on_demand_throughput below (at most $43.55 a month). PITR is $0.20 per GB-month of a table measured
 # in kilobytes.
 # ----------------------------------------------------------------------------
 
@@ -31,14 +31,28 @@ resource "aws_dynamodb_table" "users" {
   hash_key     = "pk"
   range_key    = "sk"
 
-  # A ceiling on what on-demand will serve (and bill): a handful of users
-  # need single-digit units, so a flood hits the cap, the users-table
-  # throttle alarm fires, and writes can't cost more than about $81 a month
-  # at the cap (infra/README.md § Cost). Without it, the only bound is the
-  # Lambda's concurrency.
+  # A ceiling on what on-demand will serve (and bill), sized from what
+  # auth-kit v0.3.0 does per request (strongly consistent reads, items
+  # under 4 KB, so 1 read unit per GetItem; transactional writes cost 2 write
+  # units per item):
+  #   - every gated request: verifySession's two GetItems (USER#, REVOKED#),
+  #     2 read units. 50 a second is 25 gated requests a second; a handful
+  #     of users make well under one.
+  #   - POST /auth/code: four GetItems (CODE#, THROTTLE#, EMAIL#, USER#),
+  #     4 read units, and a three-item transaction, 6 write units. POST
+  #     /auth/verify: the same reads and a four-item transaction (code,
+  #     throttle, owner check, audit row), 8 write units. So 10 a second is
+  #     one sign-in step a second; two in the same second are retried by the
+  #     SDK's backoff.
+  #   - the Users page, sign-out: a transaction of two to four items, rare.
+  # A flood hits the cap (sign-in throttles with it, which is the point), the
+  # users-table throttle alarm fires, and the table can't cost more than
+  # 10 x 2 592 000 x $0.84/M + 50 x 2 592 000 x $0.168/M = $21.77 + $21.77
+  # = $43.55 a month (af-south-1; infra/README.md § Cost). It was 100/50,
+  # $152.41.
   on_demand_throughput {
-    max_read_request_units  = 100
-    max_write_request_units = 50
+    max_read_request_units  = 50
+    max_write_request_units = 10
   }
 
   attribute {

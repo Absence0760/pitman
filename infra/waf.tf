@@ -15,12 +15,14 @@
 #     so it is left to the /api/ rule: an office behind one NAT browsing the
 #     site never spends the sign-in budget.
 #   - /api/*: waf_api_rate_limit_per_ip (default 300 per 5 minutes). Each is
-#     a Lambda invocation, and a CHIRPS read is up to a few hundred S3 GETs
-#     billed to IC-WBT. Extending one network is a handful of calls.
+#     a Lambda invocation, and a CHIRPS read is at most 720 S3 GETs (16
+#     chunks, R4-D6) billed to IC-WBT, and at most 144,000 per user per day
+#     (R4-D7). Extending one network is a handful of calls.
 #   - every path: waf_site_rate_limit_per_ip (default 2,000), a backstop for
 #     the edge-cached static site (a cold visit is ~20 requests).
 # A distributed flood is the invocation alarm's and the budget's job
-# (alarms.tf), and reserved concurrency caps what it can cost (lambda.tf).
+# (alarms.tf); reserved concurrency caps what it can cost (lambda.tf) and the
+# breaker stops it (breaker.tf).
 #
 # No AWS managed rule groups: AWSManagedRulesCommonRuleSet blocks bodies
 # over 8 KB, and a quaternary polygon POSTed to /api/chirps/monthly can be

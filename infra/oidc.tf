@@ -60,8 +60,10 @@ data "aws_iam_policy_document" "github_deploy" {
   statement {
     sid = "LambdaUpdate"
     actions = [
+      # No GetFunction: deploy-backend.yml only calls update-function-code
+      # and `wait function-updated` (which polls GetFunctionConfiguration),
+      # and GetFunction also hands out a presigned URL of the code.
       "lambda:UpdateFunctionCode",
-      "lambda:GetFunction",
       "lambda:GetFunctionConfiguration",
     ]
     resources = [aws_lambda_function.backend.arn]
