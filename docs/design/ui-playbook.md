@@ -156,6 +156,13 @@ with them.
   coverage, then "Type a MAP instead"; "MAP used" says which won (rule 8).
 - **A slider has a number box beside it,** for the keyboard and exact values,
   with `aria-valuetext` carrying the unit.
+- **A control the app can't hear yet is disabled.** Every page is prerendered,
+  so its controls exist before hydration attaches their handlers, and an
+  event in that gap is lost (Svelte doesn't replay it). The network pickers
+  stay disabled until mount (`LoadPanel.svelte`). The root layout sets
+  `<html data-hydrated="true">` on mount, and every end-to-end navigation
+  (`page.goto`, `page.reload` in `frontend/e2e/fixtures.ts`) waits for it;
+  `e2e/hydration.spec.ts` pins both.
 - **Never accept what the controls no longer say.** The threshold's zone is
   traced after a pause, so for that moment the proposal on screen belongs to
   the old value. Accept is disabled until they match; a quick click after

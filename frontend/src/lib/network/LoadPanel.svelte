@@ -4,11 +4,16 @@
 	bytes are read in the browser, nothing is uploaded.
 -->
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { fromDropEntries, fromFileList, type DropEntry, type SourceFile } from './sources.js';
 
 	let { onload, busy = false }: { onload: (sources: SourceFile[]) => void; busy?: boolean } = $props();
 
 	let dragging = $state(false);
+	// The page is prerendered: before hydration the pickers would take a file and drop it, since no change
+	// handler is attached yet and the event is not replayed. They stay disabled until the handlers exist.
+	let hydrated = $state(false);
+	onMount(() => (hydrated = true));
 
 	function picked(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
@@ -50,9 +55,9 @@
 >
 	<p class="hint">Drop the network's zip or folder here, or choose it:</p>
 	<div class="pickers">
-		<input id="load-zip" class="file-pick" type="file" accept=".zip,application/zip" disabled={busy} onchange={picked} />
+		<input id="load-zip" class="file-pick" type="file" accept=".zip,application/zip" disabled={busy || !hydrated} onchange={picked} />
 		<label for="load-zip">Network zip</label>
-		<input id="load-folder" class="file-pick" type="file" webkitdirectory multiple disabled={busy} onchange={picked} />
+		<input id="load-folder" class="file-pick" type="file" webkitdirectory multiple disabled={busy || !hydrated} onchange={picked} />
 		<label for="load-folder">Network folder</label>
 	</div>
 </div>
