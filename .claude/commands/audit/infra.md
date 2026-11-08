@@ -14,8 +14,8 @@ Pitman's blast radius runs through this stack: a permissive deploy policy makes 
 - `variables.tf` — inputs and their validation (region and residency, Lambda bounds, WAF limits, budget, alarms)
 - `outputs.tf` — the values the GitHub repo variables are set from
 - `s3_cloudfront.tf` — site bucket + OAC + ACM cert + CloudFront (the `/api/*` and `/tiles/*` behaviours, the shared-secret custom header) + Route 53
-- `security_headers.tf` + `csp.json` — the response-headers policies (site and API), the CSP read from `csp.json`
-- `functions/spa_rewrite.js`, `functions/api_strip_prefix.js` — the CloudFront functions
+- `security_headers.tf` + `csp.json` — the security headers as two viewer-response CloudFront Functions (site and API) rendered from `functions/security_headers.js.tftpl`, the CSP read from `csp.json`; no response headers policies (R4-I14)
+- `functions/spa_rewrite.js`, `functions/api_strip_prefix.js`, `functions/security_headers.js.tftpl` — the CloudFront functions
 - `waf.tf` — the web ACL (us-east-1) and its per-IP rules
 - `lambda.tf` — the API function, its role, log group, Function URL and the cross-account read grants
 - `users.tf` — the DynamoDB user table, the Lambda's grant on it, the auth keys
@@ -35,7 +35,7 @@ Pitman's blast radius runs through this stack: a permissive deploy policy makes 
 
 4. **CloudFront** (`s3_cloudfront.tf`, `security_headers.tf`, `csp.json`).
    - `redirect-to-https`; `minimum_protocol_version` TLSv1.2_2021 or stricter; OAC on the S3 origin.
-   - A response-headers policy on every behaviour: HSTS (2 years), nosniff, `DENY` framing, COOP, Permissions-Policy, and the strict CSP. The site CSP has no `'unsafe-eval'`, no style `'unsafe-inline'`, `connect-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`; the API's is `default-src 'none'`. `infra/tests/stack.tftest.hcl` (`site_csp_is_strict`) and `infra/scripts/check-csp.mjs` pin it; a new source needs its reason in `docs/security.md`.
+   - A viewer-response header function on every behaviour (no response headers policy: a custom one needs the Business flat-rate plan): HSTS (2 years), nosniff, `DENY` framing, COOP, Permissions-Policy, and the strict CSP; the API also sets its set itself (`backend/src/http/securityHeaders.ts`), since no viewer-response function runs on an origin 4xx/5xx. The site CSP has no `'unsafe-eval'`, no style `'unsafe-inline'`, `connect-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`; the API's is `default-src 'none'`. `infra/tests/stack.tftest.hcl` (`site_csp_is_strict`, `security_headers_functions`), `infra/scripts/cloudfront-functions.test.mjs` and `infra/scripts/check-csp.mjs` pin it; a new source needs its reason in `docs/security.md`.
    - The `/api/*` origin is signed by the `lambda` OAC (`signing_behavior = "always"`), sends `X-CloudFront-Shared-Secret` (a `random_password`) and strips `/api` (`functions/api_strip_prefix.js`); `origin_read_timeout` equals the Lambda timeout; the behaviour keeps `Managed-AllViewerExceptHostHeader` (a forwarded viewer Host breaks the OAC signature).
    - Every prerendered page has a `PAGES` entry in `functions/spa_rewrite.js` (tested by `infra/scripts/cloudfront-functions.test.mjs`).
    - `price_class` is `PriceClass_200` (or `_100`), not `_All`.

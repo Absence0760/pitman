@@ -253,28 +253,106 @@ run "site_csp_is_strict" {
   command = plan
 
   assert {
-    condition     = strcontains(aws_cloudfront_response_headers_policy.site.security_headers_config[0].content_security_policy[0].content_security_policy, "connect-src 'self';")
+    condition     = strcontains(local.csp_site, "connect-src 'self';")
     error_message = "connect-src must be exactly 'self'."
   }
   assert {
-    condition     = strcontains(aws_cloudfront_response_headers_policy.site.security_headers_config[0].content_security_policy[0].content_security_policy, "default-src 'self';")
+    condition     = strcontains(local.csp_site, "default-src 'self';")
     error_message = "default-src must be 'self'."
   }
   assert {
-    condition     = !strcontains(aws_cloudfront_response_headers_policy.site.security_headers_config[0].content_security_policy[0].content_security_policy, "unsafe-eval")
+    condition     = !strcontains(local.csp_site, "unsafe-eval")
     error_message = "No 'unsafe-eval'."
   }
   assert {
-    condition     = !can(regex("style-src[^;]*'unsafe-inline'", aws_cloudfront_response_headers_policy.site.security_headers_config[0].content_security_policy[0].content_security_policy))
+    condition     = !can(regex("style-src[^;]*'unsafe-inline'", local.csp_site))
     error_message = "style-src must not allow 'unsafe-inline' (hash the attribute in csp.json instead)."
   }
   assert {
-    condition     = strcontains(aws_cloudfront_response_headers_policy.site.security_headers_config[0].content_security_policy[0].content_security_policy, "frame-ancestors 'none'")
+    condition     = strcontains(local.csp_site, "frame-ancestors 'none'")
     error_message = "frame-ancestors must be 'none'."
   }
   assert {
-    condition     = startswith(aws_cloudfront_response_headers_policy.api.security_headers_config[0].content_security_policy[0].content_security_policy, "default-src 'none'")
+    condition     = startswith(local.csp_api, "default-src 'none'")
     error_message = "The API's CSP must start with default-src 'none'."
+  }
+}
+
+# R4-I14: the security headers come from two viewer-response CloudFront
+# Functions, one per behaviour, rendered from one template with that
+# behaviour's CSP from csp.json. The JS itself (the exact header set) is
+# tested by infra/scripts/cloudfront-functions.test.mjs.
+run "security_headers_functions" {
+  command = plan
+
+  override_resource {
+    target          = aws_cloudfront_function.site_headers
+    override_during = plan
+    values = {
+      arn = "arn:aws:cloudfront::111111111111:function/pitman-site-headers"
+    }
+  }
+  override_resource {
+    target          = aws_cloudfront_function.api_headers
+    override_during = plan
+    values = {
+      arn = "arn:aws:cloudfront::111111111111:function/pitman-api-headers"
+    }
+  }
+  override_resource {
+    target          = aws_cloudfront_function.spa_rewrite
+    override_during = plan
+    values = {
+      arn = "arn:aws:cloudfront::111111111111:function/pitman-spa-rewrite"
+    }
+  }
+  override_resource {
+    target          = aws_cloudfront_function.api_strip_prefix
+    override_during = plan
+    values = {
+      arn = "arn:aws:cloudfront::111111111111:function/pitman-api-strip-prefix"
+    }
+  }
+
+  assert {
+    condition     = strcontains(aws_cloudfront_function.site_headers.code, "var CSP = ${jsonencode(local.csp_site)};") && strcontains(aws_cloudfront_function.site_headers.code, "var BEHAVIOUR = \"site\";")
+    error_message = "The site function carries csp.json's site CSP and the site behaviour."
+  }
+  assert {
+    condition     = strcontains(aws_cloudfront_function.api_headers.code, "var CSP = ${jsonencode(local.csp_api)};") && strcontains(aws_cloudfront_function.api_headers.code, "var BEHAVIOUR = \"api\";")
+    error_message = "The API function carries csp.json's api CSP (default-src 'none') and the api behaviour."
+  }
+  assert {
+    condition = alltrue([
+      for f in [aws_cloudfront_function.site_headers, aws_cloudfront_function.api_headers] :
+      f.runtime == "cloudfront-js-2.0" && f.publish && length(f.code) < 10240 && !strcontains(f.code, "$${")
+    ])
+    error_message = "Both header functions: cloudfront-js-2.0, published, under CloudFront Functions' 10 KB limit, every template placeholder rendered."
+  }
+  assert {
+    condition     = aws_cloudfront_function.site_headers.name != aws_cloudfront_function.api_headers.name
+    error_message = "One function per behaviour, never shared (the flat-rate plans forbid sharing a function between distributions)."
+  }
+  assert {
+    condition = (
+      sort([for a in aws_cloudfront_distribution.frontend.default_cache_behavior[0].function_association : "${a.event_type} ${a.function_arn}"]) ==
+      sort(["viewer-request arn:aws:cloudfront::111111111111:function/pitman-spa-rewrite", "viewer-response arn:aws:cloudfront::111111111111:function/pitman-site-headers"])
+    )
+    error_message = "The default behaviour: spa_rewrite on viewer request, the site headers on viewer response."
+  }
+  assert {
+    condition = (
+      sort(flatten([for b in aws_cloudfront_distribution.frontend.ordered_cache_behavior : [for a in b.function_association : "${a.event_type} ${a.function_arn}"] if b.path_pattern == "/api/*"])) ==
+      sort(["viewer-request arn:aws:cloudfront::111111111111:function/pitman-api-strip-prefix", "viewer-response arn:aws:cloudfront::111111111111:function/pitman-api-headers"])
+    )
+    error_message = "/api/*: the prefix strip on viewer request, the API headers on viewer response."
+  }
+  assert {
+    condition = (
+      aws_cloudfront_distribution.frontend.default_cache_behavior[0].response_headers_policy_id == null
+      && alltrue([for b in aws_cloudfront_distribution.frontend.ordered_cache_behavior : b.response_headers_policy_id == null])
+    )
+    error_message = "No response headers policy on any behaviour: a custom one needs the Business flat-rate plan (R4-I14)."
   }
 }
 

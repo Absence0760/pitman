@@ -167,7 +167,17 @@ runs it.
   (`infra/scripts/check-csp.mjs`). The full reasoning is in
   `infra/security_headers.tf`. Plus HSTS (2 years), nosniff, DENY framing,
   COOP same-origin, a Permissions-Policy; the API's responses get
-  `default-src 'none'`.
+  `default-src 'none'`. Since R4-I14 these come from two viewer-response
+  CloudFront Functions (one per behaviour, the CSP from `infra/csp.json`),
+  not response headers policies, which the flat-rate Free and Pro plans
+  don't allow. CloudFront runs no viewer-response function on an origin
+  answer of 400 or more, so the API sets the same headers on every response
+  itself (`backend/src/http/securityHeaders.ts`, tested against
+  `csp.json` and the function); the one set of responses that now goes
+  without them is S3's 403 AccessDenied XML for a missing file with an
+  extension (fixed text, never HTML that renders), and CloudFront's own
+  answers (a WAF block, the http-to-https redirect, a 502/504), which run no
+  function either.
 - **Spend is bounded where it can be, stopped automatically where it
   matters, and watched where it can't**: the Lambda's reserved concurrency
   (10, validated 5-10 and at most 10 GB in all) caps what a flood can cost
@@ -576,7 +586,7 @@ records what it found over the history when it was introduced.
    requests, ~$74 in logs and $44 in the user table (`infra/README.md` §
    Cost); one signed-in user is also bounded by the daily per-user quota
    (R4-D7: about $0.60 a day, $18 a month), and CloudFront and Route 53
-   have no cap at all ($164 a day at 1 000 requests a second).
+   have no cap at all on pay-as-you-go ($173 a day at 1 000 requests a second).
    - **The breaker has tripped** (`pitman-breaker-api-concurrency`,
      `-api-duration` or `-api-invocations` in ALARM, and
      `{"event":"breaker.tripped",…}` in `/aws/lambda/pitman-breaker`): the

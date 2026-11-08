@@ -322,12 +322,14 @@ variable "cloudfront_requests_alarm_per_hour" {
     measured over 5 minutes (threshold = this / 12, rounded up, per 5-minute
     sum; AWS/CloudFront Requests, us-east-1). The edge is the one spend path
     no cap bounds: a flood spread over many IPs stays under the per-IP WAF
-    rules and is served from cache without touching the Lambda, at $1.90 per
-    million requests (CloudFront $1.20 at South African and Indian edges +
-    WAF $0.60 + CloudFront Functions $0.10). An invite-only tool's handful of
-    users make a few thousand an hour. Just under 20 000 an hour all month is
-    14.4 M requests x $1.90 = $27.36 that passes unseen (50 000 an hour let
-    $68.40 through).
+    rules and is served from cache without touching the Lambda, at $2.00 per
+    million requests on pay-as-you-go (CloudFront $1.20 at South African and
+    Indian edges + WAF $0.60 + two CloudFront Functions at $0.10, the
+    viewer-request one and the security headers', R4-I14). An invite-only
+    tool's handful of users make a few thousand an hour. Just under 20 000 an
+    hour all month is 14.4 M requests x $2.00 = $28.80 that passes unseen
+    (50 000 an hour let $72 through). On the flat-rate Pro plan none of this
+    is billed (infra/README.md § Cost).
   EOT
   type        = number
   default     = 20000

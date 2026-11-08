@@ -19,6 +19,7 @@ import { jsonOnly } from './http/jsonOnly.js';
 import { rateLimit } from './http/rateLimit.js';
 import { logUnexpected } from './http/logError.js';
 import { CROSS_ORIGIN_REFUSED, sameOriginWrites } from './http/sameOrigin.js';
+import { securityHeaders } from './http/securityHeaders.js';
 import { mapGridRoutes } from './mapgrid/routes.js';
 import { MapGridCatalog, mapGridSourcesFromEnv } from './mapgrid/source.js';
 import { quaternaryRoutes } from './quaternaries/routes.js';
@@ -109,6 +110,11 @@ export function createApp(deps: Partial<AppDeps> = {}) {
 	const auth = deps.auth ?? authRuntimeFromEnv(process.env);
 	const usage = deps.usage ?? usageStoreFromEnv(process.env);
 	const quotas = { ...DAILY_QUOTAS, ...deps.dailyQuotas };
+
+	// First, so every answer below carries the API's security headers,
+	// refusals included: CloudFront's viewer-response function doesn't run on
+	// an origin answer of 400 or more (http/securityHeaders.ts, R4-I14).
+	app.use('*', securityHeaders());
 
 	// CloudFront-stamped shared secret. In prod, CloudFront stamps every
 	// /api/* request with X-CloudFront-Shared-Secret via the origin's

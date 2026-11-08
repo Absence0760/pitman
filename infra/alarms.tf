@@ -375,12 +375,12 @@ resource "aws_cloudwatch_metric_alarm" "cloudfront_5xx" {
 # spend path nothing caps: a flood spread over many IPs stays under every
 # per-IP WAF rule, is served from the edge cache and never reaches the
 # Lambda, so none of the Lambda alarms or the breaker see it, and the budget
-# lags by a day. Each request costs $1.90 per million (CloudFront $1.20 at
-# South African and Indian edges, WAF $0.60, Functions $0.10) plus $0.110 a
+# lags by a day. Each request costs $2.00 per million (CloudFront $1.20 at
+# South African and Indian edges, WAF $0.60, two Functions $0.20) plus $0.110 a
 # GB, so these 5-minute sums are the early warning: mail within about 5-10
 # minutes, not the 1-2 hours of an hourly sum. The variables stay per hour;
 # each threshold is a twelfth of one. Thresholds and what passes under them:
-# variables.tf. The durable fix, CloudFront's flat-rate plan, is the
+# variables.tf. The durable fix, CloudFront's flat-rate Pro plan, is the
 # operator's decision (infra/README.md § Cost).
 resource "aws_cloudwatch_metric_alarm" "cloudfront_requests" {
   provider            = aws.us_east_1
