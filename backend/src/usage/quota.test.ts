@@ -35,7 +35,7 @@ function app(deps: Partial<AppDeps>, user: UserRecord = admin) {
 		rateLimits: { chirps: many, mapGrid: many, delineate: many, channels: many, landUse: many },
 		...deps
 	});
-	return { as: async (u: UserRecord = user) => asSignedIn(a, await cookieFor(t, u)) };
+	return { raw: a, as: async (u: UserRecord = user) => asSignedIn(a, await cookieFor(t, u)) };
 }
 const chirps = (r: { request: (p: string, i?: RequestInit) => Response | Promise<Response> }, headers: Record<string, string> = {}) =>
 	r.request('/chirps/monthly', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ area: GRID }) });
@@ -146,6 +146,32 @@ describe('dailyQuota', () => {
 		expect(res.status).toBe(503);
 		expect(await res.json()).toEqual({ error: QUOTA_UNAVAILABLE });
 		expect(eventsLogged()).toEqual([{ event: 'usage.quota_failed', error: 'ThrottlingException' }]);
+	});
+
+	it('counts only behind the session gate: a request with no session is a 401 and costs no count', async () => {
+		const keys: string[] = [];
+		const usage: UsageStore = { take: async (key) => (keys.push(key), true) };
+		const { raw } = app({ usage });
+		// Same-origin, as the browser sends it, so the write check passes and the session gate is what refuses.
+		const sameOrigin = { 'sec-fetch-site': 'same-origin' };
+		expect((await chirps(raw, sameOrigin)).status).toBe(401);
+		const delineate = await raw.request('/delineate', { method: 'POST', headers: { 'content-type': 'application/json', ...sameOrigin }, body: '{}' });
+		expect(delineate.status).toBe(401);
+		expect(keys).toEqual([]);
+	});
+
+	it('leaves the cheap routes uncounted: /health, /quaternaries and /map-grid never take from the day', async () => {
+		const keys: string[] = [];
+		const usage: UsageStore = { take: async (key) => (keys.push(key), true) };
+		const a = app({ usage });
+		await a.raw.request('/health');
+		const r = await a.as();
+		await r.request('/quaternaries');
+		await mapMean(r);
+		expect(keys).toEqual([]);
+		// The guard is looking at a real store: a counted route does take.
+		await chirps(r);
+		expect(keys).toEqual([quotaKey('chirps', admin.id, utcDay(Date.now()))]);
 	});
 
 	it('sizes every quota as a positive whole number of requests', () => {
