@@ -27,61 +27,95 @@ export const BORDER = 1;
 export const NO_DATA_EDGE = 2;
 
 const f64 = new Float64Array(1);
-const u64 = new BigUint64Array(f64.buffer);
-/** The next float64 above v (C's nextafter(v, +∞)) for finite v. */
+const u32 = new Uint32Array(f64.buffer);
+/** Which 32-bit half of the float64 holds the low word (0 on little-endian platforms). */
+const LO = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1 ? 0 : 1;
+const HI = 1 - LO;
+/**
+ * The next float64 above v (C's nextafter(v, +∞)) for finite v: one step of the bit pattern, up for a positive v, down
+ * for a negative one. Done on two 32-bit words with a carry, not a BigUint64Array: fill() calls it for every cell, and the
+ * BigInt arithmetic took twice as long.
+ */
 export function nextUp(v: number): number {
 	if (v === 0) return Number.MIN_VALUE;
 	f64[0] = v;
-	u64[0] = v > 0 ? u64[0]! + 1n : u64[0]! - 1n;
+	if (v > 0) {
+		if (u32[LO] === 0xffffffff) {
+			u32[LO] = 0;
+			u32[HI] = u32[HI]! + 1;
+		} else u32[LO] = u32[LO]! + 1;
+	} else if (u32[LO] === 0) {
+		u32[LO] = 0xffffffff;
+		u32[HI] = u32[HI]! - 1;
+	} else u32[LO] = u32[LO]! - 1;
 	return f64[0]!;
 }
 
-/** A binary min-heap of cell indices keyed on z, ties broken by index, so the result never depends on insertion order. */
-class Heap {
+/**
+ * A binary min-heap of cell indices keyed on z, ties broken by index, so the result never depends on insertion order.
+ * Each entry's key is held beside its index (`k`), so a comparison reads the heap's own small arrays (a few thousand
+ * entries), not the grid's elevations at scattered cells (n² float64s, 32 MB at 2 048 cells). The order is the same total
+ * order, so the fill is the same to the bit.
+ */
+export class Heap {
 	private a: Int32Array;
+	private k: Float64Array;
 	size = 0;
-	constructor(
-		private readonly z: Float64Array,
-		cap: number
-	) {
+	constructor(cap: number) {
 		this.a = new Int32Array(Math.max(16, cap));
+		this.k = new Float64Array(this.a.length);
 	}
-	private less(i: number, j: number) {
-		const zi = this.z[i]!;
-		const zj = this.z[j]!;
-		return zi < zj || (zi === zj && i < j);
-	}
-	push(c: number) {
+	push(c: number, zc: number) {
 		if (this.size === this.a.length) {
 			const b = new Int32Array(this.a.length * 2);
 			b.set(this.a);
 			this.a = b;
+			const kk = new Float64Array(b.length);
+			kk.set(this.k);
+			this.k = kk;
 		}
 		const a = this.a;
+		const k = this.k;
 		let i = this.size++;
 		while (i > 0) {
 			const p = (i - 1) >> 1;
-			if (!this.less(c, a[p]!)) break;
+			const zp = k[p]!;
+			if (!(zc < zp || (zc === zp && c < a[p]!))) break;
 			a[i] = a[p]!;
+			k[i] = zp;
 			i = p;
 		}
 		a[i] = c;
+		k[i] = zc;
 	}
 	pop(): number {
 		const a = this.a;
+		const k = this.k;
 		const top = a[0]!;
-		const last = a[--this.size]!;
+		const n = --this.size;
+		const last = a[n]!;
+		const zl = k[n]!;
 		let i = 0;
-		const n = this.size;
 		for (;;) {
-			let k = 2 * i + 1;
-			if (k >= n) break;
-			if (k + 1 < n && this.less(a[k + 1]!, a[k]!)) k++;
-			if (!this.less(a[k]!, last)) break;
-			a[i] = a[k]!;
-			i = k;
+			let c = 2 * i + 1;
+			if (c >= n) break;
+			let zc = k[c]!;
+			if (c + 1 < n) {
+				const z2 = k[c + 1]!;
+				if (z2 < zc || (z2 === zc && a[c + 1]! < a[c]!)) {
+					c++;
+					zc = z2;
+				}
+			}
+			if (!(zc < zl || (zc === zl && a[c]! < last))) break;
+			a[i] = a[c]!;
+			k[i] = zc;
+			i = c;
 		}
-		if (n > 0) a[i] = last;
+		if (n > 0) {
+			a[i] = last;
+			k[i] = zl;
+		}
 		return top;
 	}
 }
@@ -126,7 +160,7 @@ export function fill(g: Grid, edge: Uint8Array): number {
 	const { nx, ny, z } = g;
 	const n = nx * ny;
 	const closed = new Uint8Array(n);
-	const heap = new Heap(z, 4 * (nx + ny));
+	const heap = new Heap(4 * (nx + ny));
 	const pit = new Int32Array(n);
 	let pitHead = 0;
 	let pitTail = 0;
@@ -136,7 +170,7 @@ export function fill(g: Grid, edge: Uint8Array): number {
 		// A no-data cell has no elevation: it is never a spill point. The cells beside it are edges at their own elevation
 		// (edgeMask), so water leaves there only where the data's border is the lowest way out, as at the window's border.
 		// (Until delineate-6 it flooded at −∞, so every cell beside a hole drained into it and no catchment could reach one.)
-		if (!Number.isNaN(z[i]!)) heap.push(i);
+		if (!Number.isNaN(z[i]!)) heap.push(i, z[i]!);
 	}
 	let raised = 0;
 	while (heap.size > 0 || pitHead < pitTail) {
@@ -151,11 +185,12 @@ export function fill(g: Grid, edge: Uint8Array): number {
 			const k = y * nx + x;
 			if (closed[k]) continue;
 			closed[k] = 1;
-			if (z[k]! <= up) {
+			const zk = z[k]!;
+			if (zk <= up) {
 				z[k] = up;
 				raised++;
 				pit[pitTail++] = k;
-			} else heap.push(k);
+			} else heap.push(k, zk);
 		}
 	}
 	return raised;
@@ -190,13 +225,11 @@ export function d8(g: Grid, edge: Uint8Array): Uint8Array {
 export function accumulate(nx: number, ny: number, dir: Uint8Array): Int32Array {
 	const n = nx * ny;
 	const indeg = new Int32Array(n);
-	const down = (i: number) => {
-		const d = dir[i]!;
-		return d === OUT ? -1 : i + DY[d]! * nx + DX[d]!;
-	};
+	// The index step to each D8 neighbour, as a typed array, in place of a closure over DX and DY per cell.
+	const step = Int32Array.from(DX, (dx, d) => DY[d]! * nx + dx);
 	for (let i = 0; i < n; i++) {
-		const k = down(i);
-		if (k >= 0) indeg[k]!++;
+		const d = dir[i]!;
+		if (d !== OUT) indeg[i + step[d]!]!++;
 	}
 	const acc = new Int32Array(n).fill(1);
 	const queue = new Int32Array(n);
@@ -205,8 +238,9 @@ export function accumulate(nx: number, ny: number, dir: Uint8Array): Int32Array 
 	for (let i = 0; i < n; i++) if (indeg[i] === 0) queue[tail++] = i;
 	while (head < tail) {
 		const i = queue[head++]!;
-		const k = down(i);
-		if (k < 0) continue;
+		const d = dir[i]!;
+		if (d === OUT) continue;
+		const k = i + step[d]!;
 		acc[k]! += acc[i]!;
 		indeg[k] = indeg[k]! - 1;
 		if (indeg[k] === 0) queue[tail++] = k;

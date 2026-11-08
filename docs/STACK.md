@@ -18,7 +18,7 @@ pnpm dev                     # frontend (7777) + backend (3001) in parallel
 pnpm build                   # build all workspaces
 pnpm check                   # typecheck all
 pnpm check:doc-links         # every relative markdown link resolves (file + heading slug)
-pnpm test                    # vitest run across workspaces
+pnpm test                    # vitest run across workspaces, one at a time (each uses every core)
 pnpm check:env               # the committed .env.development files stay local-only (no values printed)
 pnpm check:compliance        # advisory: this branch vs origin/main, privacy/data docs moved with new hosts, SDKs, personal data
 pnpm test:frontend:e2e       # Playwright against the built site (first: pnpm --filter @pitman/frontend exec playwright install chromium)

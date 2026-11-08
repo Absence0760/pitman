@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { toLonLat } from './delineate.js';
 import { openDem } from './dem.js';
 import { SYNTHETIC_DEM, syntheticDem, syntheticDemArchive, syntheticElevation, syntheticTile, syntheticTileRange } from './syntheticDem.js';
 
@@ -24,6 +25,29 @@ describe('the synthetic terrain', () => {
 		// The divide at the heads: both sides fall away from it.
 		expect(syntheticElevation(21.2, -33.5)).toBeGreaterThan(syntheticElevation(21.2, -33.52));
 		expect(syntheticElevation(21.2, -33.5)).toBeGreaterThan(syntheticElevation(21.2, -33.48));
+	});
+
+	it('draws a tile exactly as syntheticElevation draws each cell, to the bit', () => {
+		const { x0, y0 } = syntheticTileRange();
+		const { tile, zoom } = SYNTHETIC_DEM;
+		const W = 2 ** zoom * tile;
+		// The northern divide and the tributary (x0, y0); the sill at 33.75° S, a river and a ridge between columns (x0 + 2, y0 + 2).
+		// Whole rows, since syntheticTile carries state along a row (the river's column), every 4th of them: the sill is 35 rows wide.
+		for (const [x, y] of [
+			[x0, y0],
+			[x0 + 2, y0 + 2]
+		] as const) {
+			const drawn = syntheticTile(x, y);
+			let differing = 0;
+			for (let py = 0; py < tile; py += 4) {
+				const lat = toLonLat(0, y * tile + py + 0.5, W)[1];
+				for (let px = 0; px < tile; px++) {
+					const lon = ((x * tile + px + 0.5) / W) * 360 - 180;
+					if (drawn[py * tile + px] !== Math.fround(Math.round(syntheticElevation(lon, lat) * 8) / 8)) differing++;
+				}
+			}
+			expect(differing).toBe(0);
+		}
 	});
 
 	it('covers the same invented block as the CHIRPS copy and the MAP grid, in the real DEM’s tiles', () => {

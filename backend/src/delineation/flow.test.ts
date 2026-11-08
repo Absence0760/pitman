@@ -1,6 +1,6 @@
 // Copied from IC-WBT backend/src/delineation/flow.test.ts at f888e4461 (MIT, same author).
 import { describe, expect, it } from 'vitest';
-import { accumulate, BORDER, d8, DX, DY, edgeMask, fill, NO_DATA_EDGE, nextUp, openFlags, OUT, snap, touchesEdge, upstream, type Grid } from './flow.js';
+import { accumulate, BORDER, d8, DX, DY, edgeMask, fill, Heap, NO_DATA_EDGE, nextUp, openFlags, OUT, snap, touchesEdge, upstream, type Grid } from './flow.js';
 
 const grid = (nx: number, ny: number, f: (x: number, y: number) => number): Grid => {
 	const z = new Float64Array(nx * ny);
@@ -35,6 +35,58 @@ describe('flow routing', () => {
 		expect(nextUp(-1)).toBeGreaterThan(-1);
 		expect(nextUp(-1)).toBeLessThan(-1 + Number.EPSILON);
 		expect(nextUp(0)).toBe(Number.MIN_VALUE);
+	});
+
+	it('nextUp carries and borrows across the float64’s two 32-bit words', () => {
+		// 2^32 ulps above 1 the low word is all ones: the next step carries into the high word.
+		const bits = new Float64Array(1);
+		const words = new Uint32Array(bits.buffer);
+		const lo = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1 ? 0 : 1;
+		bits[0] = 1;
+		words[lo] = 0xffffffff;
+		const below = bits[0]!;
+		const up = nextUp(below);
+		expect(up).toBeGreaterThan(below);
+		expect(words[lo]).toBe(0xffffffff);
+		bits[0] = up;
+		expect(words[lo]).toBe(0);
+		// Halfway between the two, there is no float64: they are neighbours.
+		expect((below + up) / 2 === below || (below + up) / 2 === up).toBe(true);
+		// Negative, a step up is a step towards zero: down one in the low word, and from a low word of 0, a borrow from the high one.
+		bits[0] = nextUp(-below);
+		expect(bits[0]).toBeGreaterThan(-below);
+		expect(words[lo]).toBe(0xfffffffe);
+		expect(nextUp(-up)).toBe(-below);
+		// Next to the smallest and largest finite values.
+		expect(nextUp(-Number.MIN_VALUE)).toBe(-0);
+		expect(nextUp(Number.MAX_VALUE)).toBe(Infinity);
+		expect(nextUp(1e300)).toBe(1e300 + 2 ** (996 - 52));
+	});
+
+	it('pops the heap in elevation order, ties by cell index, whatever the order of pushes', () => {
+		// Elevations from a small set, so most are tied; pushed in a scrambled order, popped against a sort.
+		const cells = Array.from({ length: 5000 }, (_, i) => ({ i, z: ((i * 7919) % 13) * 0.25 }));
+		const scrambled = [...cells].sort((a, b) => ((a.i * 2654435761) >>> 0) - ((b.i * 2654435761) >>> 0));
+		// Starts small, so it grows several times on the way.
+		const heap = new Heap(4);
+		const pending: { i: number; z: number }[] = [];
+		const least = () => {
+			let best = 0;
+			for (let k = 1; k < pending.length; k++) {
+				const a = pending[k]!;
+				const b = pending[best]!;
+				if (a.z < b.z || (a.z === b.z && a.i < b.i)) best = k;
+			}
+			return pending.splice(best, 1)[0]!.i;
+		};
+		// Pops between the pushes, as fill does, each checked against the least of what is pending.
+		for (const [n, c] of scrambled.entries()) {
+			heap.push(c.i, c.z);
+			pending.push(c);
+			if (n % 3 === 2) expect(heap.pop()).toBe(least());
+		}
+		while (heap.size > 0) expect(heap.pop()).toBe(least());
+		expect(pending).toEqual([]);
 	});
 
 	it('drains a pit and a flat out of the grid, with no cycles (Priority-Flood+ε)', () => {

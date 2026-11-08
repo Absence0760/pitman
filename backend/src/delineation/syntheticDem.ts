@@ -128,20 +128,105 @@ export function syntheticTileRange() {
 	return { x0: Math.floor(x0), y0: Math.floor(y0), x1: Math.floor(x1), y1: Math.floor(y1) };
 }
 
-/** One tile's elevations, rounded as stored. */
+/** The noise octaves of `roughness`: lattice cells a degree, their seed and amplitude. */
+const OCTAVES = [8, 16, 32, 64, 128].map((cells, octave) => ({ cells, seed: octave + 1, amplitude: 60 / 2 ** octave }));
+
+/**
+ * One tile's elevations, rounded as stored: syntheticElevation over the tile's cells, the same arithmetic in the same
+ * order, so every value is the same to the bit (syntheticDem.test.ts compares whole rows), but what a cell shares with its
+ * column or its row worked out once: per column the longitude, its valley column and each octave's lattice cell and
+ * weight; per row the latitude's terms, the river's position and each octave's lattice corners; and the roughness only
+ * where its weight isn't zero (adding ±0 changes nothing). A tile is 262 144 cells, and the tests and
+ * `pnpm dev:data:synthetic` draw dozens: drawn cell by cell, the terrain was a good part of the delineation tests' time.
+ */
 export function syntheticTile(x: number, y: number): Float32Array {
 	const { tile, zoom } = SYNTHETIC_DEM;
 	const W = worldPx(zoom, tile);
 	const out = new Float32Array(tile * tile);
-	for (let py = 0; py < tile; py++) {
-		const lat = toLonLat(0, y * tile + py + 0.5, W)[1];
+	const lons = new Float64Array(tile);
+	const columns = new Float64Array(tile);
+	for (let px = 0; px < tile; px++) {
+		const lon = ((x * tile + px + 0.5) / W) * 360 - 180;
+		lons[px] = lon;
+		columns[px] = Math.floor((lon - WEST) / COLUMN_DEG);
+	}
+	// Per octave and column: the lattice cell (relative to the tile's first) and the weight across it.
+	const octaves = OCTAVES.map(({ cells, seed, amplitude }) => {
+		const i0 = Math.floor(lons[0]! * cells);
+		const di = new Int32Array(tile);
+		const fx = new Float64Array(tile);
 		for (let px = 0; px < tile; px++) {
-			const lon = ((x * tile + px + 0.5) / W) * 360 - 180;
-			out[py * tile + px] = Math.round(syntheticElevation(lon, lat) / STEP_M) * STEP_M;
+			const v = lons[px]! * cells;
+			const i = Math.floor(v);
+			di[px] = i - i0;
+			fx[px] = smooth(0, 1, v - i);
+		}
+		const span = di[tile - 1]! + 2;
+		return { cells, seed, amplitude, i0, di, fx, below: new Float64Array(span), above: new Float64Array(span) };
+	});
+	for (let py = 0; py < tile; py++) {
+		const lat0 = toLonLat(0, y * tile + py + 0.5, W)[1];
+		const lat = lat0 > DIVIDE_LAT ? 2 * DIVIDE_LAT - lat0 : lat0;
+		const t = (lat + 34.6) / 1.1;
+		const floor = 20 + 500 * t + 250 * t * t;
+		let bell = 0;
+		for (const sill of SILLS) bell = Math.max(bell, Math.exp(-(((lat - sill) / SILL_DEG) ** 2)));
+		const sillM = SILL_M * bell;
+		const roughWeight = 1 - 0.8 * bell;
+		const fys: number[] = [];
+		for (const o of octaves) {
+			const v = lat * o.cells;
+			const j = Math.floor(v);
+			fys.push(smooth(0, 1, v - j));
+			for (let k = 0; k < o.below.length; k++) {
+				o.below[k] = lattice(o.i0 + k, j, o.seed);
+				o.above[k] = lattice(o.i0 + k, j + 1, o.seed);
+			}
+		}
+		let riverColumn = Number.NaN;
+		let river = 0;
+		const row = py * tile;
+		for (let px = 0; px < tile; px++) {
+			const lon = lons[px]!;
+			const column = columns[px]!;
+			const left = WEST + column * COLUMN_DEG;
+			const right = left + COLUMN_DEG;
+			if (column !== riverColumn) {
+				riverColumn = column;
+				river = left + COLUMN_DEG / 2 + 0.02 * Math.sin((lat + column) * 11);
+			}
+			const u = lon < river ? (river - lon) / (river - left) : (lon - river) / (right - river);
+			let z = floor + 340 * u ** 1.1;
+			z += sillM * smooth(0.03, 0.2, u);
+			const s1 = smooth(0.02, 0.14, u);
+			const s2 = 1 - smooth(0.82, 1, u);
+			if (s1 !== 0 && s2 !== 0) {
+				let r = 0;
+				for (let k = 0; k < octaves.length; k++) {
+					const o = octaves[k]!;
+					const i = o.di[px]!;
+					const fx = o.fx[px]!;
+					const fy = fys[k]!;
+					const a = o.below[i]!;
+					const b = o.below[i + 1]!;
+					const c = o.above[i]!;
+					const d = o.above[i + 1]!;
+					r += o.amplitude * (a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy - 0.5);
+				}
+				z += r * s1 * s2 * roughWeight;
+			}
+			out[row + px] = Math.round((z - tributaryCut(lon, lat)) / STEP_M) * STEP_M;
 		}
 	}
 	return out;
 }
+
+/**
+ * Tiles drawn so far, shared by every syntheticDem(): the terrain is a fixed function, so a tile drawn for one test is the
+ * same for the next, and a test that wraps a fresh syntheticDem() to count its reads still sees every read. Readers copy
+ * out of a tile (readWindow) and never write into it. At most the block's 56 tiles, 1 MB each.
+ */
+const drawn = new Map<string, Float32Array>();
 
 /**
  * The same terrain read straight from the function (no archive): what the tests delineate against, so
@@ -149,7 +234,7 @@ export function syntheticTile(x: number, y: number): Float32Array {
  */
 export function syntheticDem(): Dem {
 	const { x0, y0, x1, y1 } = syntheticTileRange();
-	const cache = new Map<string, Float32Array>();
+	const cache = drawn;
 	const info: DemInfo = {
 		label: `${SYNTHETIC_DEM.name} ${SYNTHETIC_DEM.version}`,
 		attribution: SYNTHETIC_DEM.attribution,
