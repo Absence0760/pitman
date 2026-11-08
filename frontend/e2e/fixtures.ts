@@ -17,13 +17,32 @@ export interface TestUser {
 export const ADMIN: TestUser = { id: 'u-admin', email: 'admin@example.test', isAdmin: true };
 export const MEMBER: TestUser = { id: 'u-member', email: 'member@example.test', isAdmin: false };
 
-export const test = base.extend<{ signedInAs: TestUser | null }>({
+export const test = base.extend<{ signedInAs: TestUser | null; waitForHydration: boolean }>({
 	signedInAs: [ADMIN, { option: true }],
-	page: async ({ page, signedInAs }, use) => {
+	// Off only for a spec that blocks the app's scripts on purpose (hydration.spec.ts).
+	waitForHydration: [true, { option: true }],
+	page: async ({ page, signedInAs, waitForHydration }, use) => {
 		await page.route('**/api/**', (route) => route.fulfill({ status: 404, contentType: 'text/html', body: 'Not Found' }));
 		await page.route('**/api/auth/me', (route) =>
 			signedInAs ? route.fulfill({ json: { user: signedInAs } }) : route.fulfill({ status: 401, json: { error: 'Not signed in.' } })
 		);
+		// The pages are prerendered, so a control can be acted on before the app hydrates and the action is
+		// lost. Every navigation waits for the app's own signal, <html data-hydrated> (routes/+layout.svelte).
+		const hydrated = async () => {
+			if (waitForHydration) await page.locator('html[data-hydrated="true"]').waitFor({ state: 'attached' });
+		};
+		const goto = page.goto.bind(page);
+		const reload = page.reload.bind(page);
+		page.goto = async (...args) => {
+			const response = await goto(...args);
+			await hydrated();
+			return response;
+		};
+		page.reload = async (...args) => {
+			const response = await reload(...args);
+			await hydrated();
+			return response;
+		};
 		await use(page);
 	}
 });

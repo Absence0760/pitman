@@ -7,7 +7,7 @@
 	session anyway.
 -->
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { isPublicPath, signInHref } from '#lib/auth/next.js';
@@ -34,6 +34,13 @@
 			toSignIn();
 		})
 	);
+
+	// The page is prerendered, so its controls exist before the app's handlers do. Once they're attached,
+	// <html data-hydrated> says so: the pickers wait for it (LoadPanel) and so do the end-to-end tests
+	// (e2e/fixtures.ts), so nothing is acted on before the app can hear it.
+	onMount(() => {
+		document.documentElement.dataset.hydrated = 'true';
+	});
 
 	$effect(() => {
 		if (isPublic) return;
