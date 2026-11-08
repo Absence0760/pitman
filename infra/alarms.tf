@@ -381,7 +381,7 @@ resource "aws_cloudwatch_metric_alarm" "cloudfront_5xx" {
 # minutes, not the 1-2 hours of an hourly sum. The variables stay per hour;
 # each threshold is a twelfth of one. Thresholds and what passes under them:
 # variables.tf. The durable fix, CloudFront's flat-rate Pro plan, is the
-# operator's decision (infra/README.md § Cost).
+# operator's decision (cloudfront_flat_rate_plan, pricing_plan.tf; R4-I15).
 resource "aws_cloudwatch_metric_alarm" "cloudfront_requests" {
   provider            = aws.us_east_1
   alarm_name          = "${local.project}-cloudfront-requests"

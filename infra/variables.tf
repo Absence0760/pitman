@@ -376,6 +376,25 @@ variable "route53_queries_alarm_per_hour" {
   }
 }
 
+variable "cloudfront_flat_rate_plan" {
+  description = <<-EOT
+    CloudFront flat-rate plan for the distribution, its web ACL and the
+    Route 53 zone (pricing_plan.tf, R4-I15). "none" (the default): pay-as-you-go,
+    guarded by the breaker and the alarms. "PRO": $15 a month, no overage, the
+    edge and DNS become a fixed cost. The subscription is always created with
+    approval_mode = "MANUAL", so it waits in PENDING_APPROVAL, unbilled, until
+    the operator approves it in the CloudFront console
+    (docs/deployment.md § Then: the flat-rate plan). Setting "none" again
+    cancels it at the end of the billing cycle.
+  EOT
+  type        = string
+  default     = "none"
+  validation {
+    condition     = contains(["none", "PRO"], var.cloudfront_flat_rate_plan)
+    error_message = "cloudfront_flat_rate_plan must be \"none\" or \"PRO\": Pro is the one tier this stack is checked against (pricing_plan.tf)."
+  }
+}
+
 # ----------------------------------------------------------------------------
 # Spend circuit breaker (breaker.tf, R4-I7)
 # ----------------------------------------------------------------------------

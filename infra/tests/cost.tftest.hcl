@@ -31,6 +31,7 @@ mock_provider "aws" {
   mock_data "aws_route53_zone" {
     defaults = {
       zone_id = "Z0PITMANEXAMPLE"
+      arn     = "arn:aws:route53:::hostedzone/Z0PITMANEXAMPLE"
     }
   }
   mock_resource "aws_cloudwatch_log_group" {
@@ -340,6 +341,68 @@ run "cost_anomaly_on_publishes_to_us_east_1" {
     )
     error_message = "The subscription fires on an anomaly whose total impact is at least cost_anomaly_threshold_usd."
   }
+}
+
+# --- the optional flat-rate plan (R4-I15) -------------------------------------------
+
+run "flat_rate_plan_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(aws_pricingplanmanager_subscription.cloudfront) == 0
+    error_message = "No flat-rate subscription unless cloudfront_flat_rate_plan asks for one: pay-as-you-go is the default."
+  }
+}
+
+run "flat_rate_plan_pro_waits_for_manual_approval" {
+  command = plan
+  variables {
+    cloudfront_flat_rate_plan = "PRO"
+  }
+
+  override_resource {
+    target          = aws_wafv2_web_acl.frontend
+    override_during = plan
+    values = {
+      arn = "arn:aws:wafv2:us-east-1:111111111111:global/webacl/pitman-frontend-acl/00000000-0000-0000-0000-000000000000"
+    }
+  }
+
+  assert {
+    condition = (
+      aws_pricingplanmanager_subscription.cloudfront[0].plan_family == "CloudFront"
+      && aws_pricingplanmanager_subscription.cloudfront[0].plan_tier == "PRO"
+    )
+    error_message = "The CloudFront plan family, Pro tier."
+  }
+  assert {
+    condition     = aws_pricingplanmanager_subscription.cloudfront[0].approval_mode == "MANUAL"
+    error_message = "approval_mode must be MANUAL: the subscription waits, unbilled, for the operator's approval in the console (IMMEDIATE would start billing on apply)."
+  }
+  assert {
+    condition = aws_pricingplanmanager_subscription.cloudfront[0].resource_arns == toset([
+      "arn:aws:cloudfront::111111111111:distribution/EDFDVBD6EXAMPLE",
+      "arn:aws:wafv2:us-east-1:111111111111:global/webacl/pitman-frontend-acl/00000000-0000-0000-0000-000000000000",
+      "arn:aws:route53:::hostedzone/Z0PITMANEXAMPLE",
+    ])
+    error_message = "The plan covers exactly the distribution, its web ACL and the site's zone."
+  }
+}
+
+run "flat_rate_plan_business_refused" {
+  command = plan
+  variables {
+    cloudfront_flat_rate_plan = "BUSINESS"
+  }
+  expect_failures = [var.cloudfront_flat_rate_plan]
+}
+
+run "flat_rate_plan_lowercase_refused" {
+  command = plan
+  variables {
+    cloudfront_flat_rate_plan = "pro"
+  }
+  expect_failures = [var.cloudfront_flat_rate_plan]
 }
 
 run "cost_anomaly_negative_refused" {

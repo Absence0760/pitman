@@ -399,6 +399,46 @@ account may hold only one SERVICE monitor, and AWS may have made one already.
 68. Otherwise set `cost_anomaly_threshold_usd = 5` in `infra/terraform.tfvars`, then plan: `AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan` → `2 to add` (the monitor and its subscription), nothing changed or destroyed.
 69. Apply it and delete the plan: `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan`. The monitor learns from the account's spend, so it is quiet for the first weeks.
 
+### Then: the flat-rate plan (optional, R4-I15)
+
+Pay-as-you-go with the breaker is the default. CloudFront's flat-rate Pro
+plan ($15 a month, no overage) makes the edge and DNS a fixed cost
+(`infra/README.md` § Cost has both options). Terraform only *asks* for it:
+`infra/pricing_plan.tf` always creates the subscription with
+`approval_mode = "MANUAL"`, so it waits in `PENDING_APPROVAL`, unbilled,
+until you approve it, and that approval is a billing decision, yours alone.
+Do this after the first deploy (steps 49-53), so a rejection can't hold up
+the site. Never `terraform import` a subscription made in the console: the
+plan after it replaces the subscription (hashicorp/terraform-provider-aws#50494).
+
+Two compatibility questions are **unconfirmed** and AWS's answer to step 73
+settles them: (a) Pro allows only default (AWS-managed) origin request
+rules; `/api/*` uses the managed `AllViewerExceptHostHeader` policy, but
+does its origin's custom header (`X-CloudFront-Shared-Secret`) count as a
+custom rule? (b) the plan's documentation doesn't mention a Lambda Function
+URL origin behind a `lambda` OAC. Below Business only default caching rules
+are allowed; both behaviours use managed cache policies
+(`Managed-CachingOptimized`, `Managed-CachingDisabled`), so caching should
+pass. Also unconfirmed: a plan covers "up to one apex domain" (Pitman is
+the subdomain `pitman.jaredhoward.com`), and an account on the AWS Free Tier
+isn't eligible.
+
+70. Set `cloudfront_flat_rate_plan = "PRO"` in `infra/terraform.tfvars`, and `budget_monthly_usd = 35` (on Pro the fixed cost is about $19.30, $22.20 with VAT, over the $25 budget's 80 % line; `infra/README.md` § Cost): `$EDITOR infra/terraform.tfvars`.
+71. Plan into a file: `AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan` → `1 to add, 2 to change, 0 to destroy` (the subscription; the two budgets' limits).
+72. **Gate:** read the plan: the budgets change in place (monthly 35, daily 3), and one `aws_pricingplanmanager_subscription.cloudfront[0]` with `plan_family = "CloudFront"`, `plan_tier = "PRO"`, `approval_mode = "MANUAL"` and three `resource_arns` (the distribution, the web ACL, the zone). Anything else, or `IMMEDIATE`: stop.
+73. Apply it and delete the plan: `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan; rm infra/tfplan`. Then one of:
+    - **Rejected**: the apply fails with a `ValidationException` naming what isn't eligible. Nothing was created or billed. Record the reason, and which of the questions above it answers, in `docs/decisions.md` R4-I15; set `cloudfront_flat_rate_plan = "none"` again. Pitman stays on pay-as-you-go.
+    - **Accepted**: `Apply complete! Resources: 1 added`. Go on.
+74. Read what AWS made of it: `AWS_PROFILE=pitman terraform -chdir=infra state show 'aws_pricingplanmanager_subscription.cloudfront[0]'` → `status = "PENDING_APPROVAL"` (and `status_reason`, if any). `FAILED` is a rejection: record `status_reason` as in step 73, set `"none"`, plan and apply (a pending subscription is deleted at once).
+75. **Your decision:** approve the subscription in the CloudFront console (Distributions → the `pitman` distribution → its pending Pro plan → approve; the console may have moved this, trust what it shows). Billing starts then, prorated for the month. Not approving leaves it pending and unbilled.
+76. Check: `AWS_PROFILE=pitman terraform -chdir=infra apply -refresh-only` → the subscription's `status` now `ACTIVE`; accept the refresh. Then `AWS_PROFILE=pitman terraform -chdir=infra plan` → `No changes`. Record the outcome (Pro, approved on <date>) in `docs/decisions.md` R4-I15.
+77. Check the headers still come out (they never depended on the plan, R4-I14): step 51's `curl` → both headers.
+
+While the plan covers the distribution, AWS blocks deleting it and removing
+or replacing its web ACL, and the zone can't be deleted. To leave the plan,
+set `"none"`, plan (`1 to destroy`) and apply: the plan is cancelled at the
+end of the billing cycle and stays billed until then.
+
 ## What IC-WBT must grant (Round 4.1)
 
 A separate PR in `project-water-management`'s `infra/` (its `/safe-edit`

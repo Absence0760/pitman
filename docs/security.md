@@ -643,9 +643,14 @@ records what it found over the history when it was introduced.
   the edge: CloudFront and the WAF bill every request it answers 429 to. At
   the edge and in DNS nothing bounds it: the CloudFront requests and bytes and
   Route 53 query alarms say so within about 5-10 minutes, and the kill
-  switch (§ Incident playbook) is manual. CloudFront's flat-rate plan would
-  make both fixed costs; it is the operator's decision (R4-I10,
-  `infra/README.md` § Cost).
+  switch (§ Incident playbook) is manual. CloudFront's flat-rate Pro plan
+  would make both fixed costs ($15 a month, no overage, WAF-blocked requests
+  not counted); it is wired but off (`cloudfront_flat_rate_plan = "none"`,
+  `infra/pricing_plan.tf`), and turning it on is the operator's decision:
+  the subscription waits unbilled for their approval in the console, and
+  whether AWS accepts the `/api/*` origin (a Lambda Function URL behind a
+  `lambda` OAC, with a custom origin header) is unconfirmed until it is
+  tried (R4-I15, `docs/deployment.md` § Then: the flat-rate plan).
 - The CloudFront shared secret, the two sign-in keys (`AUTH_CODE_KEY`,
   `AUTH_SESSION_KEY`) and, once set, the Cape Farm Mapper token
   (`CFM_TOKEN`, from the `cfm_token` variable; R7-C9, issue #22 decision 15

@@ -65,6 +65,12 @@ budget_monthly_usd = 25
 # (docs/deployment.md § First deploy).
 # cost_anomaly_threshold_usd = 5
 
+# CloudFront's flat-rate plan: "none" (pay-as-you-go, the default) or "PRO"
+# ($15 a month; created pending, unbilled, until you approve it in the
+# console; raise budget_monthly_usd to 35 with it). docs/deployment.md
+# § Then: the flat-rate plan.
+# cloudfront_flat_rate_plan = "PRO"
+
 # Both alert topics and the budgets email this address (confirm both SNS
 # mails). Required, and refused on a reserved example domain, so this
 # placeholder fails the plan until it is replaced with a real mailbox.

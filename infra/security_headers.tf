@@ -22,7 +22,7 @@
 # AWS-managed ("default") response headers policies; a custom one, which a
 # custom CSP needs, takes the $200 Business plan (CloudFront Developer Guide,
 # "CloudFront flat-rate pricing plans", features by tier). A function sets
-# the same headers on every plan, so the optional Pro plan (infra/README.md § Cost)
+# the same headers on every plan, so the optional Pro plan (pricing_plan.tf)
 # doesn't depend on them. The cost: $0.10 per million viewer responses on
 # pay-as-you-go (nothing on a plan), and one difference, below.
 #
