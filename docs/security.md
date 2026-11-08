@@ -177,7 +177,8 @@ runs it.
   without them is S3's 403 AccessDenied XML for a missing file with an
   extension (fixed text, never HTML that renders), and CloudFront's own
   answers (a WAF block, the http-to-https redirect, a 502/504), which run no
-  function either.
+  function either, and the Function URL's own 429/403 while the breaker holds
+  the API at 0 (the app never runs, and the origin status is ≥ 400).
 - **Spend is bounded where it can be, stopped automatically where it
   matters, and watched where it can't**: the Lambda's reserved concurrency
   (10, validated 5-10 and at most 10 GB in all) caps what a flood can cost
