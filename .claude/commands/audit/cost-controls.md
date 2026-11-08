@@ -19,7 +19,8 @@ Pitman's legitimate traffic is a handful of hydrologists. A finding is anything 
 
 - `RATE_LIMITS` in `backend/src/app.ts` (`backend/src/http/rateLimit.ts`): one limit per costly route (`chirps`, `mapGrid`, `delineate`, `channels`, `quaternaries`, `landUse`, `auth`). Each route that reads S3 or calls upstream is mounted with one; a new costly route without one is High.
 - The limiter is per Lambda instance (in memory); the WAF (`infra/waf.tf`) is the cross-instance per-IP cap: `waf_api_rate_limit_per_ip` on `/api/*`, `auth_waf_rate_limit_per_ip` on `/api/auth/*` (except `/api/auth/me`), `waf_site_rate_limit_per_ip` on every path. Confirm the rules exist, match `docs/security.md` § Infrastructure, and that path normalisation runs before matching.
-- Input caps: the body limit and the area/box limits (`backend/src/http/area.ts`, the CHIRPS cell cap, the delineation budget and caches in `backend/src/delineation/`). A route that accepts an unbounded area or box is High.
+- `DAILY_QUOTAS` in `backend/src/app.ts` (`backend/src/usage/`, R4-D7): requests per signed-in user per UTC day on `chirps`, `delineate`, `channels` and `landUse`, counted across instances in the usage table (`USAGE_STORE=dynamodb`, `USAGE_TABLE`; one conditional `UpdateItem` per request). Check the constant's cost arithmetic still holds against the Lambda's memory and timeout and the CHIRPS chunk cap, that a Lambda with `USAGE_STORE` other than `dynamodb` answers 503 on those routes (`backend/src/usage/store.test.ts`), and that a new route that reads S3 or calls upstream is under a quota. A costly route with no quota is High.
+- Input caps: the body limit and the area/box limits (`backend/src/http/area.ts`, the CHIRPS cell cap and the 16-chunk cap `CHIRPS_MAX_CHUNKS`, R4-D6, the delineation budget and caches in `backend/src/delineation/`). A route that accepts an unbounded area or box is High.
 
 ### 3. Lambda ceiling
 
@@ -71,7 +72,7 @@ Pitman's legitimate traffic is a handful of hydrologists. A finding is anything 
 
 ### 10. Cape Farm Mapper
 
-`backend/src/cfm/`: each `/cfm/land-use` call may cost up to 40 upstream pages; it is rate-limited (`landUse`) and cached. Confirm the token is used only by the backend and the fan-out can't be driven unbounded by one request.
+`backend/src/cfm/`: each `/cfm/land-use` call may cost up to 20 upstream pages a layer (`CFM_MAX_PAGES`, `backend/src/cfm/arcgis.ts`), two layers at most; it is rate-limited (`landUse`), under the per-user daily quota and cached. Confirm the token is used only by the backend and the fan-out can't be driven unbounded by one request.
 
 ### 11. Documentation matches reality
 

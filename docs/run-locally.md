@@ -177,6 +177,11 @@ show the containers; `pnpm dev:auth:down` stops them, and DynamoDB Local runs
 in memory, so the table goes with it (seed again after the next `up`).
 auth-kit's own `pnpm dynamo:up` uses port 8000 too: run one at a time.
 
+The per-user daily quotas (`docs/architecture.md` § Data API) still count in
+memory with this setup (`USAGE_STORE=memory`), so a restart resets them. The
+DynamoDB path is `backend/src/usage/dynamo.test.ts`, which runs when
+`DYNAMODB_ENDPOINT` is set.
+
 The operator scripts (`pnpm admin:*`, `docs/deployment.md` § Sign-in) run
 against DynamoDB Local when `DYNAMODB_ENDPOINT` is set, taking the table and
 code key from the environment instead of the Lambda's (they don't read

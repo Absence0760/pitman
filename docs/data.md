@@ -547,9 +547,12 @@ Notes:
   `af-south-1` in the pitman account (expected to be required for its
   principals to call an opt-in region; verify in Round 4.1), and prefer
   running Pitman's API Lambda in `af-south-1` so the reads stay in-region.
-- **Costs.** Requests are billed to the bucket owner (IC-WBT); a quaternary's
-  CHIRPS read is at most a few hundred GETs and is cached, so this is cents.
-  No Requester Pays.
+- **Costs.** Requests are billed to the bucket owner (IC-WBT): one GET per
+  chunk (1° × 1°) per year, about 45 years. A quaternary touches 1–4 chunks,
+  so 45–180 GETs, cached per instance; one request may touch at most 16
+  chunks (about 720 GETs, R4-D6), and each signed-in user at most 200 CHIRPS
+  requests a UTC day (R4-D7, `docs/architecture.md` § Data API), so one user's worst day is
+  ~144 000 GETs, about $0.06. No Requester Pays.
 - **Not granted**: `sat/`, `prelim/`, `gefs/`, `era5l/`, `dams/` and any
   other mirror prefix; `reference/*` beyond the one file; `originals/`; any
   write, delete or list outside `rnl/`; any database access.
@@ -572,13 +575,19 @@ limits). Routes are unprefixed (CloudFront strips `/api`, R4-I4).
 | `QUATERNARIES_SOURCE` | `local` | `local`; unset or empty = not configured, `GET /quaternaries` 503 (production until D-1) |
 | `QUATERNARIES_LOCAL_FILE` | `fixtures/geo/quaternaries.synthetic.geojson` | the local boundary file |
 | `QUATERNARIES_CREDIT` | "Synthetic test boundaries…" | how the screen credits them (default: the file name) |
+| `USAGE_STORE` | `memory` | where the per-user daily counts live (R4-D7): `memory` (local dev, tests) or `dynamodb`; on the Lambda anything but `dynamodb` answers 503 on the counted routes |
+| `USAGE_TABLE` | — | the usage table (`dynamodb`): hash key `pk` (S), TTL `expires_at` (N); `DYNAMODB_ENDPOINT` points it at DynamoDB Local |
 
 The S3 client is imported lazily, with 3 s connection / 10 s request
 timeouts (a MAP grid file 60 s), three attempts, and treats only
 `NoSuchKey`/404 as an unwritten chunk; a 403 is an error (§ Cross-account
 access). A CHIRPS read runs 6 chunk GETs at a time and stops at a 25 s
-deadline (504). A quaternary's read is about 46 years × 1–4 chunk groups;
-the worst case (2 000 cells, ~16 chunk groups) is ~740 GETs.
+deadline (504). A quaternary's read is about 45 years × 1–4 chunk groups.
+An area spread over more than 16 chunks is refused with a 422 before any read
+(`CHIRPS_MAX_CHUNKS`, R4-D6), so the worst request is 16 × 45 ≈ 720 GETs; a
+compact area under the 2 000-cell limit touches at most 4 × 4 chunks, so the
+cap only refuses scattered or strung-out areas (without it a thin strip could
+touch 121 chunks, ~5 400 GETs).
 
 ## Code to copy
 
