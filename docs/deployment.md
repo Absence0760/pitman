@@ -236,10 +236,10 @@ access portal URL in IAM Identity Center → Settings, in `personal-mgmt`
 
 ### CI access to auth-kit, and CI green
 
-6. Create the auth-kit read token as Absence0760/auth-kit#2 describes (github.com → Settings → Developer settings → Fine-grained tokens: resource owner Absence0760, only `Absence0760/auth-kit`, Contents read-only). Write its expiry date down.
+6. Get the auth-kit read token. **One token serves pitman and ewr-compliance**, and Absence0760/auth-kit#2 is the single procedure. If ewr-compliance already made it, take it from Bitwarden (**"GitHub token: auth-kit read"**) and skip to step 7. Otherwise create it as auth-kit#2 says, at https://github.com/settings/personal-access-tokens/new: name `auth-kit read (CI + Dependabot)`, resource owner `Absence0760`, only `Absence0760/auth-kit`, Contents: Read-only and nothing else, expiry about a year out. Save it in Bitwarden under that name with the expiry date, and set a reminder to rotate it two weeks before.
 7. Store it as an Actions secret (paste at the hidden prompt): `gh secret set AUTH_KIT_READ_TOKEN --app actions --repo Absence0760/pitman`.
 8. Store it as a Dependabot secret too: `gh secret set AUTH_KIT_READ_TOKEN --app dependabot --repo Absence0760/pitman`.
-9. Check both exist (names only): `gh secret list --app actions --repo Absence0760/pitman && gh secret list --app dependabot --repo Absence0760/pitman` → `AUTH_KIT_READ_TOKEN` in each.
+9. Check both exist (names only): `gh secret list --app actions --repo Absence0760/pitman && gh secret list --app dependabot --repo Absence0760/pitman` → `AUTH_KIT_READ_TOKEN` in each. Tick pitman's two secret boxes on auth-kit#2. **Rotating** (before the expiry, or at once on a suspected leak) follows auth-kit#2: a new token, set in all four secrets across both repos (these two commands here, the same pair for `Absence0760/ewr-compliance`), check, then delete the old token on GitHub and update Bitwarden. On a leak, revoke the old token first: CI fails until the new one is set, which is the safe way round.
 10. Re-run CI on main: `gh workflow run ci.yml --repo Absence0760/pitman --ref main`.
 11. **Gate:** after about ten minutes, `gh run list --workflow ci.yml --branch main --limit 1 --repo Absence0760/pitman --json headSha,status,conclusion` → `completed`, `success`. Red: fix it before anything else; no deploy can run on a red commit.
 
