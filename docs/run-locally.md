@@ -63,7 +63,7 @@ pnpm backend build        # esbuild bundle for Lambda
 ## Running tests
 
 ```bash
-pnpm test                 # all workspaces
+pnpm test                 # all workspaces, one after another
 pnpm backend test         # backend only
 pnpm frontend test        # frontend only
 pnpm test:tools           # repo scripts + CI guards (scripts/ci-guards/), root-scripts guard first
