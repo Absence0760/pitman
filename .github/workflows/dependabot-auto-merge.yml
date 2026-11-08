@@ -1,11 +1,17 @@
 name: Dependabot auto-merge
 
 # Automatically squash-merges minor + patch Dependabot PRs once CI is
-# green. Saves review burden — `.github/dependabot.yml` configures 4
-# ecosystems (frontend npm, backend npm, studio npm, GitHub Actions),
-# each opening a few grouped PRs per week. Without this, most of the
+# green. Saves review burden — `.github/dependabot.yml` configures 3
+# ecosystems (npm for the whole pnpm workspace, GitHub Actions,
+# Terraform), each opening a few grouped PRs per week. Without this, most of the
 # human review time goes to bumping a patch version of an action or a
 # transitive lodash dep.
+#
+# Major bumps stay manual, and so does every auth-kit bump: it is the
+# sign-in library, it is on 0.x (where a minor bump may break), and
+# each tag needs its commit changed in pnpm-workspace.yaml's build
+# allowlist in the same PR (CLAUDE.md rule 7). dependabot.yml gives it
+# its own PR, outside the minor-and-patch group.
 #
 # Major bumps stay manual. Major version jumps on `<cms>/*`, Svelte,
 # Hono, or the AWS SDK have historically needed code changes; auto-
@@ -16,9 +22,8 @@ name: Dependabot auto-merge
 # returns an error and the workflow no-ops; PRs sit waiting for a
 # human like before, so worst case is degenerate, not destructive.
 #
-# CI gating: the squash merge waits on the `Test and typecheck` job
-# in `ci.yml` (and any other required checks configured in branch
-# protection) before landing. A red CI run keeps the PR queued
+# CI gating: the squash merge waits on the required `CI gate` check
+# (ci.yml; branch protection on main) before landing. A red CI run keeps the PR queued
 # indefinitely until either a human intervenes or the PR is closed.
 
 on:
@@ -55,7 +60,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Approve + auto-merge minor / patch
-        if: steps.meta.outputs.update-type == 'version-update:semver-minor' || steps.meta.outputs.update-type == 'version-update:semver-patch'
+        if: (steps.meta.outputs.update-type == 'version-update:semver-minor' || steps.meta.outputs.update-type == 'version-update:semver-patch') && !contains(steps.meta.outputs.dependency-names, '@absence0760/auth-kit')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
