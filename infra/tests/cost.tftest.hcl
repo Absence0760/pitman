@@ -1,7 +1,8 @@
 # Credential-free tests of the spend and alerting guardrails (the pre-launch
 # infra review, 2026-11-07): the CloudFront traffic, Lambda invocation and
 # Route 53 query alarms (5-minute sums), the budget (gross cost, its lines,
-# the explicit opt-out for 0), alert_email refusing empty and example
+# the explicit opt-out for 0), the daily budget and Cost Anomaly Detection
+# (R4-I13), alert_email refusing empty and example
 # addresses, the user and usage tables' throughput ceilings, the spend
 # circuit breaker (its single permission, its wiring, its thresholds' bounds),
 # the Cape Farm Mapper token wired from a variable, the Lambda's JSON
@@ -30,6 +31,7 @@ mock_provider "aws" {
   mock_data "aws_route53_zone" {
     defaults = {
       zone_id = "Z0PITMANEXAMPLE"
+      arn     = "arn:aws:route53:::hostedzone/Z0PITMANEXAMPLE"
     }
   }
   mock_resource "aws_cloudwatch_log_group" {
@@ -214,15 +216,201 @@ run "budget_is_gross_with_80_and_100_lines" {
       ]) == jsonencode([
       { sid = "AllowCloudWatch", principals = ["cloudwatch.amazonaws.com"], conditions = { "StringEquals aws:SourceAccount" = ["111111111111"] } },
       { sid = "AllowBudgets", principals = ["budgets.amazonaws.com"], conditions = { "ArnLike aws:SourceArn" = ["arn:aws:budgets::111111111111:*"], "StringEquals aws:SourceAccount" = ["111111111111"] } },
+      { sid = "AllowCostAnomalyDetection", principals = ["costalerts.amazonaws.com"], conditions = { "StringEquals aws:SourceAccount" = ["111111111111"] } },
     ])
-    error_message = "The us-east-1 topic admits CloudWatch and this account's budgets (SourceAccount and SourceArn)."
+    error_message = "The us-east-1 topic admits CloudWatch, this account's budgets (SourceAccount and SourceArn) and this account's Cost Anomaly Detection."
   }
   assert {
     condition = jsonencode([
       for s in data.aws_iam_policy_document.alerts_publish["primary"].statement : flatten([for p in s.principals : tolist(p.identifiers)])
     ]) == jsonencode([["cloudwatch.amazonaws.com"]])
-    error_message = "The af-south-1 topic admits CloudWatch only: the budget no longer publishes there."
+    error_message = "The af-south-1 topic admits CloudWatch only: the budgets and anomaly alerts publish to us-east-1."
   }
+}
+
+run "daily_budget_derived_gross_actual_100" {
+  command = plan
+
+  assert {
+    condition     = length(aws_budgets_budget.daily) == 1 && aws_budgets_budget.daily[0].limit_amount == "2" && aws_budgets_budget.daily[0].time_unit == "DAILY"
+    error_message = "The daily budget is derived: ceil(25 x 2.25 / 30) = $2 a day."
+  }
+  assert {
+    condition     = !aws_budgets_budget.daily[0].cost_types[0].include_credit && !aws_budgets_budget.daily[0].cost_types[0].include_refund
+    error_message = "The daily budget is gross too: credits and refunds would hide a runaway."
+  }
+  assert {
+    condition = [
+      for n in aws_budgets_budget.daily[0].notification : "${n.notification_type}-${n.threshold}"
+    ] == ["ACTUAL-100"]
+    error_message = "The daily budget has one line, actual 100 % (a daily budget has no forecast)."
+  }
+  assert {
+    condition = alltrue([
+      for n in aws_budgets_budget.daily[0].notification :
+      n.subscriber_email_addresses == toset(["alerts@pitman.jaredhoward.com"]) && n.subscriber_sns_topic_arns == toset(["arn:aws:sns:us-east-1:111111111111:pitman-prod-alerts"])
+    ])
+    error_message = "The daily budget emails alert_email directly and notifies the us-east-1 topic."
+  }
+}
+
+run "daily_budget_follows_monthly" {
+  command = plan
+  variables {
+    budget_monthly_usd = 40
+  }
+
+  assert {
+    condition     = aws_budgets_budget.daily[0].limit_amount == "3"
+    error_message = "ceil(40 x 2.25 / 30) = ceil(3.0) = $3."
+  }
+}
+
+run "daily_budget_explicit" {
+  command = plan
+  variables {
+    budget_daily_usd = 5
+  }
+
+  assert {
+    condition     = aws_budgets_budget.daily[0].limit_amount == "5"
+    error_message = "An explicit budget_daily_usd is used as is."
+  }
+}
+
+run "daily_budget_zero_skips_only_daily" {
+  command = plan
+  variables {
+    budget_daily_usd = 0
+  }
+
+  assert {
+    condition     = length(aws_budgets_budget.daily) == 0 && length(aws_budgets_budget.monthly) == 1
+    error_message = "budget_daily_usd = 0 drops the daily budget and keeps the monthly one."
+  }
+}
+
+run "daily_budget_not_below_monthly_refused" {
+  command = plan
+  variables {
+    budget_daily_usd = 25
+  }
+  expect_failures = [var.budget_daily_usd]
+}
+
+run "daily_budget_negative_refused" {
+  command = plan
+  variables {
+    budget_daily_usd = -1
+  }
+  expect_failures = [var.budget_daily_usd]
+}
+
+run "cost_anomaly_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(aws_ce_anomaly_monitor.services) == 0 && length(aws_ce_anomaly_subscription.services) == 0
+    error_message = "Cost Anomaly Detection is off until the operator turns it on after the first apply (an account holds one SERVICE monitor)."
+  }
+}
+
+run "cost_anomaly_on_publishes_to_us_east_1" {
+  command = plan
+  variables {
+    cost_anomaly_threshold_usd = 5
+  }
+
+  assert {
+    condition     = aws_ce_anomaly_monitor.services[0].monitor_type == "DIMENSIONAL" && aws_ce_anomaly_monitor.services[0].monitor_dimension == "SERVICE"
+    error_message = "One dimensional monitor over AWS services."
+  }
+  assert {
+    condition = (
+      aws_ce_anomaly_subscription.services[0].frequency == "IMMEDIATE"
+      && one(aws_ce_anomaly_subscription.services[0].subscriber).type == "SNS"
+      && one(aws_ce_anomaly_subscription.services[0].subscriber).address == "arn:aws:sns:us-east-1:111111111111:pitman-prod-alerts"
+    )
+    error_message = "Anomalies go immediately to the us-east-1 topic (whose policy admits costalerts.amazonaws.com)."
+  }
+  assert {
+    condition = (
+      one(aws_ce_anomaly_subscription.services[0].threshold_expression[0].dimension).key == "ANOMALY_TOTAL_IMPACT_ABSOLUTE"
+      && tolist(one(aws_ce_anomaly_subscription.services[0].threshold_expression[0].dimension).values) == tolist(["5"])
+      && tolist(one(aws_ce_anomaly_subscription.services[0].threshold_expression[0].dimension).match_options) == tolist(["GREATER_THAN_OR_EQUAL"])
+    )
+    error_message = "The subscription fires on an anomaly whose total impact is at least cost_anomaly_threshold_usd."
+  }
+}
+
+# --- the optional flat-rate plan (R4-I15) -------------------------------------------
+
+run "flat_rate_plan_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(aws_pricingplanmanager_subscription.cloudfront) == 0
+    error_message = "No flat-rate subscription unless cloudfront_flat_rate_plan asks for one: pay-as-you-go is the default."
+  }
+}
+
+run "flat_rate_plan_pro_waits_for_manual_approval" {
+  command = plan
+  variables {
+    cloudfront_flat_rate_plan = "PRO"
+  }
+
+  override_resource {
+    target          = aws_wafv2_web_acl.frontend
+    override_during = plan
+    values = {
+      arn = "arn:aws:wafv2:us-east-1:111111111111:global/webacl/pitman-frontend-acl/00000000-0000-0000-0000-000000000000"
+    }
+  }
+
+  assert {
+    condition = (
+      aws_pricingplanmanager_subscription.cloudfront[0].plan_family == "CloudFront"
+      && aws_pricingplanmanager_subscription.cloudfront[0].plan_tier == "PRO"
+    )
+    error_message = "The CloudFront plan family, Pro tier."
+  }
+  assert {
+    condition     = aws_pricingplanmanager_subscription.cloudfront[0].approval_mode == "MANUAL"
+    error_message = "approval_mode must be MANUAL: the subscription waits, unbilled, for the operator's approval in the console (IMMEDIATE would start billing on apply)."
+  }
+  assert {
+    condition = aws_pricingplanmanager_subscription.cloudfront[0].resource_arns == toset([
+      "arn:aws:cloudfront::111111111111:distribution/EDFDVBD6EXAMPLE",
+      "arn:aws:wafv2:us-east-1:111111111111:global/webacl/pitman-frontend-acl/00000000-0000-0000-0000-000000000000",
+      "arn:aws:route53:::hostedzone/Z0PITMANEXAMPLE",
+    ])
+    error_message = "The plan covers exactly the distribution, its web ACL and the site's zone."
+  }
+}
+
+run "flat_rate_plan_business_refused" {
+  command = plan
+  variables {
+    cloudfront_flat_rate_plan = "BUSINESS"
+  }
+  expect_failures = [var.cloudfront_flat_rate_plan]
+}
+
+run "flat_rate_plan_lowercase_refused" {
+  command = plan
+  variables {
+    cloudfront_flat_rate_plan = "pro"
+  }
+  expect_failures = [var.cloudfront_flat_rate_plan]
+}
+
+run "cost_anomaly_negative_refused" {
+  command = plan
+  variables {
+    cost_anomaly_threshold_usd = -1
+  }
+  expect_failures = [var.cost_anomaly_threshold_usd]
 }
 
 run "budget_zero_refused_without_opt_out" {
@@ -250,8 +438,8 @@ run "budget_zero_with_opt_out_creates_none" {
   }
 
   assert {
-    condition     = length(aws_budgets_budget.monthly) == 0
-    error_message = "budget_monthly_usd = 0 with the explicit opt-out creates no budget (no billing access yet)."
+    condition     = length(aws_budgets_budget.monthly) == 0 && length(aws_budgets_budget.daily) == 0
+    error_message = "budget_monthly_usd = 0 with the explicit opt-out creates no budget, monthly or daily (no billing access yet)."
   }
 }
 

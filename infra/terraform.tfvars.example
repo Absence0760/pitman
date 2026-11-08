@@ -59,8 +59,19 @@ breaker_duration_ms_per_hour  = 7200000 # 2 copies busy the whole hour; x memory
 # opt-out below; turn it back off once billing access is on.
 budget_monthly_usd = 25
 # no_budget_acknowledged = true
+# The daily budget: null derives ceil(25 x 2.25 / 30) = $2; 0 skips it.
+# budget_daily_usd = 2
+# Cost Anomaly Detection: off (0) for the first apply; then 5
+# (docs/deployment.md § First deploy).
+# cost_anomaly_threshold_usd = 5
 
-# Both alert topics and the budget email this address (confirm both SNS
+# CloudFront's flat-rate plan: "none" (pay-as-you-go, the default) or "PRO"
+# ($15 a month; created pending, unbilled, until you approve it in the
+# console; raise budget_monthly_usd to 35 with it). docs/deployment.md
+# § Then: the flat-rate plan.
+# cloudfront_flat_rate_plan = "PRO"
+
+# Both alert topics and the budgets email this address (confirm both SNS
 # mails). Required, and refused on a reserved example domain, so this
 # placeholder fails the plan until it is replaced with a real mailbox.
 alert_email = "you+pitman-aws-alerts@example.com"

@@ -11,6 +11,7 @@ import { type AppDeps, createApp, SHARED_SECRET_UNSET } from './app.js';
 import { ChirpsCopy, chirpsCopyConfig } from './chirps/copy.js';
 import { writeSyntheticChirps } from './chirps/synthetic.js';
 import { MAX_BODY_BYTES } from './http/area.js';
+import { API_SECURITY_HEADERS } from './http/securityHeaders.js';
 import { localGridSource, MapGridCatalog } from './mapgrid/source.js';
 import { QuaternaryStore, quaternarySourceFromEnv } from './quaternaries/source.js';
 import { syntheticMapGridJson } from './mapgrid/synthetic.js';
@@ -226,6 +227,35 @@ describe('the template’s guards', () => {
 	it('answers /health, and mounts the routes unprefixed (CloudFront strips /api, R4-I4)', async () => {
 		expect(await (await app().request('/health')).json()).toEqual({ ok: true });
 		expect((await post(app(), '/api/chirps/monthly', { area: GRID })).status).toBe(404);
+	});
+
+	it('sets the API security headers on every answer, the refusals included (R4-I14)', async () => {
+		const expectHeaders = (res: Response) => {
+			for (const [name, value] of Object.entries(API_SECURITY_HEADERS)) expect(res.headers.get(name), `${name} on ${res.status}`).toBe(value);
+		};
+		const ok = await app().request('/health');
+		expect(ok.status).toBe(200);
+		expectHeaders(ok);
+		const missing = await app().request('/no-such-route');
+		expect(missing.status).toBe(404);
+		expectHeaders(missing);
+		const invalid = await post(app(), '/chirps/monthly', '{');
+		expect(invalid.status).toBe(400);
+		expectHeaders(invalid);
+		vi.stubEnv('CLOUDFRONT_SHARED_SECRET', 'not-a-real-secret');
+		const refused = await app().request('/health');
+		expect(refused.status).toBe(403);
+		expectHeaders(refused);
+		const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			vi.stubEnv('AWS_LAMBDA_FUNCTION_NAME', 'pitman-backend');
+			vi.stubEnv('CLOUDFRONT_SHARED_SECRET', '');
+			const unset = await app().request('/health');
+			expect(unset.status).toBe(503);
+			expectHeaders(unset);
+		} finally {
+			errors.mockRestore();
+		}
 	});
 
 	it('compares the shared secret only at equal length (timing-safe), refusing a prefix or a longer value', async () => {

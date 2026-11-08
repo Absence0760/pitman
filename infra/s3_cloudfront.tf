@@ -134,7 +134,8 @@ resource "aws_acm_certificate_validation" "frontend" {
 
 # ----------------------------------------------------------------------------
 # CloudFront Functions (viewer request); code and comments in functions/,
-# tested by scripts/cloudfront-functions.test.mjs. $0.10 per million.
+# tested by scripts/cloudfront-functions.test.mjs. $0.10 per million. The
+# viewer-response ones, the security headers, are in security_headers.tf.
 # ----------------------------------------------------------------------------
 
 resource "aws_cloudfront_function" "spa_rewrite" {
@@ -271,17 +272,22 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   default_cache_behavior {
-    allowed_methods            = ["GET", "HEAD", "OPTIONS"]
-    cached_methods             = ["GET", "HEAD"]
-    target_origin_id           = "s3-frontend"
-    viewer_protocol_policy     = "redirect-to-https"
-    compress                   = true
-    cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6" # Managed-CachingOptimized
-    response_headers_policy_id = aws_cloudfront_response_headers_policy.site.id
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+    target_origin_id       = "s3-frontend"
+    viewer_protocol_policy = "redirect-to-https"
+    compress               = true
+    cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6" # Managed-CachingOptimized
 
     function_association {
       event_type   = "viewer-request"
       function_arn = aws_cloudfront_function.spa_rewrite.arn
+    }
+
+    # The security headers (security_headers.tf); no response headers policy.
+    function_association {
+      event_type   = "viewer-response"
+      function_arn = aws_cloudfront_function.site_headers.arn
     }
   }
 
@@ -299,19 +305,25 @@ resource "aws_cloudfront_distribution" "frontend" {
   # rest, and is the payload hash CloudFront signs.
   # https-only: an http:// API call is refused, not redirected (a redirect would turn a POST into a GET).
   ordered_cache_behavior {
-    path_pattern               = "/api/*"
-    target_origin_id           = "lambda-api"
-    viewer_protocol_policy     = "https-only"
-    allowed_methods            = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods             = ["GET", "HEAD"]
-    compress                   = true
-    cache_policy_id            = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # Managed-CachingDisabled
-    origin_request_policy_id   = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # Managed-AllViewerExceptHostHeader
-    response_headers_policy_id = aws_cloudfront_response_headers_policy.api.id
+    path_pattern             = "/api/*"
+    target_origin_id         = "lambda-api"
+    viewer_protocol_policy   = "https-only"
+    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods           = ["GET", "HEAD"]
+    compress                 = true
+    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # Managed-CachingDisabled
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # Managed-AllViewerExceptHostHeader
 
     function_association {
       event_type   = "viewer-request"
       function_arn = aws_cloudfront_function.api_strip_prefix.arn
+    }
+
+    # The API's security headers on 2xx/3xx; the app sets the same ones on
+    # its errors, where no viewer-response function runs (security_headers.tf).
+    function_association {
+      event_type   = "viewer-response"
+      function_arn = aws_cloudfront_function.api_headers.arn
     }
   }
 

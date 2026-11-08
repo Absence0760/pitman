@@ -331,7 +331,7 @@ access portal URL in IAM Identity Center → Settings, in `personal-mgmt`
 40. Write the variables: `cp infra/terraform.tfvars.example infra/terraform.tfvars && $EDITOR infra/terraform.tfvars`. Set `alert_email` to a real mailbox you read (the example address is refused at plan time); keep `budget_monthly_usd = 25`, or 0 with the opt-out from step 38; leave the IC-WBT block commented out.
 41. Initialise against the real state bucket: `AWS_PROFILE=pitman terraform -chdir=infra init -backend-config=backend.config` → "Terraform has been successfully initialized!".
 42. Plan into a file: `AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan` → `Plan: N to add, 0 to change, 0 to destroy`. A validation error names the variable to fix (an example `alert_email`, a 0 budget without the opt-out).
-43. **Gate:** read the plan before applying it: nothing to change or destroy on a first apply; the Lambda, its role and grants, the user and usage tables, the spend breaker (topic, function, role), the WAF, CloudFront, SES and about two dozen alarms in two regions. The saved `infra/tfplan` holds the generated keys in plaintext; it is gitignored, and step 44 deletes it.
+43. **Gate:** read the plan before applying it: nothing to change or destroy on a first apply; the Lambda, its role and grants, the user and usage tables, the spend breaker (topic, function, role), the WAF, CloudFront, SES, the monthly and daily budgets and about two dozen alarms in two regions. The saved `infra/tfplan` holds the generated keys in plaintext; it is gitignored, and step 44 deletes it.
 44. Apply exactly that plan, then delete it (about 15 minutes: the certificate and CloudFront): `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan` → `Apply complete!`.
 45. Confirm both "AWS Notification - Subscription Confirmation" emails (one per alert topic, af-south-1 and us-east-1): click the link in each.
 46. **Gate:** fire a test alarm in each region and check both mails arrive (each alarm goes back to OK at its next evaluation, with no mail): `aws cloudwatch set-alarm-state --alarm-name pitman-lambda-errors --state-value ALARM --state-reason test --region af-south-1 --profile pitman`, then `aws cloudwatch set-alarm-state --alarm-name pitman-cloudfront-requests --state-value ALARM --state-reason test --region us-east-1 --profile pitman` → an "ALARM: …" mail for each within a few minutes. No mail: that region's subscription isn't confirmed (step 45). Never use a `pitman-breaker-api-*` alarm for this: setting one to ALARM trips the breaker for real and stops the API (`pnpm infra:breaker-reset pitman` undoes it).
@@ -383,6 +383,61 @@ The first admin is added later with `pnpm admin:bootstrap` (A-AUTH-5,
 63. **Gate:** read the plan: only `lambda_cross_account_read` and the function's `CHIRPS_*` / `MAP_GRID_SOURCE` variables change.
 64. Apply it and delete the plan: `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan`.
 65. Check a missing CHIRPS chunk reads as missing, not denied (R4-I2) with the backend's CHIRPS test call, and a real quaternary's monthly series comes back.
+
+### Then: the billing backstops (R4-I13)
+
+The breaker (`infra/breaker.tf`) and the 5-minute alarms are the fast layer.
+Behind them, the budgets and Cost Anomaly Detection read AWS's billing data,
+which lags by up to a day: they report what a runaway has already cost, so
+they are the backstop, not the alarm. The monthly and daily budgets were
+created in step 44 (unless step 38 took the opt-out). Cost Anomaly
+Detection is off on a first apply (`cost_anomaly_threshold_usd = 0`): an
+account may hold only one SERVICE monitor, and AWS may have made one already.
+
+66. Check the two budgets exist: `aws budgets describe-budgets --account-id "$(aws sts get-caller-identity --profile pitman --query Account --output text)" --region us-east-1 --profile pitman --query 'Budgets[].[BudgetName,TimeUnit,BudgetLimit.Amount]' --output text` → `pitman-daily DAILY 2.0` and `pitman-monthly MONTHLY 25.0`.
+67. Check the account has no anomaly monitor yet: `aws ce get-anomaly-monitors --region us-east-1 --profile pitman --query 'AnomalyMonitors[].[MonitorName,MonitorType,MonitorDimension]' --output text` → nothing. If it lists a `DIMENSIONAL SERVICE` monitor (AWS's default one), leave `cost_anomaly_threshold_usd` at 0 and add a subscription to that monitor in the Cost Management console instead (Cost Anomaly Detection → Alert subscriptions → Create, the us-east-1 `pitman-prod-alerts` topic, threshold $5); its topic already admits `costalerts.amazonaws.com`.
+68. Otherwise set `cost_anomaly_threshold_usd = 5` in `infra/terraform.tfvars`, then plan: `AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan` → `2 to add` (the monitor and its subscription), nothing changed or destroyed.
+69. Apply it and delete the plan: `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan`. The monitor learns from the account's spend, so it is quiet for the first weeks.
+
+### Then: the flat-rate plan (optional, R4-I15)
+
+Pay-as-you-go with the breaker is the default. CloudFront's flat-rate Pro
+plan ($15 a month, no overage) makes the edge and DNS a fixed cost
+(`infra/README.md` § Cost has both options). Terraform only *asks* for it:
+`infra/pricing_plan.tf` always creates the subscription with
+`approval_mode = "MANUAL"`, so it waits in `PENDING_APPROVAL`, unbilled,
+until you approve it, and that approval is a billing decision, yours alone.
+Do this after the first deploy (steps 49-53), so a rejection can't hold up
+the site. Never `terraform import` a subscription made in the console: the
+plan after it replaces the subscription (hashicorp/terraform-provider-aws#50494).
+
+Two compatibility questions are **unconfirmed** and AWS's answer to step 73
+settles them: (a) Pro allows only default (AWS-managed) origin request
+rules; `/api/*` uses the managed `AllViewerExceptHostHeader` policy, but
+does its origin's custom header (`X-CloudFront-Shared-Secret`) count as a
+custom rule? (b) the plan's documentation doesn't mention a Lambda Function
+URL origin behind a `lambda` OAC. Below Business only default caching rules
+are allowed; both behaviours use managed cache policies
+(`Managed-CachingOptimized`, `Managed-CachingDisabled`), so caching should
+pass. Also unconfirmed: a plan covers "up to one apex domain" (Pitman is
+the subdomain `pitman.jaredhoward.com`), and an account on the AWS Free Tier
+isn't eligible.
+
+70. Set `cloudfront_flat_rate_plan = "PRO"` in `infra/terraform.tfvars`, and `budget_monthly_usd = 35` (on Pro the fixed cost is about $19.30, $22.20 with VAT, over the $25 budget's 80 % line; `infra/README.md` § Cost): `$EDITOR infra/terraform.tfvars`.
+71. Plan into a file: `AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan` → `1 to add, 2 to change, 0 to destroy` (the subscription; the two budgets' limits).
+72. **Gate:** read the plan: the budgets change in place (monthly 35, daily 3), and one `aws_pricingplanmanager_subscription.cloudfront[0]` with `plan_family = "CloudFront"`, `plan_tier = "PRO"`, `approval_mode = "MANUAL"` and three `resource_arns` (the distribution, the web ACL, the zone). Anything else, or `IMMEDIATE`: stop.
+73. Apply it and delete the plan: `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan; rm infra/tfplan`. Then one of:
+    - **Rejected**: the apply fails with a `ValidationException` naming what isn't eligible. Nothing was created or billed. Record the reason, and which of the questions above it answers, in `docs/decisions.md` R4-I15; set `cloudfront_flat_rate_plan = "none"` again. Pitman stays on pay-as-you-go.
+    - **Accepted**: `Apply complete! Resources: 1 added`. Go on.
+74. Read what AWS made of it: `AWS_PROFILE=pitman terraform -chdir=infra state show 'aws_pricingplanmanager_subscription.cloudfront[0]'` → `status = "PENDING_APPROVAL"` (and `status_reason`, if any). `FAILED` is a rejection: record `status_reason` as in step 73, set `"none"`, plan and apply (a pending subscription is deleted at once).
+75. **Your decision:** approve the subscription in the CloudFront console (Distributions → the `pitman` distribution → its pending Pro plan → approve; the console may have moved this, trust what it shows). Billing starts then, prorated for the month. Not approving leaves it pending and unbilled.
+76. Check: `AWS_PROFILE=pitman terraform -chdir=infra apply -refresh-only` → the subscription's `status` now `ACTIVE`; accept the refresh. Then `AWS_PROFILE=pitman terraform -chdir=infra plan` → `No changes`. Record the outcome (Pro, approved on <date>) in `docs/decisions.md` R4-I15.
+77. Check the headers still come out (they never depended on the plan, R4-I14): step 51's `curl` → both headers.
+
+While the plan covers the distribution, AWS blocks deleting it and removing
+or replacing its web ACL, and the zone can't be deleted. To leave the plan,
+set `"none"`, plan (`1 to destroy`) and apply: the plan is cancelled at the
+end of the billing cycle and stays billed until then.
 
 ## What IC-WBT must grant (Round 4.1)
 

@@ -1,0 +1,44 @@
+// CloudFront Function (cloudfront-js-2.0), viewer response, every behaviour.
+// A Terraform template: infra/security_headers.tf renders it once per
+// behaviour (BEHAVIOUR "site" on the default behaviour, "api" on /api/*),
+// with that behaviour's Content-Security-Policy from infra/csp.json, as
+// JSON string literals. Tested by infra/scripts/cloudfront-functions.test.mjs,
+// which renders it the same way and asserts the exact header set.
+//
+// The headers the two response headers policies used to set (R4-I14), each
+// overwriting whatever the origin sent, so an origin can never weaken them:
+// HSTS 2 years with subdomains and no preload, nosniff, DENY framing, no
+// legacy XSS auditor (it is itself an XSS vector), COOP same-origin and a
+// Permissions-Policy that turns off the device APIs Pitman never uses. Only
+// the CSP and the Referrer-Policy differ by behaviour.
+//
+// CloudFront runs no viewer-response function on an origin answer of 400 or
+// more (edge-function restrictions, "HTTP status codes"), so the API sets the
+// same "api" headers itself (backend/src/http/securityHeaders.ts) and its
+// errors keep them.
+var BEHAVIOUR = ${behaviour};
+var CSP = ${csp};
+
+var REFERRER_POLICY = {
+	site: 'strict-origin-when-cross-origin',
+	api: 'no-referrer'
+};
+
+var HEADERS = {
+	'content-security-policy': CSP,
+	'strict-transport-security': 'max-age=63072000; includeSubDomains',
+	'x-content-type-options': 'nosniff',
+	'x-frame-options': 'DENY',
+	'referrer-policy': REFERRER_POLICY[BEHAVIOUR],
+	'x-xss-protection': '0',
+	'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+	'cross-origin-opener-policy': 'same-origin'
+};
+
+function handler(event) {
+	var response = event.response;
+	for (var name in HEADERS) {
+		response.headers[name] = { value: HEADERS[name] };
+	}
+	return response;
+}

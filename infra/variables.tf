@@ -265,6 +265,28 @@ variable "budget_monthly_usd" {
   }
 }
 
+variable "budget_daily_usd" {
+  description = "Daily cost budget in USD (gross; email + SNS at actual 100 %, at most one mail a day): the first month's guard, before the monthly forecast has history. null derives it as ceil(budget_monthly_usd x 2.25 / 30), $2 on $25. 0 skips only the daily budget. Billing lags by up to a day, so this is a backstop behind the breaker and the 5-minute alarms (infra/alarms.tf)."
+  type        = number
+  default     = null
+  validation {
+    condition = var.budget_daily_usd == null ? true : (
+      var.budget_daily_usd == 0 || (var.budget_daily_usd > 0 && var.budget_daily_usd < var.budget_monthly_usd)
+    )
+    error_message = "budget_daily_usd must be null (derived), 0 (no daily budget), or a positive amount below budget_monthly_usd."
+  }
+}
+
+variable "cost_anomaly_threshold_usd" {
+  description = "Cost Anomaly Detection (free): an anomaly with a total impact of at least this many USD notifies the us-east-1 alert topic. 0 (off) by default: an account may hold only one SERVICE monitor and AWS may already have made one, which would fail the first apply. Turn it on after the first apply (5 is sensible here; docs/deployment.md § First deploy)."
+  type        = number
+  default     = 0
+  validation {
+    condition     = var.cost_anomaly_threshold_usd >= 0
+    error_message = "cost_anomaly_threshold_usd must be 0 (off) or a positive USD amount."
+  }
+}
+
 variable "no_budget_acknowledged" {
   description = "The explicit opt-out that lets budget_monthly_usd = 0 apply: the account has no IAM access to billing information yet, so aws_budgets_budget would fail with AccessDeniedException. Turn it back off, with a real budget, as soon as billing access is on (docs/deployment.md § First deploy)."
   type        = bool
@@ -300,12 +322,14 @@ variable "cloudfront_requests_alarm_per_hour" {
     measured over 5 minutes (threshold = this / 12, rounded up, per 5-minute
     sum; AWS/CloudFront Requests, us-east-1). The edge is the one spend path
     no cap bounds: a flood spread over many IPs stays under the per-IP WAF
-    rules and is served from cache without touching the Lambda, at $1.90 per
-    million requests (CloudFront $1.20 at South African and Indian edges +
-    WAF $0.60 + CloudFront Functions $0.10). An invite-only tool's handful of
-    users make a few thousand an hour. Just under 20 000 an hour all month is
-    14.4 M requests x $1.90 = $27.36 that passes unseen (50 000 an hour let
-    $68.40 through).
+    rules and is served from cache without touching the Lambda, at $2.00 per
+    million requests on pay-as-you-go (CloudFront $1.20 at South African and
+    Indian edges + WAF $0.60 + two CloudFront Functions at $0.10, the
+    viewer-request one and the security headers', R4-I14). An invite-only
+    tool's handful of users make a few thousand an hour. Just under 20 000 an
+    hour all month is 14.4 M requests x $2.00 = $28.80 that passes unseen
+    (50 000 an hour let $72 through). On the flat-rate Pro plan none of this
+    is billed (infra/README.md § Cost).
   EOT
   type        = number
   default     = 20000
@@ -349,6 +373,25 @@ variable "route53_queries_alarm_per_hour" {
   validation {
     condition     = var.route53_queries_alarm_per_hour >= 12
     error_message = "route53_queries_alarm_per_hour must be at least 12 (one query per 5-minute window)."
+  }
+}
+
+variable "cloudfront_flat_rate_plan" {
+  description = <<-EOT
+    CloudFront flat-rate plan for the distribution, its web ACL and the
+    Route 53 zone (pricing_plan.tf, R4-I15). "none" (the default): pay-as-you-go,
+    guarded by the breaker and the alarms. "PRO": $15 a month, no overage, the
+    edge and DNS become a fixed cost. The subscription is always created with
+    approval_mode = "MANUAL", so it waits in PENDING_APPROVAL, unbilled, until
+    the operator approves it in the CloudFront console
+    (docs/deployment.md § Then: the flat-rate plan). Setting "none" again
+    cancels it at the end of the billing cycle.
+  EOT
+  type        = string
+  default     = "none"
+  validation {
+    condition     = contains(["none", "PRO"], var.cloudfront_flat_rate_plan)
+    error_message = "cloudfront_flat_rate_plan must be \"none\" or \"PRO\": Pro is the one tier this stack is checked against (pricing_plan.tf)."
   }
 }
 

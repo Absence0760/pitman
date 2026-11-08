@@ -167,7 +167,18 @@ runs it.
   (`infra/scripts/check-csp.mjs`). The full reasoning is in
   `infra/security_headers.tf`. Plus HSTS (2 years), nosniff, DENY framing,
   COOP same-origin, a Permissions-Policy; the API's responses get
-  `default-src 'none'`.
+  `default-src 'none'`. Since R4-I14 these come from two viewer-response
+  CloudFront Functions (one per behaviour, the CSP from `infra/csp.json`),
+  not response headers policies, which the flat-rate Free and Pro plans
+  don't allow. CloudFront runs no viewer-response function on an origin
+  answer of 400 or more, so the API sets the same headers on every response
+  itself (`backend/src/http/securityHeaders.ts`, tested against
+  `csp.json` and the function); the one set of responses that now goes
+  without them is S3's 403 AccessDenied XML for a missing file with an
+  extension (fixed text, never HTML that renders), and CloudFront's own
+  answers (a WAF block, the http-to-https redirect, a 502/504), which run no
+  function either, and the Function URL's own 429/403 while the breaker holds
+  the API at 0 (the app never runs, and the origin status is ≥ 400).
 - **Spend is bounded where it can be, stopped automatically where it
   matters, and watched where it can't**: the Lambda's reserved concurrency
   (10, validated 5-10 and at most 10 GB in all) caps what a flood can cost
@@ -184,8 +195,11 @@ runs it.
   off. CloudFront, the WAF and Route 53 have no cap; 5-minute alarms on
   their requests, bytes and DNS queries are the early warning. Alarms on
   Lambda invocations, throttles, errors and duration, a monthly budget
-  (gross of credits; forecast and actual), and WAF-block and CloudFront-5xx
-  alarms. Worst cases month by month: `infra/README.md` § Cost; resetting
+  (gross of credits; forecast and actual) and a daily one ($2, actual),
+  Cost Anomaly Detection once turned on after the first apply (R4-I13),
+  and WAF-block and CloudFront-5xx alarms. Billing data lags by up to a
+  day, so the budgets and anomaly alerts are the backstop behind the
+  breaker and the 5-minute alarms, not the fast layer. Worst cases month by month: `infra/README.md` § Cost; resetting
   the breaker and the manual kill switches: § Incident playbook.
 - **Unauthenticated `/auth/code` costs a little per call.** It is the one
   public route that writes: each accepted request (a decoy for an unlisted
@@ -567,12 +581,13 @@ records what it found over the history when it was introduced.
    (`terraform apply -replace`) signs everyone out.
 6. **Runaway spend** (a `pitman-breaker-*`, `pitman-lambda-invocations`,
    `-lambda-throttles`, `-cloudfront-requests`, `-cloudfront-bytes`,
-   `-route53-queries` or `-usage-table-throttles` alarm, or a budget mail).
+   `-route53-queries` or `-usage-table-throttles` alarm, or a budget or
+   cost-anomaly mail, which reports spend up to a day old).
    At the hard caps a flood costs $458 a month in Lambda compute plus $70 in
    requests, ~$74 in logs and $44 in the user table (`infra/README.md` §
    Cost); one signed-in user is also bounded by the daily per-user quota
    (R4-D7: about $0.60 a day, $18 a month), and CloudFront and Route 53
-   have no cap at all ($164 a day at 1 000 requests a second).
+   have no cap at all on pay-as-you-go ($173 a day at 1 000 requests a second).
    - **The breaker has tripped** (`pitman-breaker-api-concurrency`,
      `-api-duration` or `-api-invocations` in ALARM, and
      `{"event":"breaker.tripped",…}` in `/aws/lambda/pitman-breaker`): the
@@ -629,9 +644,14 @@ records what it found over the history when it was introduced.
   the edge: CloudFront and the WAF bill every request it answers 429 to. At
   the edge and in DNS nothing bounds it: the CloudFront requests and bytes and
   Route 53 query alarms say so within about 5-10 minutes, and the kill
-  switch (§ Incident playbook) is manual. CloudFront's flat-rate plan would
-  make both fixed costs; it is the operator's decision (R4-I10,
-  `infra/README.md` § Cost).
+  switch (§ Incident playbook) is manual. CloudFront's flat-rate Pro plan
+  would make both fixed costs ($15 a month, no overage, WAF-blocked requests
+  not counted); it is wired but off (`cloudfront_flat_rate_plan = "none"`,
+  `infra/pricing_plan.tf`), and turning it on is the operator's decision:
+  the subscription waits unbilled for their approval in the console, and
+  whether AWS accepts the `/api/*` origin (a Lambda Function URL behind a
+  `lambda` OAC, with a custom origin header) is unconfirmed until it is
+  tried (R4-I15, `docs/deployment.md` § Then: the flat-rate plan).
 - The CloudFront shared secret, the two sign-in keys (`AUTH_CODE_KEY`,
   `AUTH_SESSION_KEY`) and, once set, the Cape Farm Mapper token
   (`CFM_TOKEN`, from the `cfm_token` variable; R7-C9, issue #22 decision 15
