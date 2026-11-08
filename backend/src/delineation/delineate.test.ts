@@ -75,9 +75,13 @@ describe('delineate (synthetic DEM)', () => {
 		// own while it is the nearer, never a more-drained cell further off.
 		const river = DAM_CELL.x + 0.5;
 		const row = DAM_CELL.y + 60.5;
+		// One window the fixture's size (512 cells), not the default 1 024 (three quarters of it past the fixture, no data):
+		// it holds the whole valley, so the channels and their upstream cells round the click are the same, for a quarter of the
+		// cells routed twelve times over.
 		for (const dx of [0.1, 0.3, 0.6, 1.0, 1.2, 1.49]) {
 			for (const dy of [0, 0.3]) {
-				const r = await delineate(dem, fixtureLonLat(river + dx, row + dy), { keepPoint: true });
+				const r = await delineate(dem, fixtureLonLat(river + dx, row + dy), { keepPoint: true, windows: [FIXTURE_CELLS] });
+				expect(r.windowCells).toBe(FIXTURE_CELLS);
 				expect(r.snapDistanceM, `${dx}, ${dy}`).toBeLessThanOrEqual(SNAP_RADIUS_M);
 				// The river's cell centre is hypot(dx, dy) cells away: the outlet is never further than that.
 				expect(r.snapDistanceM, `${dx}, ${dy}`).toBeLessThanOrEqual(Math.hypot(dx, dy) * FIXTURE_CELL_M + 1e-6);
