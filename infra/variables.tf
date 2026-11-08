@@ -252,7 +252,7 @@ variable "waf_site_rate_limit_per_ip" {
 }
 
 variable "budget_monthly_usd" {
-  description = "Monthly cost budget in USD; email + SNS at forecasted 100 %, actual 80 % and actual 100 % (80 %, not 50 %: the fixed baseline is about $12.70, about $14.60 with VAT, so a 50 % line on $25 would fire every month and teach the operator to ignore it). Credits and refunds are excluded, so new-account credits can't hide a runaway. Must be above 0; 0 is accepted only with no_budget_acknowledged = true (until IAM access to billing information is enabled on the account, docs/deployment.md § First deploy)."
+  description = "Monthly cost budget in USD; email + SNS at forecasted 100 %, actual 80 % and actual 100 % (80 %, not 50 %: the fixed baseline is about $12.80, about $14.70 with VAT, so a 50 % line on $25 would fire every month and teach the operator to ignore it). Credits and refunds are excluded, so new-account credits can't hide a runaway. Must be above 0; 0 is accepted only with no_budget_acknowledged = true (until IAM access to billing information is enabled on the account, docs/deployment.md § First deploy)."
   type        = number
   default     = 25
   validation {

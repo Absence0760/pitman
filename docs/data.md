@@ -512,7 +512,7 @@ IC-WBT side) plus matching **identity policies** in Pitman's `infra/`
 
 | # | Principal (Pitman account) | Bucket (IC-WBT) | Actions | Resources / condition | For |
 |---|---|---|---|---|---|
-| 1 | API Lambda role | `water-management-mirror-<id>` | `s3:GetObject` | `arn:aws:s3:::water-management-mirror-<id>/rnl/*` (also `zarr.json` at the root, the group metadata zarrita reads) | method A |
+| 1 | API Lambda role | `water-management-mirror-<id>` | `s3:GetObject` | `arn:aws:s3:::water-management-mirror-<id>/rnl/*` only (not the root `zarr.json`, which the reader never opens; `chirps_root_metadata` defaults to off, R4-I11) | method A |
 | 2 | API Lambda role | `water-management-mirror-<id>` | `s3:ListBucket` | the bucket ARN, `Condition: StringLike s3:prefix ["rnl/*"]` | so a never-written (all-NaN) chunk answers **404**, not 403 (below) |
 | 3 | API Lambda role | `water-management-tiles-<id>` | `s3:GetObject` | `…/tiles/terrain.pmtiles` | delineation |
 | 4 | API Lambda role | `water-management-tiles-<id>` | `s3:GetObject` | `…/tiles/water.pmtiles` | D4 area (Round 7; add then) |

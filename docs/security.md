@@ -173,8 +173,11 @@ runs it.
   (10, validated 5-10 and at most 10 GB in all) caps what a flood can cost
   ($15.28 a day, $458.27 a month, at 1 GB), and the **spend circuit breaker**
   (`infra/breaker.tf`, R4-I7) sets that concurrency to 0 by itself when 6 or
-  more copies run for 15 minutes or more than 2 copy-hours run in an hour,
-  so sustained compute stays under about $92 a month. The user table's
+  more copies run for 15 minutes, more than 2 copy-hours run in an hour, or
+  more than 3 000 invocations run in each of three 5-minute periods (a flood
+  of fast requests), so sustained compute stays under about $92 a month and
+  requests and their log lines under about $14. Only those three alarms may
+  publish to its topic. The user table's
   on-demand throughput is capped (50 read / 10 write units a second, $43.55
   a month at most), the usage table's too (5 / 10, $23.95), each user has a
   daily quota on the costly routes (R4-D7), and the platform log lines are
@@ -570,27 +573,38 @@ records what it found over the history when it was introduced.
    Cost); one signed-in user is also bounded by the daily per-user quota
    (R4-D7: about $0.60 a day, $18 a month), and CloudFront and Route 53
    have no cap at all ($164 a day at 1 000 requests a second).
-   - **The breaker has tripped** (`pitman-breaker-api-concurrency` or
-     `-api-duration` in ALARM, and `{"event":"breaker.tripped",…}` in
-     `/aws/lambda/pitman-breaker`): the API's reserved concurrency is 0, so
-     no copy runs, nothing is billed and nothing reads IC-WBT's buckets. The
-     API answers 429 (throttled), sign-in mail waits on its queue and is
-     dropped once its code expires (so nobody can sign in), bounces wait on
-     theirs and may dead-letter, and the static site stays up. Find the
-     cause first (the Lambda's logs, the CloudFront and WAF metrics; sampled
-     requests are off), then reset: `AWS_PROFILE=pitman terraform -chdir=infra apply`
-     (it puts `lambda_reserved_concurrency` back; a plan shows the one
-     in-place change), or by hand,
-     `aws lambda put-function-concurrency --function-name pitman-backend --reserved-concurrent-executions 10 --region af-south-1 --profile pitman`.
-     A reset before the cause is gone trips it again within the hour. The
-     deploy role can't undo a trip.
+   - **The breaker has tripped** (`pitman-breaker-api-concurrency`,
+     `-api-duration` or `-api-invocations` in ALARM, and
+     `{"event":"breaker.tripped",…}` in `/aws/lambda/pitman-breaker`): the
+     API's reserved concurrency is 0, so no copy runs, nothing is billed at
+     the Lambda and nothing reads IC-WBT's buckets. The API answers 429
+     (throttled), sign-in mail waits on its queue and is dropped once its
+     code expires (so nobody can sign in), bounces wait on theirs and may
+     dead-letter, and the static site stays up. Find the cause first (the
+     Lambda's logs, the CloudFront and WAF metrics; sampled requests are
+     off), then reset with **`pnpm infra:breaker-reset pitman`**
+     (`infra/scripts/breaker-reset.sh`). The trips are alarm actions, which
+     fire only on a transition into ALARM, so an alarm left in ALARM can't
+     trip again; the script puts every `pitman-breaker-api-*` alarm back to
+     OK (re-arming them: if the flood is still on, the next evaluation goes
+     back to ALARM and trips again), restores the reserved concurrency to
+     `lambda_reserved_concurrency`, and redrives `pitman-mail-events-dlq`
+     (the bounces that dead-lettered meanwhile). It refuses while the current
+     clock hour's Duration is already over the Duration trip, since that
+     alarm would re-trip at once on the load that tripped it; wait for the
+     hour to turn, or set `BREAKER_RESET_NOW=1`. **A plain `terraform apply`
+     during an incident re-opens the API** (it restores the reserved
+     concurrency) **but leaves the alarms in ALARM, so the breaker stays
+     unarmed** until they return to OK on their own (up to 15 minutes of
+     quiet, or the rest of the clock hour for the Duration trip); run the
+     script instead, or after. The deploy role can't undo a trip.
    - **The breaker failed** (`pitman-breaker-errors`) or the spend is one it
-     doesn't see (fast requests, the edge, DNS): the manual kill switches,
-     each one command:
+     doesn't see (the edge, DNS): the manual kill switches, each one
+     command:
    - **API (Lambda):** `aws lambda put-function-concurrency --function-name pitman-backend --reserved-concurrent-executions 0 --region af-south-1 --profile pitman`.
-     The same effect as a trip. The next `terraform apply` restores the
-     configured concurrency (10), so put it back deliberately, after the
-     cause is fixed, by applying.
+     The same effect as a trip. Put it back deliberately, after the cause is
+     fixed, with `pnpm infra:breaker-reset pitman` (a `terraform apply` also
+     restores it).
    - **Edge (CloudFront):** first tighten the WAF: lower
      `waf_site_rate_limit_per_ip` (and `waf_api_rate_limit_per_ip`) in
      `infra/terraform.tfvars` and plan and apply (the minimum is 100 per 5
@@ -608,11 +622,12 @@ records what it found over the history when it was introduced.
 
 - The WAF limits are per IP; a flood spread over many addresses is bounded by
   reserved concurrency at the Lambda, stopped by the breaker if it keeps the
-  copies busy, and surfaced by the invocation alarm, not blocked. A flood of
-  fast requests (a few ms each) never trips the breaker, which watches
-  billed time: its Lambda requests and logs (about $144 a month at Lambda's
-  100 a second) are mailed within 5 minutes and stopped by hand. At the
-  edge and in DNS nothing bounds it: the CloudFront requests and bytes and
+  copies busy or sends more than 10 requests a second for 15 minutes, and
+  surfaced by the invocation alarm, not blocked. Below the invocations trip
+  a fast-request flood can still run $7 of Lambda requests and ~$7.40 of
+  log lines a month, mailed within 5 minutes. A tripped API still costs at
+  the edge: CloudFront and the WAF bill every request it answers 429 to. At
+  the edge and in DNS nothing bounds it: the CloudFront requests and bytes and
   Route 53 query alarms say so within about 5-10 minutes, and the kill
   switch (§ Incident playbook) is manual. CloudFront's flat-rate plan would
   make both fixed costs; it is the operator's decision (R4-I10,

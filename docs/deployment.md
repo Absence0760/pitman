@@ -155,14 +155,29 @@ lines at `WARN` and above (no START/END/REPORT per invocation).
 
 **The spend breaker can set the function's reserved concurrency to 0**
 (`infra/breaker.tf`, R4-I7): when 6 or more copies run in each of three
-5-minute periods, or more than 7 200 000 ms run in an hour. The API then
-answers 429 and sign-in stops until it is reset, by
-`AWS_PROFILE=pitman terraform -chdir=infra apply` (the function owns
-`reserved_concurrent_executions`, so the breaker's 0 shows as a one-line
-in-place change) or by hand with
-`aws lambda put-function-concurrency --function-name pitman-backend --reserved-concurrent-executions 10 --region af-south-1 --profile pitman`.
-Find the cause before resetting (`docs/security.md` § Incident playbook).
-The deploy role can't change concurrency, so a deploy doesn't reset it.
+5-minute periods, more than 7 200 000 ms run in an hour, or more than 3 000
+invocations run in each of three 5-minute periods. The API then answers 429
+and sign-in stops until it is reset. Find the cause first
+(`docs/security.md` § Incident playbook), then:
+
+- **Reset with `pnpm infra:breaker-reset pitman`** (`infra/scripts/breaker-reset.sh`;
+  the argument is the AWS profile). It puts every `pitman-breaker-api-*`
+  alarm back to OK, restores the reserved concurrency to
+  `lambda_reserved_concurrency` (read from `infra/terraform.tfvars`, else
+  10), and redrives `pitman-mail-events-dlq` into its queue with
+  `aws sqs start-message-move-task` (bounces and complaints that
+  dead-lettered while the mapping was throttled). It doesn't redrive the
+  sign-in mail DLQ: those codes have expired. It refuses while the current
+  clock hour's Duration is already over the Duration trip, because that
+  alarm would re-trip at once; wait for the hour to turn (UTC) or set
+  `BREAKER_RESET_NOW=1`.
+- **Why not just `terraform apply`:** a trip fires only when an alarm moves
+  into ALARM. A routine `terraform apply` during an incident re-opens the API
+  (the function owns `reserved_concurrent_executions`, so the breaker's 0 is
+  a one-line in-place change) but doesn't touch the alarms, which stay in
+  ALARM and can't trip again until they have gone back to OK by themselves.
+  Run the script after any such apply.
+- The deploy role can't change concurrency, so a deploy never resets it.
 
 Sign-in's variables (`backend/src/auth/config.ts`). **Until they are all
 set, every route but `/health` and `POST /auth/logout` answers 503** (fail
@@ -319,7 +334,7 @@ access portal URL in IAM Identity Center → Settings, in `personal-mgmt`
 43. **Gate:** read the plan before applying it: nothing to change or destroy on a first apply; the Lambda, its role and grants, the user and usage tables, the spend breaker (topic, function, role), the WAF, CloudFront, SES and about two dozen alarms in two regions. The saved `infra/tfplan` holds the generated keys in plaintext; it is gitignored, and step 44 deletes it.
 44. Apply exactly that plan, then delete it (about 15 minutes: the certificate and CloudFront): `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan` → `Apply complete!`.
 45. Confirm both "AWS Notification - Subscription Confirmation" emails (one per alert topic, af-south-1 and us-east-1): click the link in each.
-46. **Gate:** fire a test alarm in each region and check both mails arrive (each alarm goes back to OK at its next evaluation, with no mail): `aws cloudwatch set-alarm-state --alarm-name pitman-lambda-errors --state-value ALARM --state-reason test --region af-south-1 --profile pitman`, then `aws cloudwatch set-alarm-state --alarm-name pitman-cloudfront-requests --state-value ALARM --state-reason test --region us-east-1 --profile pitman` → an "ALARM: …" mail for each within a few minutes. No mail: that region's subscription isn't confirmed (step 45).
+46. **Gate:** fire a test alarm in each region and check both mails arrive (each alarm goes back to OK at its next evaluation, with no mail): `aws cloudwatch set-alarm-state --alarm-name pitman-lambda-errors --state-value ALARM --state-reason test --region af-south-1 --profile pitman`, then `aws cloudwatch set-alarm-state --alarm-name pitman-cloudfront-requests --state-value ALARM --state-reason test --region us-east-1 --profile pitman` → an "ALARM: …" mail for each within a few minutes. No mail: that region's subscription isn't confirmed (step 45). Never use a `pitman-breaker-api-*` alarm for this: setting one to ALARM trips the breaker for real and stops the API (`pnpm infra:breaker-reset pitman` undoes it).
 
 ### The first deploys
 
@@ -354,7 +369,7 @@ that both alarms stay OK.
 55. Check the domain identity has verified (the DKIM CNAMEs, MAIL FROM MX and SPF are in the zone from step 44; DNS can take up to an hour): `aws sesv2 get-email-identity --email-identity pitman.jaredhoward.com --region af-south-1 --profile pitman --query '{sending:VerifiedForSendingStatus,dkim:DkimAttributes.Status,mailFrom:MailFromAttributes.MailFromDomainStatus}'` → `true`, `SUCCESS`, `SUCCESS`.
 56. Check DMARC is published: `dig +short TXT _dmarc.pitman.jaredhoward.com` → `"v=DMARC1; p=none; adkim=r; aspf=r"`.
 57. Once AWS answers, check production access: `aws sesv2 get-account --region af-south-1 --profile pitman --query '{production:ProductionAccessEnabled,sending:SendingEnabled}'` → both `true`.
-58. Confirm the af-south-1 alarms exist (Lambda errors, throttles, invocations, duration, SES bounce and complaint rates, the user table, `auth.locked`, `mail.send_failed`, `auth.unconfigured`, `auth.send_capped`, `auth.slow_code_request`, `cloudfront-secret-unset`, `mail-record-failed`, `mail-events-unrecorded`, `mail-events-dropped`, the mail-events DLQ, and for the sign-in mail queue `mail-enqueue-failed`, `mail-send-dropped`, `mail-send-dlq` and `mail-send-age`, the spend breaker's `breaker-api-concurrency`, `breaker-api-duration` and `breaker-errors`, and `usage-table-throttles`): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region af-south-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
+58. Confirm the af-south-1 alarms exist (Lambda errors, throttles, invocations, duration, SES bounce and complaint rates, the user table, `auth.locked`, `mail.send_failed`, `auth.unconfigured`, `auth.send_capped`, `auth.slow_code_request`, `cloudfront-secret-unset`, `mail-record-failed`, `mail-events-unrecorded`, `mail-events-dropped`, the mail-events DLQ, and for the sign-in mail queue `mail-enqueue-failed`, `mail-send-dropped`, `mail-send-dlq` and `mail-send-age`, the spend breaker's `breaker-api-concurrency`, `breaker-api-duration`, `breaker-api-invocations` and `breaker-errors`, and `usage-table-throttles`): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region af-south-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
 59. Confirm the us-east-1 alarms exist (`pitman-cloudfront-requests`, `pitman-cloudfront-bytes`, `pitman-route53-queries`, `pitman-cloudfront-5xx`, `pitman-waf-blocked`, `pitman-waf-auth-blocked`): `aws cloudwatch describe-alarms --alarm-name-prefix pitman- --region us-east-1 --profile pitman --query 'MetricAlarms[].AlarmName'`.
 
 The first admin is added later with `pnpm admin:bootstrap` (A-AUTH-5,

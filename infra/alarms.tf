@@ -128,8 +128,8 @@ resource "aws_budgets_budget" "monthly" {
   # Forecasted is the only notification that catches a runaway during the
   # month (though AWS needs some spend history before it forecasts, so it is
   # quiet in the first weeks); actual lags by up to a day. The early actual
-  # line is 80 %, not 50 %: the fixed baseline is about $12.70 a month
-  # ($14.60 with VAT, infra/README.md § Cost), so 50 % of $25 would fire
+  # line is 80 %, not 50 %: the fixed baseline is about $12.80 a month
+  # ($14.70 with VAT, infra/README.md § Cost), so 50 % of $25 would fire
   # every month. The CloudWatch alarms are the fast layer; this is the
   # backstop.
   notification {
