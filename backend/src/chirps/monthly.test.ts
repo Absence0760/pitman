@@ -1,9 +1,10 @@
 // chirpsMonthly (docs/data.md § CHIRPS steps 1–4) on the fixture copy: the contract's shape, every month
 // from January 1981 to finalThrough, the sea cell removed with its weight, months the copy doesn't hold
-// missing, and the refusals (outside the region, too many cells, no data under the area).
+// missing, and the refusals (outside the region, too many cells or chunks, no data under the area).
 import { describe, expect, it } from 'vitest';
 import { FIXTURE_MIRROR_DIR } from '../__tests__/fakeS3.js';
 import type { Geometry } from '../geo/geojson.js';
+import { CHIRPS_MAX_CHUNKS } from './config.js';
 import { ChirpsCopy, chirpsCopyConfig } from './copy.js';
 import { AreaRefusedError, CHIRPS_PRODUCT, chirpsMonthly } from './monthly.js';
 
@@ -40,5 +41,22 @@ describe('chirpsMonthly on the fixture copy', () => {
 		await expect(chirpsMonthly(c, box(20, -34, 23, -31))).rejects.toThrow(/covers 3600 of the 0.05° CHIRPS cells/);
 		await expect(chirpsMonthly(c, box(30, -30, 30.2, -29.8))).rejects.toThrow(AreaRefusedError);
 		await expect(chirpsMonthly(c, box(30, -30, 30.2, -29.8))).rejects.toThrow(/no data under the area/);
+	});
+
+	it(`refuses an area spread over more than ${CHIRPS_MAX_CHUNKS} chunks before reading any, and reads one at the limit (R4-D6)`, async () => {
+		const c = await copy();
+		// One cell in each of n chunks, 1° apart in rows of five (inside the 200-cell span): n cells, n chunks, n × 45 GETs.
+		const spread = (n: number) =>
+			({
+				type: 'MultiPolygon',
+				coordinates: Array.from({ length: n }, (_, k) => {
+					const [w, s] = [15.0 + (k % 5), -30.0 + Math.floor(k / 5)];
+					return [[[w, s], [w + 0.05, s], [w + 0.05, s + 0.05], [w, s + 0.05], [w, s]]];
+				})
+			}) as Geometry;
+		await expect(chirpsMonthly(c, spread(CHIRPS_MAX_CHUNKS + 1))).rejects.toThrow(new RegExp(`spread over ${CHIRPS_MAX_CHUNKS + 1} of the CHIRPS copy's 1° × 1° blocks; one request reads at most ${CHIRPS_MAX_CHUNKS}`));
+		await expect(chirpsMonthly(c, spread(CHIRPS_MAX_CHUNKS + 1))).rejects.toThrow(AreaRefusedError);
+		// At the limit it is read: the fixture copy holds nothing there, so it gets as far as "no data".
+		await expect(chirpsMonthly(c, spread(CHIRPS_MAX_CHUNKS))).rejects.toThrow(/no data under the area/);
 	});
 });

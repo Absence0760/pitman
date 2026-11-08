@@ -4,10 +4,11 @@ import type { ChirpsMonth, ChirpsMonthly } from '@pitman/wrsm';
 import { geometryAreaM2 } from '../geo/area.js';
 import type { Geometry } from '../geo/geojson.js';
 import { boundaryCells } from './boundaryCells.js';
+import { CHIRPS_MAX_CHUNKS } from './config.js';
 import type { OpenedCopy } from './copy.js';
 import { FeedFormatError } from './errors.js';
-import { FINALS_FIRST_YEAR } from './mirror/arrays.js';
-import { chcCell, mirrorCell } from './mirror/grid.js';
+import { FINALS_CHUNK, FINALS_FIRST_YEAR } from './mirror/arrays.js';
+import { cellsByChunk, chcCell, mirrorCell } from './mirror/grid.js';
 import { areaMonthly, readMonthly } from './readMonthly.js';
 
 /** The product as the sidecar records it (contract.ts ChirpsMonthly.product). */
@@ -36,6 +37,13 @@ export async function chirpsMonthly(copy: OpenedCopy, g: Geometry, opts: Monthly
 			throw err;
 		}
 	});
+	// One GET per chunk per year: an area spread over many chunks costs far more than its cells suggest (R4-D6).
+	const chunks = cellsByChunk(cells, FINALS_CHUNK[2], FINALS_CHUNK[3]).length;
+	if (chunks > CHIRPS_MAX_CHUNKS) {
+		throw new AreaRefusedError(
+			`the area is spread over ${chunks} of the CHIRPS copy's 1° × 1° blocks; one request reads at most ${CHIRPS_MAX_CHUNKS} (any compact area under the cell limit fits): extend the file over fewer quaternaries, or over quaternaries closer together`
+		);
+	}
 	const finalThrough = manifest.finalThrough;
 	const lastYear = Number(finalThrough.slice(0, 4));
 	const lastMonth = Number(finalThrough.slice(5, 7));
