@@ -265,6 +265,28 @@ variable "budget_monthly_usd" {
   }
 }
 
+variable "budget_daily_usd" {
+  description = "Daily cost budget in USD (gross; email + SNS at actual 100 %, at most one mail a day): the first month's guard, before the monthly forecast has history. null derives it as ceil(budget_monthly_usd x 2.25 / 30), $2 on $25. 0 skips only the daily budget. Billing lags by up to a day, so this is a backstop behind the breaker and the 5-minute alarms (infra/alarms.tf)."
+  type        = number
+  default     = null
+  validation {
+    condition = var.budget_daily_usd == null ? true : (
+      var.budget_daily_usd == 0 || (var.budget_daily_usd > 0 && var.budget_daily_usd < var.budget_monthly_usd)
+    )
+    error_message = "budget_daily_usd must be null (derived), 0 (no daily budget), or a positive amount below budget_monthly_usd."
+  }
+}
+
+variable "cost_anomaly_threshold_usd" {
+  description = "Cost Anomaly Detection (free): an anomaly with a total impact of at least this many USD notifies the us-east-1 alert topic. 0 (off) by default: an account may hold only one SERVICE monitor and AWS may already have made one, which would fail the first apply. Turn it on after the first apply (5 is sensible here; docs/deployment.md § First deploy)."
+  type        = number
+  default     = 0
+  validation {
+    condition     = var.cost_anomaly_threshold_usd >= 0
+    error_message = "cost_anomaly_threshold_usd must be 0 (off) or a positive USD amount."
+  }
+}
+
 variable "no_budget_acknowledged" {
   description = "The explicit opt-out that lets budget_monthly_usd = 0 apply: the account has no IAM access to billing information yet, so aws_budgets_budget would fail with AccessDeniedException. Turn it back off, with a real budget, as soon as billing access is on (docs/deployment.md § First deploy)."
   type        = bool

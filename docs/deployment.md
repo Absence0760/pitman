@@ -331,7 +331,7 @@ access portal URL in IAM Identity Center → Settings, in `personal-mgmt`
 40. Write the variables: `cp infra/terraform.tfvars.example infra/terraform.tfvars && $EDITOR infra/terraform.tfvars`. Set `alert_email` to a real mailbox you read (the example address is refused at plan time); keep `budget_monthly_usd = 25`, or 0 with the opt-out from step 38; leave the IC-WBT block commented out.
 41. Initialise against the real state bucket: `AWS_PROFILE=pitman terraform -chdir=infra init -backend-config=backend.config` → "Terraform has been successfully initialized!".
 42. Plan into a file: `AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan` → `Plan: N to add, 0 to change, 0 to destroy`. A validation error names the variable to fix (an example `alert_email`, a 0 budget without the opt-out).
-43. **Gate:** read the plan before applying it: nothing to change or destroy on a first apply; the Lambda, its role and grants, the user and usage tables, the spend breaker (topic, function, role), the WAF, CloudFront, SES and about two dozen alarms in two regions. The saved `infra/tfplan` holds the generated keys in plaintext; it is gitignored, and step 44 deletes it.
+43. **Gate:** read the plan before applying it: nothing to change or destroy on a first apply; the Lambda, its role and grants, the user and usage tables, the spend breaker (topic, function, role), the WAF, CloudFront, SES, the monthly and daily budgets and about two dozen alarms in two regions. The saved `infra/tfplan` holds the generated keys in plaintext; it is gitignored, and step 44 deletes it.
 44. Apply exactly that plan, then delete it (about 15 minutes: the certificate and CloudFront): `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan` → `Apply complete!`.
 45. Confirm both "AWS Notification - Subscription Confirmation" emails (one per alert topic, af-south-1 and us-east-1): click the link in each.
 46. **Gate:** fire a test alarm in each region and check both mails arrive (each alarm goes back to OK at its next evaluation, with no mail): `aws cloudwatch set-alarm-state --alarm-name pitman-lambda-errors --state-value ALARM --state-reason test --region af-south-1 --profile pitman`, then `aws cloudwatch set-alarm-state --alarm-name pitman-cloudfront-requests --state-value ALARM --state-reason test --region us-east-1 --profile pitman` → an "ALARM: …" mail for each within a few minutes. No mail: that region's subscription isn't confirmed (step 45). Never use a `pitman-breaker-api-*` alarm for this: setting one to ALARM trips the breaker for real and stops the API (`pnpm infra:breaker-reset pitman` undoes it).
@@ -383,6 +383,21 @@ The first admin is added later with `pnpm admin:bootstrap` (A-AUTH-5,
 63. **Gate:** read the plan: only `lambda_cross_account_read` and the function's `CHIRPS_*` / `MAP_GRID_SOURCE` variables change.
 64. Apply it and delete the plan: `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan`.
 65. Check a missing CHIRPS chunk reads as missing, not denied (R4-I2) with the backend's CHIRPS test call, and a real quaternary's monthly series comes back.
+
+### Then: the billing backstops (R4-I13)
+
+The breaker (`infra/breaker.tf`) and the 5-minute alarms are the fast layer.
+Behind them, the budgets and Cost Anomaly Detection read AWS's billing data,
+which lags by up to a day: they report what a runaway has already cost, so
+they are the backstop, not the alarm. The monthly and daily budgets were
+created in step 44 (unless step 38 took the opt-out). Cost Anomaly
+Detection is off on a first apply (`cost_anomaly_threshold_usd = 0`): an
+account may hold only one SERVICE monitor, and AWS may have made one already.
+
+66. Check the two budgets exist: `aws budgets describe-budgets --account-id "$(aws sts get-caller-identity --profile pitman --query Account --output text)" --region us-east-1 --profile pitman --query 'Budgets[].[BudgetName,TimeUnit,BudgetLimit.Amount]' --output text` → `pitman-daily DAILY 2.0` and `pitman-monthly MONTHLY 25.0`.
+67. Check the account has no anomaly monitor yet: `aws ce get-anomaly-monitors --region us-east-1 --profile pitman --query 'AnomalyMonitors[].[MonitorName,MonitorType,MonitorDimension]' --output text` → nothing. If it lists a `DIMENSIONAL SERVICE` monitor (AWS's default one), leave `cost_anomaly_threshold_usd` at 0 and add a subscription to that monitor in the Cost Management console instead (Cost Anomaly Detection → Alert subscriptions → Create, the us-east-1 `pitman-prod-alerts` topic, threshold $5); its topic already admits `costalerts.amazonaws.com`.
+68. Otherwise set `cost_anomaly_threshold_usd = 5` in `infra/terraform.tfvars`, then plan: `AWS_PROFILE=pitman terraform -chdir=infra plan -out=tfplan` → `2 to add` (the monitor and its subscription), nothing changed or destroyed.
+69. Apply it and delete the plan: `AWS_PROFILE=pitman terraform -chdir=infra apply tfplan && rm infra/tfplan`. The monitor learns from the account's spend, so it is quiet for the first weeks.
 
 ## What IC-WBT must grant (Round 4.1)
 

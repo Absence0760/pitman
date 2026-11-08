@@ -184,8 +184,11 @@ runs it.
   off. CloudFront, the WAF and Route 53 have no cap; 5-minute alarms on
   their requests, bytes and DNS queries are the early warning. Alarms on
   Lambda invocations, throttles, errors and duration, a monthly budget
-  (gross of credits; forecast and actual), and WAF-block and CloudFront-5xx
-  alarms. Worst cases month by month: `infra/README.md` § Cost; resetting
+  (gross of credits; forecast and actual) and a daily one ($2, actual),
+  Cost Anomaly Detection once turned on after the first apply (R4-I13),
+  and WAF-block and CloudFront-5xx alarms. Billing data lags by up to a
+  day, so the budgets and anomaly alerts are the backstop behind the
+  breaker and the 5-minute alarms, not the fast layer. Worst cases month by month: `infra/README.md` § Cost; resetting
   the breaker and the manual kill switches: § Incident playbook.
 - **Unauthenticated `/auth/code` costs a little per call.** It is the one
   public route that writes: each accepted request (a decoy for an unlisted
@@ -567,7 +570,8 @@ records what it found over the history when it was introduced.
    (`terraform apply -replace`) signs everyone out.
 6. **Runaway spend** (a `pitman-breaker-*`, `pitman-lambda-invocations`,
    `-lambda-throttles`, `-cloudfront-requests`, `-cloudfront-bytes`,
-   `-route53-queries` or `-usage-table-throttles` alarm, or a budget mail).
+   `-route53-queries` or `-usage-table-throttles` alarm, or a budget or
+   cost-anomaly mail, which reports spend up to a day old).
    At the hard caps a flood costs $458 a month in Lambda compute plus $70 in
    requests, ~$74 in logs and $44 in the user table (`infra/README.md` §
    Cost); one signed-in user is also bounded by the daily per-user quota

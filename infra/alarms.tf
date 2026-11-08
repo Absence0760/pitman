@@ -11,7 +11,7 @@
 # Two topics, because a CloudWatch alarm can only notify an SNS topic in its
 # own region: `alerts` (primary region: Lambda alarms, the breaker) and
 # `alerts_us_east_1` (CloudFront, WAF and Route 53 metrics exist only in
-# us-east-1; also the budget, below).
+# us-east-1; also the budgets and Cost Anomaly Detection, below).
 # alert_email (required, and refused on a reserved example domain) subscribes
 # to both.
 # ----------------------------------------------------------------------------
@@ -50,8 +50,9 @@ resource "aws_sns_topic_subscription" "alerts_us_east_1_email" {
 # requires a same-account topic but says nothing of opt-in regions, so the
 # budget doesn't depend on af-south-1. Its statement is AWS's recommended
 # one: aws:SourceAccount plus aws:SourceArn on this account's budgets. The
-# budget also emails alert_email directly, so it still reaches the operator
-# if the topic subscription was never confirmed.
+# budgets also email alert_email directly, so they still reach the operator
+# if the topic subscription was never confirmed (the anomaly subscription
+# can't: it reaches the operator only through the topic).
 data "aws_iam_policy_document" "alerts_publish" {
   for_each = {
     primary   = aws_sns_topic.alerts.arn
@@ -95,6 +96,28 @@ data "aws_iam_policy_document" "alerts_publish" {
       }
     }
   }
+
+  # Cost Anomaly Detection's subscription (below) publishes as
+  # costalerts.amazonaws.com, also to the us-east-1 topic only (Cost Explorer
+  # is served from there). The statement is ewr-compliance's: this account
+  # only.
+  dynamic "statement" {
+    for_each = each.key == "us_east_1" ? [each.value] : []
+    content {
+      sid       = "AllowCostAnomalyDetection"
+      actions   = ["sns:Publish"]
+      resources = [statement.value]
+      principals {
+        type        = "Service"
+        identifiers = ["costalerts.amazonaws.com"]
+      }
+      condition {
+        test     = "StringEquals"
+        variable = "aws:SourceAccount"
+        values   = [local.account_id]
+      }
+    }
+  }
 }
 
 resource "aws_sns_topic_policy" "alerts" {
@@ -108,7 +131,27 @@ resource "aws_sns_topic_policy" "alerts_us_east_1" {
   policy   = data.aws_iam_policy_document.alerts_publish["us_east_1"].json
 }
 
-# --- Monthly budget --------------------------------------------------------
+# --- Budgets -----------------------------------------------------------------
+# Two (AWS gives two free an account), both emailing alert_email directly and
+# notifying the us-east-1 topic (after ewr-compliance's alarms.tf):
+#   - Monthly: FORECASTED 100 %, ACTUAL 80 % and ACTUAL 100 %.
+#   - Daily: ACTUAL 100 % only (a daily budget has no forecast). The first
+#     month's guard, before the monthly forecast has any history: a runaway
+#     is mailed about a day after it starts, not when the month's total
+#     passes 80 %. Derived as ceil(monthly x 2.25 / 30) unless
+#     budget_daily_usd is set: $2 a day on $25, well above the ~$0.43 a day
+#     of fixed cost, so an ordinary day never fires it.
+# Billing data lags by up to a day, so both report what a runaway has already
+# cost: they are the backstop behind the breaker (breaker.tf) and the
+# 5-minute alarms below, which say it is happening.
+
+locals {
+  budget_daily_usd = (
+    var.budget_daily_usd != null
+    ? var.budget_daily_usd
+    : ceil(var.budget_monthly_usd * 2.25 / 30)
+  )
+}
 
 resource "aws_budgets_budget" "monthly" {
   count        = var.budget_monthly_usd > 0 ? 1 : 0
@@ -158,6 +201,78 @@ resource "aws_budgets_budget" "monthly" {
     subscriber_email_addresses = [var.alert_email]
     subscriber_sns_topic_arns  = [aws_sns_topic.alerts_us_east_1.arn]
   }
+
+  # The topic policy must admit Budgets before the budget validates its SNS
+  # subscriber, or the create fails with "Invalid SNS topic".
+  depends_on = [aws_sns_topic_policy.alerts_us_east_1]
+}
+
+resource "aws_budgets_budget" "daily" {
+  count        = var.budget_monthly_usd > 0 && local.budget_daily_usd > 0 ? 1 : 0
+  name         = "${local.project}-daily"
+  budget_type  = "COST"
+  limit_amount = tostring(local.budget_daily_usd)
+  limit_unit   = "USD"
+  time_unit    = "DAILY"
+
+  # Gross, like the monthly one.
+  cost_types {
+    include_credit = false
+    include_refund = false
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.alert_email]
+    subscriber_sns_topic_arns  = [aws_sns_topic.alerts_us_east_1.arn]
+  }
+
+  depends_on = [aws_sns_topic_policy.alerts_us_east_1]
+}
+
+# --- Cost Anomaly Detection (free) -------------------------------------------
+# Off by default (cost_anomaly_threshold_usd = 0): an account may hold only
+# one dimensional (SERVICE) monitor, and AWS may already have made one (the
+# console offers it when Cost Explorer is first opened), which would fail the
+# first apply. Turn it on after the first apply (docs/deployment.md § First
+# deploy). It learns from the account's own history, so it is quiet for the
+# first weeks, and it reads the same lagging billing data as the budgets: a
+# backstop, not the fast layer. Cost Explorer is served from us-east-1.
+
+resource "aws_ce_anomaly_monitor" "services" {
+  count             = var.cost_anomaly_threshold_usd > 0 ? 1 : 0
+  provider          = aws.us_east_1
+  name              = "${local.project}-services"
+  monitor_type      = "DIMENSIONAL"
+  monitor_dimension = "SERVICE"
+}
+
+resource "aws_ce_anomaly_subscription" "services" {
+  count            = var.cost_anomaly_threshold_usd > 0 ? 1 : 0
+  provider         = aws.us_east_1
+  name             = "${local.project}-anomalies"
+  frequency        = "IMMEDIATE"
+  monitor_arn_list = [aws_ce_anomaly_monitor.services[0].arn]
+
+  # IMMEDIATE allows only an SNS subscriber; alert_email gets it through the
+  # topic's email subscription.
+  subscriber {
+    type    = "SNS"
+    address = aws_sns_topic.alerts_us_east_1.arn
+  }
+
+  threshold_expression {
+    dimension {
+      key           = "ANOMALY_TOTAL_IMPACT_ABSOLUTE"
+      match_options = ["GREATER_THAN_OR_EQUAL"]
+      values        = [tostring(var.cost_anomaly_threshold_usd)]
+    }
+  }
+
+  depends_on = [aws_sns_topic_policy.alerts_us_east_1]
 }
 
 # --- Lambda alarms (primary region) ----------------------------------------
