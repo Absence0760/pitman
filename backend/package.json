@@ -15,27 +15,27 @@
 	},
 	"dependencies": {
 		"@absence0760/auth-kit": "github:jaredhoward-dev/auth-kit#v0.3.0",
-		"@aws-sdk/client-dynamodb": "3.1161.0",
-		"@aws-sdk/client-s3": "3.1161.0",
-		"@aws-sdk/client-sesv2": "3.1161.0",
-		"@aws-sdk/client-sqs": "3.1161.0",
-		"@aws-sdk/lib-dynamodb": "3.1161.0",
+		"@aws-sdk/client-dynamodb": "3.1164.0",
+		"@aws-sdk/client-s3": "3.1164.0",
+		"@aws-sdk/client-sesv2": "3.1164.0",
+		"@aws-sdk/client-sqs": "3.1164.0",
+		"@aws-sdk/lib-dynamodb": "3.1164.0",
 		"@pitman/wrsm": "workspace:*",
 		"@zarrita/storage": "0.2.0",
-		"dotenv": "18.0.9",
-		"hono": "4.13.16",
+		"dotenv": "18.0.10",
+		"hono": "4.13.17",
 		"zarrita": "0.7.5"
 	},
 	"devDependencies": {
-		"@aws-sdk/client-lambda": "3.1161.0",
-		"@hono/node-server": "2.1.5",
+		"@aws-sdk/client-lambda": "3.1164.0",
+		"@hono/node-server": "2.1.6",
 		"@types/aws-lambda": "8.10.164",
 		"@types/node": "26.6.6",
-		"@vitest/coverage-v8": "5.0.5",
+		"@vitest/coverage-v8": "5.1.0",
 		"esbuild": "0.28.2",
-		"nodemailer": "10.3.1",
+		"nodemailer": "10.4.0",
 		"tsx": "4.23.15",
-		"typescript": "7.0.2",
-		"vitest": "5.0.5"
+		"typescript": "6.0.3",
+		"vitest": "5.1.0"
 	}
 }
