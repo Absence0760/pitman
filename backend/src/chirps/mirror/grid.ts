@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/mirror/grid.ts at f888e4461,
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/mirror/grid.ts at f888e4461,
 // stripped (docs/data.md § Code to copy): the 0.05° CHIRPS grid only. Dropped: the 0.1° products, the
 // forecast grids and PRODUCT_GRIDS; `@water-management/engine/calendar` replaced by ./calendar.ts;
 // GridCell and chcCell brought in from feeds/cellCache.ts (with feeds/sources/tiff.ts pixelOf's edge rule).

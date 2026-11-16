@@ -4,7 +4,7 @@
 
 Please **do not** open a public GitHub issue for security vulnerabilities.
 
-Use GitHub's private vulnerability reporting on this repository (Security → Report a vulnerability, or https://github.com/Absence0760/pitman/security/advisories/new) once the repo is public, or email jared@jaredhoward.com with the subject "Security report — pitman". Include:
+Use GitHub's private vulnerability reporting on this repository (Security → Report a vulnerability, or https://github.com/jaredhoward-dev/pitman/security/advisories/new) once the repo is public, or email jared@jaredhoward.com with the subject "Security report — pitman". Include:
 
 - A description of the vulnerability and its impact
 - Steps to reproduce (PoC if possible)

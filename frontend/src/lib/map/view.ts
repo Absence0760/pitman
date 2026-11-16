@@ -1,5 +1,5 @@
 // The box a view asks for. `snappedViewBbox` is ported from IC-WBT
-// (Absence0760/project-water-management, MIT) frontend/src/lib/components/map/mapLayers.ts at f888e4461.
+// (jaredhoward-dev/project-water-management, MIT) frontend/src/lib/components/map/mapLayers.ts at f888e4461.
 // Pure, so vitest checks it.
 import type { Box } from './pieces.js';
 

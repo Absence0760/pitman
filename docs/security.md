@@ -625,7 +625,7 @@ records what it found over the history when it was introduced.
      `infra/terraform.tfvars` and plan and apply (the minimum is 100 per 5
      minutes). If the flood is spread too thin for per-IP limits, disable
      the distribution, which stops all edge spend and takes the whole site
-     down. With the distribution ID (`gh variable get CLOUDFRONT_DISTRIBUTION_ID --repo Absence0760/pitman`) as `<id>`, three commands:
+     down. With the distribution ID (`gh variable get CLOUDFRONT_DISTRIBUTION_ID --repo jaredhoward-dev/pitman`) as `<id>`, three commands:
      `aws cloudfront get-distribution-config --id <id> --profile pitman > dist.json`, then
      `jq '.DistributionConfig.Enabled = false | .DistributionConfig' dist.json > disabled.json`, then
      `aws cloudfront update-distribution --id <id> --if-match "$(jq -r .ETag dist.json)" --distribution-config file://disabled.json --profile pitman`.

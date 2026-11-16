@@ -2,7 +2,7 @@
  * The outline of a mask's cells as rings, for the MAP-zone threshold
  * (docs/theory/subdivide.md § MAP-zone split).
  *
- * Ported from IC-WBT (Absence0760/project-water-management, MIT)
+ * Ported from IC-WBT (jaredhoward-dev/project-water-management, MIT)
  * backend/src/delineation/outline.ts at f888e4461: `traceRings`, `insideRing`,
  * `signedArea`, `simplifyRing` and their helpers, unchanged. Left out:
  * `traceOutline` and `simplifyLine`. The engine can't import the backend,

@@ -1,4 +1,4 @@
-// Ported from IC-WBT (Absence0760/project-water-management, MIT) frontend/src/lib/components/map/draw/parseShape.ts at f888e4461,
+// Ported from IC-WBT (jaredhoward-dev/project-water-management, MIT) frontend/src/lib/components/map/draw/parseShape.ts at f888e4461,
 // stripped to polygons.
 //
 // "Paste a shape": a polygon pasted as GeoJSON (a geometry, a Feature, or a

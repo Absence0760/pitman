@@ -7,7 +7,7 @@ Round 4 (the data API, the cross-account PR, the CHIRPS extension), Round 5
 it. Methods: [theory/extend.md](./theory/extend.md) (A) and
 [theory/subdivide.md](./theory/subdivide.md) (B).
 
-IC-WBT is `Absence0760/project-water-management` (public, MIT, same author).
+IC-WBT is `jaredhoward-dev/project-water-management` (public, MIT, same author).
 Everything below was read from its `origin/main` at `f888e4461`
 (2026-10-28): `docs/maps.md`, `docs/architecture.md`, `docs/deployment.md`,
 `docs/data-model.md`, `docs/legal/map-data-licences.md`, `infra/*.tf` and

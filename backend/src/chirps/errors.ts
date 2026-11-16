@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/feeds/errors.ts at f888e4461,
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/feeds/errors.ts at f888e4461,
 // stripped to the two error classes the copied CHIRPS reader throws (docs/data.md § Code to copy).
 //
 //   FeedFormatError      — the copy answered, but not in the format we read (a changed layout, a

@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/mirror/store.ts at f888e4461,
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/mirror/store.ts at f888e4461,
 // stripped (docs/data.md § Code to copy): S3Store.get only (no set / delete: Pitman never writes to
 // IC-WBT), the S3 client given an explicit region (the bucket's, af-south-1, not the Lambda's) and
 // request timeouts, and NodeGzip kept whole (the synthetic copy's writer encodes with it).

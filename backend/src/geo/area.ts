@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/geo/area.ts at f888e4461
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/geo/area.ts at f888e4461
 // Geodesic area of a GeoJSON polygon on the WGS84 ellipsoid (issue #288,
 // WP-3.12; docs/maps.md § Areas). The server computes every area it stores;
 // a client's figure is never trusted.

@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/geo/gridShares.test.ts at f888e4461; the cultivatedFromCells block (cropland.ts, not copied) removed.
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/geo/gridShares.test.ts at f888e4461; the cultivatedFromCells block (cropland.ts, not copied) removed.
 // The share of each grid cell a polygon covers (gridShares.ts): shapes whose answer is known by hand, holes, the
 // shares adding up to the polygon's own area, the cell filter and the limit.
 

@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/mirror/arrays.ts (ensureGroups,
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/mirror/arrays.ts (ensureGroups,
 // growOuter, ensureFinals, writeFinalsYear) and backend/src/mirror/manifest.ts (writeManifest,
 // manifestHash) at f888e4461, for the finals layout only.
 //

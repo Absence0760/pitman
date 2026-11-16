@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/geo/clip.ts at f888e4461
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/geo/clip.ts at f888e4461
 // Polygon clipping against a grid's rows and cells, shared by the CHIRPS
 // cells a boundary covers (feeds/boundaryCells.ts, issue #326 B-rain) and the
 // land-cover cells a parcel covers (geo/gridShares.ts, B-landcover).

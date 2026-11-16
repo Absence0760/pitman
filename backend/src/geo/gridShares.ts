@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/geo/gridShares.ts at f888e4461
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/geo/gridShares.ts at f888e4461
 // The share of each grid cell a polygon covers, on a regular lon/lat grid of
 // any cell size (issue #326 B-landcover and B-evap; docs/maps.md § Cultivated
 // area from land cover, § Evaporation from the map). Pure and dependency-free.

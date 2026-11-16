@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/geo/geojson.ts at f888e4461,
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/geo/geojson.ts at f888e4461,
 // stripped (docs/data.md § Code to copy): the types, the size limits and checkGeometry with its ring checks
 // only. Dropped: the file parser, feature names and kinds, crs handling, centerOf / interiorPoint /
 // pointInGeometry and intersectionArea (no caller in Pitman's API yet; Round 5 copies them when it needs them).

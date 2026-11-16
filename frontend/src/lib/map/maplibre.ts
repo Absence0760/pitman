@@ -1,4 +1,4 @@
-// Ported from IC-WBT (Absence0760/project-water-management, MIT) frontend/src/lib/components/map/maplibre.ts at f888e4461.
+// Ported from IC-WBT (jaredhoward-dev/project-water-management, MIT) frontend/src/lib/components/map/maplibre.ts at f888e4461.
 //
 // MapLibre, loaded only when a map is drawn: a dynamic import from Map.svelte,
 // so the page's first load doesn't carry it. Its worker is a chunk of the page

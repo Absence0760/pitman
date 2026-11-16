@@ -1,4 +1,4 @@
-// Ported from IC-WBT (Absence0760/project-water-management, MIT) frontend/src/lib/components/map/draw/shape.ts at f888e4461,
+// Ported from IC-WBT (jaredhoward-dev/project-water-management, MIT) frontend/src/lib/components/map/draw/shape.ts at f888e4461,
 // stripped to polygons: Pitman draws one kind of shape, a MAP zone.
 //
 // A drawing's corners, the geometry they make, and what stops it being used.

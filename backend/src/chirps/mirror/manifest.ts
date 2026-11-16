@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/mirror/manifest.ts at f888e4461,
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/mirror/manifest.ts at f888e4461,
 // stripped (docs/data.md § Code to copy): readManifest, parseManifest and finalsCoverage (the
 // contiguous-months rule) for the CHIRPS finals products only. IC-WBT validates with zod, which Pitman's
 // backend doesn't depend on, so parseManifest is rewritten by hand with the same rules for `rnl` / `sat`
