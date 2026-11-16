@@ -5,7 +5,7 @@
 - **Node.js 24 or later** (`engines` in `package.json`; the Lambda runs 24 and auth-kit requires it; `.tool-versions` pins it for asdf / mise) — check with `node --version`
 - **pnpm 10** — the root `package.json` pins `pnpm@10.34.9` (`packageManager`);
   `corepack enable` picks it up, or run `npx pnpm@10.34.9 …`
-- **Read access to the private `Absence0760/auth-kit`** — the backend installs
+- **Read access to the private `jaredhoward-dev/auth-kit`** — the backend installs
   it from git over SSH, so your GitHub SSH key must be able to read it
 - **Docker** — only for the opt-in sign-in services (§ Sign-in)
 

@@ -228,7 +228,7 @@ runs it.
 
 Issue #28, decided as A-AUTH-0 … 11 in `docs/decisions.md` (2026-11-07). The
 sign-in, session and user-management code comes from the shared private
-package `Absence0760/auth-kit` at a pinned tag (A-AUTH-0, `v0.3.0`); pitman
+package `jaredhoward-dev/auth-kit` at a pinned tag (A-AUTH-0, `v0.3.0`); pitman
 keeps its own routes, gate, mail, cookie, user table, admins, SES sender,
 privacy notice and AWS account. Network files still never leave the browser.
 

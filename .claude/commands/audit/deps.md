@@ -37,7 +37,7 @@ The scheduled `.github/workflows/audit.yml` runs `pnpm audit` weekly and files a
 
 4. **Lockfile-sync workflow.** Dependabot can't regenerate the root `pnpm-lock.yaml` when it needs the private auth-kit; `.github/workflows/dependabot-lockfile.yml` does, using the `DEPENDABOT_LOCKFILE_PAT` Dependabot secret (pushes made with `GITHUB_TOKEN` don't retrigger CI). Confirm it exists and is wired; the PAT's expiry is a manual check for the operator (don't read it).
 
-5. **Auth-kit pin.** `backend/package.json` pins `github:Absence0760/auth-kit#v<tag>`; the commit in `pnpm-workspace.yaml`'s allowlist matches the lockfile's resolution, so a moved tag can't run new build code without a reviewed change.
+5. **Auth-kit pin.** `backend/package.json` pins `github:jaredhoward-dev/auth-kit#v<tag>`; the commit in `pnpm-workspace.yaml`'s allowlist matches the lockfile's resolution, so a moved tag can't run new build code without a reviewed change.
 
 6. **GitHub Actions pinning.** Grep `.github/workflows/` for `uses:`. Every third-party action pinned to a 40-character SHA with a `# vX.Y.Z` comment. A floating ref (`@v6`, `@main`) on a deploy workflow (`deploy-frontend.yml`, `deploy-backend.yml`) or `claude.yml` is High; elsewhere Medium.
 

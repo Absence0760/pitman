@@ -74,9 +74,9 @@ test('PII identifiers in a code diff skip comments and removed lines', () => {
 });
 
 test('the auth-kit pin moving is seen; other backend/package.json edits are not', () => {
-	const bump = '-\t\t"@absence0760/auth-kit": "github:Absence0760/auth-kit#v0.1.2",\n+\t\t"@absence0760/auth-kit": "github:Absence0760/auth-kit#v0.2.0",';
+	const bump = '-\t\t"@absence0760/auth-kit": "github:jaredhoward-dev/auth-kit#v0.1.2",\n+\t\t"@absence0760/auth-kit": "github:jaredhoward-dev/auth-kit#v0.2.0",';
 	assert.ok(authKitPinMoved(bump));
-	assert.ok(authKitPinMoved('+\t\t"@absence0760/auth-kit": "github:Absence0760/auth-kit#v0.1.0",'), 'first install');
+	assert.ok(authKitPinMoved('+\t\t"@absence0760/auth-kit": "github:jaredhoward-dev/auth-kit#v0.1.0",'), 'first install');
 	assert.ok(!authKitPinMoved('-\t\t"hono": "4.13.15",\n+\t\t"hono": "4.13.16",'));
 });
 
