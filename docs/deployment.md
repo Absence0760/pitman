@@ -280,7 +280,7 @@ access portal URL in IAM Identity Center → Settings, in `personal-mgmt`
 
 ### CI access to auth-kit, and CI green
 
-6. Get the auth-kit read token. **One token serves pitman and ewr-compliance**, and Absence0760/auth-kit#2 is the single procedure. If ewr-compliance already made it, take it from Bitwarden (**"GitHub token: auth-kit read"**) and skip to step 7. Otherwise create it as auth-kit#2 says, at https://github.com/settings/personal-access-tokens/new: name `auth-kit read (CI + Dependabot)`, resource owner `Absence0760`, only `Absence0760/auth-kit`, Contents: Read-only and nothing else, expiry about a year out. Save it in Bitwarden under that name with the expiry date, and set a reminder to rotate it two weeks before.
+6. Get the auth-kit read token. **One token serves pitman and ewr-compliance**, and jaredhoward-dev/auth-kit#2 is the single procedure. If ewr-compliance already made it, take it from Bitwarden (**"GitHub token: auth-kit read"**) and skip to step 7. Otherwise create it as auth-kit#2 says, at https://github.com/settings/personal-access-tokens/new: name `auth-kit read (CI + Dependabot)`, resource owner `jaredhoward-dev`, only `jaredhoward-dev/auth-kit`, Contents: Read-only and nothing else, expiry about a year out. Save it in Bitwarden under that name with the expiry date, and set a reminder to rotate it two weeks before.
 7. Store it as an Actions secret (paste at the hidden prompt): `gh secret set AUTH_KIT_READ_TOKEN --app actions --repo Absence0760/pitman`.
 8. Store it as a Dependabot secret too: `gh secret set AUTH_KIT_READ_TOKEN --app dependabot --repo Absence0760/pitman`.
 9. Check both exist (names only): `gh secret list --app actions --repo Absence0760/pitman && gh secret list --app dependabot --repo Absence0760/pitman` → `AUTH_KIT_READ_TOKEN` in each. Tick pitman's two secret boxes on auth-kit#2. **Rotating** (before the expiry, or at once on a suspected leak) follows auth-kit#2: a new token, set in all four secrets across both repos (these two commands here, the same pair for `Absence0760/ewr-compliance`), check, then delete the old token on GitHub and update Bitwarden. On a leak, revoke the old token first: CI fails until the new one is set, which is the safe way round.
@@ -483,13 +483,13 @@ Claude only checks that they exist. The token reaches the Lambda through the `cf
 
 Sign-in's rules come from the private package `@absence0760/auth-kit`,
 installed from git at a pinned tag (`backend/package.json`). Its operator
-setup is Absence0760/auth-kit#2; the pitman side:
+setup is jaredhoward-dev/auth-kit#2; the pitman side:
 
 - **CI access.** Every workflow that runs `pnpm install` (`ci.yml`,
   `audit.yml`, `coverage.yml`, `deploy-backend.yml`, `deploy-frontend.yml`, `fresh-clone.yml`,
   `dependabot-lockfile.yml`) fetches auth-kit with the
   **`AUTH_KIT_READ_TOKEN`** secret: a fine-grained token limited to
-  `Absence0760/auth-kit` with Contents read-only (write its expiry down). It
+  `jaredhoward-dev/auth-kit` with Contents read-only (write its expiry down). It
   must be stored twice, as an **Actions** secret and as a **Dependabot**
   secret, both named `AUTH_KIT_READ_TOKEN`. Without it those jobs fail at once
   with the setup link (a check step that only tests the secret is set). The

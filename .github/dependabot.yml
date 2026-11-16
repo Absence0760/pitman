@@ -2,7 +2,7 @@ version: 2
 
 # auth-kit (backend/package.json) is a private git dependency. Dependabot reads
 # it with the read-only fine-grained token stored as a **Dependabot** secret
-# named AUTH_KIT_READ_TOKEN (Absence0760/auth-kit#2; the same token is also an
+# named AUTH_KIT_READ_TOKEN (jaredhoward-dev/auth-kit#2; the same token is also an
 # Actions secret, for CI).
 registries:
   github-auth-kit:

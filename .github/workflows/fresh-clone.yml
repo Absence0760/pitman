@@ -85,7 +85,7 @@ jobs:
           node-version-file: .tool-versions
 
       # auth-kit is a private git dependency (backend/package.json), fetched with a
-      # fine-grained, read-only token for that one repo (Absence0760/auth-kit#2).
+      # fine-grained, read-only token for that one repo (jaredhoward-dev/auth-kit#2).
       # Missing, the job fails here with the setup link instead of at an opaque
       # clone error. The token itself goes only to the install step below.
       - name: Check the auth-kit read token is set
@@ -93,7 +93,7 @@ jobs:
           AUTH_KIT_READ_TOKEN: ${{ secrets.AUTH_KIT_READ_TOKEN }}
         run: |
           if [ -z "$AUTH_KIT_READ_TOKEN" ]; then
-            echo "::error::AUTH_KIT_READ_TOKEN is not set, so CI can't fetch the private auth-kit. Operator setup: https://github.com/Absence0760/auth-kit/issues/2"
+            echo "::error::AUTH_KIT_READ_TOKEN is not set, so CI can't fetch the private auth-kit. Operator setup: https://github.com/jaredhoward-dev/auth-kit/issues/2"
             exit 1
           fi
 
@@ -104,12 +104,12 @@ jobs:
         # alone: nothing is written to ~/.gitconfig, so no later step can read it.
         env:
           GIT_CONFIG_COUNT: '3'
-          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.AUTH_KIT_READ_TOKEN }}@github.com/Absence0760/auth-kit.insteadOf
-          GIT_CONFIG_VALUE_0: ssh://git@github.com/Absence0760/auth-kit
-          GIT_CONFIG_KEY_1: url.https://x-access-token:${{ secrets.AUTH_KIT_READ_TOKEN }}@github.com/Absence0760/auth-kit.insteadOf
-          GIT_CONFIG_VALUE_1: git@github.com:Absence0760/auth-kit
-          GIT_CONFIG_KEY_2: url.https://x-access-token:${{ secrets.AUTH_KIT_READ_TOKEN }}@github.com/Absence0760/auth-kit.insteadOf
-          GIT_CONFIG_VALUE_2: https://github.com/Absence0760/auth-kit
+          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.AUTH_KIT_READ_TOKEN }}@github.com/jaredhoward-dev/auth-kit.insteadOf
+          GIT_CONFIG_VALUE_0: ssh://git@github.com/jaredhoward-dev/auth-kit
+          GIT_CONFIG_KEY_1: url.https://x-access-token:${{ secrets.AUTH_KIT_READ_TOKEN }}@github.com/jaredhoward-dev/auth-kit.insteadOf
+          GIT_CONFIG_VALUE_1: git@github.com:jaredhoward-dev/auth-kit
+          GIT_CONFIG_KEY_2: url.https://x-access-token:${{ secrets.AUTH_KIT_READ_TOKEN }}@github.com/jaredhoward-dev/auth-kit.insteadOf
+          GIT_CONFIG_VALUE_2: https://github.com/jaredhoward-dev/auth-kit
         run: pnpm install --frozen-lockfile
 
       - name: pnpm dev:data:synthetic
