@@ -60,7 +60,7 @@ test('the token reaches git only on a pnpm install step, as GIT_CONFIG_* for aut
 		} else {
 			// The only other use: the check that fails with the setup link when the secret is empty.
 			assert.match(step, /AUTH_KIT_READ_TOKEN: \$\{\{ secrets\.AUTH_KIT_READ_TOKEN \}\}/, where);
-			assert.ok(step.includes('https://github.com/jaredhoward-dev/auth-kit/issues/2'), `${where}: no setup link`);
+			assert.match(step, /(^|\s)https:\/\/github\.com\/jaredhoward-dev\/auth-kit\/issues\/2\b/m, `${where}: no setup link`);
 			assert.doesNotMatch(step, /\bgit\b(?!hub)|>>|GITHUB_ENV/, `${where} must only check the secret`);
 		}
 	}
