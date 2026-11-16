@@ -43,7 +43,7 @@ Production secrets live SOPS-encrypted in the **sibling `infra-secrets` repo** (
 
 8. **Public assets.** Search `frontend/static/` and the committed fixtures (`backend/fixtures/`, `docs/formats/examples/`) for key shapes: `AKIA`, `ghp_`, `github_pat_`, `sk-`, `Bearer `, long hex or base64 runs.
 
-9. **Git history pickaxe.** `git log --all -S 'AKIA' -S 'github_pat_' -S 'CFM_TOKEN=' -S 'AUTH_SESSION_KEY=' -S 'CLOUDFRONT_SHARED_SECRET=' --source --pretty=oneline`. A real value touched once is permanently exposed: rotate it, whatever was removed later. The weekly `gitleaks-sweep.yml` covers the same ground; check its latest run.
+9. **Git history pickaxe.** `git log --all -S 'AKIA' -S 'github_pat_' -S 'CFM_TOKEN=' -S 'AUTH_SESSION_KEY=' -S 'CLOUDFRONT_SHARED_SECRET=' --source --pretty=oneline`. A real value touched once is permanently exposed: rotate it, whatever was removed later. The weekly `secret-scan-sweep.yml` (TruffleHog) covers the same ground; check its latest run.
 
 10. **`.gitignore`** covers `.env`, `.env.*.local`, `*.tfvars` (with `!*.tfvars.example`), `infra/backend.config`, `*.tfstate*`, `*.sops*`. A missing path is Medium.
 
