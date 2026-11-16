@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/mirror/arrays.ts at f888e4461,
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/mirror/arrays.ts at f888e4461,
 // stripped (docs/data.md § Code to copy): the finals layout's reader only (openFinals, checkLayout,
 // readFinalsBlock and the constants), for the CHIRPS products. Dropped: the daily layout, the 0.1°
 // products and their attribution, and every writer (the synthetic copy's writers are in ./writers.ts,

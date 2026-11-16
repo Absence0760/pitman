@@ -1,4 +1,4 @@
-// Ported from IC-WBT (Absence0760/project-water-management, MIT) frontend/src/lib/components/map/pieces.ts at f888e4461,
+// Ported from IC-WBT (jaredhoward-dev/project-water-management, MIT) frontend/src/lib/components/map/pieces.ts at f888e4461,
 // keeping interiorPoint and pieceTintsFor; the bounds helpers are Pitman's own.
 //
 // Where a piece's number goes and which tint it takes, and the boxes the map

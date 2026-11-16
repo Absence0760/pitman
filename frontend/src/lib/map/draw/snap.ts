@@ -1,4 +1,4 @@
-// Ported from IC-WBT (Absence0760/project-water-management, MIT) frontend/src/lib/components/map/draw/snap.ts at f888e4461;
+// Ported from IC-WBT (jaredhoward-dev/project-water-management, MIT) frontend/src/lib/components/map/draw/snap.ts at f888e4461;
 // the targets are the map's quaternaries and pieces rather than IC-WBT's features.
 //
 // Snapping while drawing: a corner placed (or dragged) near a quaternary's or a

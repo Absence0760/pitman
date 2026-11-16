@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/feeds/boundaryCells.ts at f888e4461,
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/feeds/boundaryCells.ts at f888e4461,
 // changed per docs/data.md § Code to copy: the limit is Pitman's 2 000 cells (docs/theory/extend.md § Step 1),
 // with no rows limit (IC-WBT's 25 rows bound its per-row TIFF reads, which Pitman doesn't do), and
 // CHIRPS_CELL_DEG / WeightedCell come from ./config.ts. The messages name the area, not a feed.

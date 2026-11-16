@@ -1,7 +1,7 @@
 /**
  * Geodesic area on the WGS84 ellipsoid (docs/data.md § Backend: geometry).
  *
- * Ported from IC-WBT (Absence0760/project-water-management, MIT)
+ * Ported from IC-WBT (jaredhoward-dev/project-water-management, MIT)
  * backend/src/geo/area.ts at f888e4461, the file `backend/src/geo/area.ts`
  * here also copies: the engine is a package of its own and can't import the
  * backend. Kept: the authalic latitude and the polygon areas. Changed: takes

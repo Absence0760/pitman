@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/mirror/url.ts at f888e4461
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/mirror/url.ts at f888e4461
 // MIRROR_URL, parsed: `file:///abs/path` (dev, CI, e2e) or
 // `s3://bucket[/prefix]` (production). Its own module, with no zarrita, so
 // code that only needs where the copy is (feeds/hostSlot.ts, in the fetcher's

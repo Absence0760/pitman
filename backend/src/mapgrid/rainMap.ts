@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/geo/rainMap.ts (rainMapFromJson,
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/geo/rainMap.ts (rainMapFromJson,
 // RainMapGrid, MAP_MAX_MM, WAAS_MAP) and backend/src/geo/evaporationGrid.ts (originOf, indexOf) at
 // f888e4461, stripped per docs/data.md § Code to copy: IC-WBT keeps MAP grids in its database; Pitman has
 // none, so it reads the JSON file and indexes it in memory (indexRainMap, Pitman's own).

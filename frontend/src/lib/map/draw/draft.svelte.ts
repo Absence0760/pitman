@@ -1,4 +1,4 @@
-// Ported from IC-WBT (Absence0760/project-water-management, MIT) frontend/src/lib/components/map/draw/draft.svelte.ts at f888e4461,
+// Ported from IC-WBT (jaredhoward-dev/project-water-management, MIT) frontend/src/lib/components/map/draw/draft.svelte.ts at f888e4461,
 // stripped to one polygon: no feature kinds, edits, splits, traces, measures or confirm dialog.
 //
 // The shape being drawn. One instance per map: Map.svelte draws it and turns

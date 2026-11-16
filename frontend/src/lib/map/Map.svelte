@@ -1,6 +1,6 @@
 <!--
 	The map. Written for Pitman on the patterns of IC-WBT's CatchmentMap.svelte
-	(Absence0760/project-water-management, MIT, frontend/src/lib/components/map/
+	(jaredhoward-dev/project-water-management, MIT, frontend/src/lib/components/map/
 	CatchmentMap.svelte at f888e4461): one effect per GeoJSON source, setStyle on
 	a theme change, the focus handling.
 

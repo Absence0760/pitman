@@ -1,5 +1,5 @@
 <!--
-	Ported from IC-WBT (Absence0760/project-water-management, MIT)
+	Ported from IC-WBT (jaredhoward-dev/project-water-management, MIT)
 	frontend/src/lib/components/map/draw/DrawBar.svelte at f888e4461, stripped to
 	one polygon. The paste form is inline here rather than IC-WBT's sheet.
 

@@ -14,7 +14,7 @@ const MAPLIBRE_WORKER_FILE = realpathSync(fileURLToPath(new URL('./node_modules/
 
 /**
  * MapLibre's worker as a chunk of the page build, ported from IC-WBT
- * (Absence0760/project-water-management, MIT) frontend/vite.config.ts
+ * (jaredhoward-dev/project-water-management, MIT) frontend/vite.config.ts
  * `workerChunks` at f888e4461, stripped to the one worker. `lib/map/maplibre.ts`
  * hands this URL to `setWorkerUrl`; it is served from the app's own origin, so
  * the CSP's `worker-src 'self'` holds without blob: (docs/security.md). In dev

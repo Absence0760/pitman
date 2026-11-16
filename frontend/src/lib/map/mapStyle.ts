@@ -1,4 +1,4 @@
-// Ported from IC-WBT (Absence0760/project-water-management, MIT) frontend/src/lib/components/map/mapStyle.ts at f888e4461:
+// Ported from IC-WBT (jaredhoward-dev/project-water-management, MIT) frontend/src/lib/components/map/mapStyle.ts at f888e4461:
 // the basemap, labels, relief, quaternaries, channels and proposal, stripped of farm parcels, rivers, units
 // and results. Pitman's own: colours from the tokens (palette.ts) rather than constants, and the MAP grid
 // drawn as cells from the contract's block rather than as points.

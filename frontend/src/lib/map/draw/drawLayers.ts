@@ -1,4 +1,4 @@
-// Ported from IC-WBT (Absence0760/project-water-management, MIT) frontend/src/lib/components/map/draw/drawLayers.ts at f888e4461,
+// Ported from IC-WBT (jaredhoward-dev/project-water-management, MIT) frontend/src/lib/components/map/draw/drawLayers.ts at f888e4461,
 // stripped to polygons; colours from the palette.
 //
 // How a draft is drawn: one GeoJSON source, `draft`, and the layers over it, in

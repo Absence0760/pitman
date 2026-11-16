@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/geo/clip.test.ts at f888e4461
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/geo/clip.test.ts at f888e4461
 // Clipping a ring into a grid's bands by halving (clip.ts eachBand): the same
 // pieces as clipping the ring to each band on its own (a comb, a ring with a
 // hole), and work that grows with vertices × log(bands), never vertices ×

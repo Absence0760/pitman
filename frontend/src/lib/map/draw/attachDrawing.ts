@@ -1,4 +1,4 @@
-// Ported from IC-WBT (Absence0760/project-water-management, MIT) frontend/src/lib/components/map/draw/attachDrawing.ts at f888e4461,
+// Ported from IC-WBT (jaredhoward-dev/project-water-management, MIT) frontend/src/lib/components/map/draw/attachDrawing.ts at f888e4461,
 // stripped to polygons.
 //
 // The map's drawing mode: turns clicks, drags and keys on the MapLibre map into

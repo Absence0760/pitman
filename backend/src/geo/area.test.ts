@@ -1,4 +1,4 @@
-// Copied from IC-WBT (Absence0760/project-water-management, MIT) backend/src/geo/area.test.ts at f888e4461
+// Copied from IC-WBT (jaredhoward-dev/project-water-management, MIT) backend/src/geo/area.test.ts at f888e4461
 // Geodesic area (geo/area.ts): squares of known size at South African
 // latitudes, the ellipsoid's own published surface area, holes and parts.
 import { describe, expect, it } from 'vitest';
